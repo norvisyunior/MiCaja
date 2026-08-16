@@ -1,4 +1,4 @@
-﻿import { useCallback, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
@@ -34,6 +34,18 @@ export default function HomeScreen() {
   const [cargando, setCargando] = useState(true);
 
   const entrada = useRef(new Animated.Value(0)).current;
+  const pulso = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulso, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(pulso, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulso]);
 
   useFocusEffect(
     useCallback(() => {
@@ -99,7 +111,25 @@ export default function HomeScreen() {
             >
               <Gradiente colores={gradientes.cta} estilo={StyleSheet.absoluteFill} />
               <View style={styles.botonNuevaVentaIcono}>
-                <MaterialIcons name="add" size={30} color={colores.acento} />
+                <Animated.View
+                  style={[
+                    styles.pulso,
+                    {
+                      borderColor: 'rgba(255,255,255,0.9)',
+                      opacity: pulso.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
+                      transform: [
+                        {
+                          scale: pulso.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }),
+                        },
+                      ],
+                    },
+                  ]}
+                />
+                <MaterialIcons name="point-of-sale" size={28} color={colores.acento} />
+                <View style={styles.plusBadge}>
+                  <Gradiente colores={gradientes.exito} estilo={StyleSheet.absoluteFill} />
+                  <MaterialIcons name="add" size={13} color="#FFFFFF" />
+                </View>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.botonNuevaVentaTitulo}>Nueva venta</Text>
@@ -293,12 +323,35 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   botonNuevaVentaIcono: {
-    width: 52,
-    height: 52,
+    width: 54,
+    height: 54,
     borderRadius: radius.full,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
+  },
+  pulso: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: radius.full,
+    borderWidth: 2,
+  },
+  plusBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    width: 20,
+    height: 20,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    overflow: 'hidden',
   },
   botonNuevaVentaTitulo: {
     fontSize: typography.destacado,

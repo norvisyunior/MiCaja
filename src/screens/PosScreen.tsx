@@ -281,7 +281,7 @@ export default function PosScreen() {
         keyExtractor={(c) => String(c.id)}
         showsHorizontalScrollIndicator={false}
         style={{ flexGrow: 0 }}
-        contentContainerStyle={[styles.chips, { paddingBottom: spacing.md }]}
+        contentContainerStyle={[styles.chips, { paddingTop: spacing.md, paddingBottom: spacing.md }]}
         renderItem={({ item }) => (
           <Chip
             etiqueta={item.nombre}
@@ -364,31 +364,33 @@ export default function PosScreen() {
         />
       </Animated.View>
 
-      <View style={styles.barraCobro}>
-        <View style={[styles.barraContenido, { backgroundColor: colores.barra, shadowColor: colores.sombra }]}>
-          <Animated.View style={{ transform: [{ scale: rebote }], flex: 1 }}>
-            <Text style={[styles.barraCantidad, { color: colores.textoSuave }]}>
-              {totales.cantidad} {totales.cantidad === 1 ? 'artículo' : 'artículos'}
-            </Text>
-            <Text style={[styles.barraTotal, { color: colores.texto }]}>
-              {simbolo}
-              {totales.total.toFixed(2)}
-            </Text>
-            {!turno ? (
-              <Text style={[styles.barraCajaCerrada, { color: colores.peligro }]}>Caja cerrada</Text>
-            ) : null}
-          </Animated.View>
-          <Boton
-            titulo={turno ? 'Cobrar' : 'Abrir caja'}
-            icono={turno ? 'point-of-sale' : 'lock-open'}
-            variante={turno ? 'acento' : 'primario'}
-            tamanio={turno ? 'xl' : 'lg'}
-            bloqueado={turno ? lineas.length === 0 : false}
-            onPress={turno ? () => setHoja('carrito') : abrirCaja}
-            estilo={{ minWidth: turno ? 170 : 150 }}
-          />
+      {hoja === null ? (
+        <View style={styles.barraCobro}>
+          <View style={[styles.barraContenido, { backgroundColor: colores.barra, shadowColor: colores.sombra }]}>
+            <Animated.View style={{ transform: [{ scale: rebote }], flex: 1 }}>
+              <Text style={[styles.barraCantidad, { color: colores.textoSuave }]}>
+                {totales.cantidad} {totales.cantidad === 1 ? 'artículo' : 'artículos'}
+              </Text>
+              <Text style={[styles.barraTotal, { color: colores.texto }]}>
+                {simbolo}
+                {totales.total.toFixed(2)}
+              </Text>
+              {!turno ? (
+                <Text style={[styles.barraCajaCerrada, { color: colores.peligro }]}>Caja cerrada</Text>
+              ) : null}
+            </Animated.View>
+            <Boton
+              titulo={turno ? 'Cobrar' : 'Abrir caja'}
+              icono={turno ? 'point-of-sale' : 'lock-open'}
+              variante={turno ? 'acento' : 'primario'}
+              tamanio={turno ? 'xl' : 'lg'}
+              bloqueado={turno ? lineas.length === 0 : false}
+              onPress={turno ? () => setHoja('carrito') : abrirCaja}
+              estilo={{ minWidth: turno ? 170 : 150 }}
+            />
+          </View>
         </View>
-      </View>
+      ) : null}
 
       <Hoja
         visible={hoja === 'carrito'}
