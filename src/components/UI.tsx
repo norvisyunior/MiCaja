@@ -594,6 +594,7 @@ export function Campo({
             color: colores.texto,
             paddingVertical: 10,
             fontFamily: fuentes.medium,
+            backgroundColor: 'transparent',
           }}
           value={valor}
           onChangeText={onChange}
@@ -602,6 +603,9 @@ export function Campo({
           keyboardType={teclado}
           multiline={multiline}
           autoFocus={autoFocus}
+          underlineColorAndroid="transparent"
+          cursorColor={colores.acento}
+          selectionColor="transparent"
           onFocus={() => setEnfocado(true)}
           onBlur={() => setEnfocado(false)}
         />
