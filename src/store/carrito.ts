@@ -10,6 +10,7 @@ interface EstadoCarrito {
     nombre: string;
     emoji: string;
     color: string;
+    imagen: string | null;
     precio: number;
   }) => void;
   aumentar: (index: number) => void;

@@ -1,8 +1,9 @@
 ﻿import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import type { Categoria, Producto } from '../types';
 import {
   actualizarProducto,
@@ -11,6 +12,7 @@ import {
   listarCategorias,
   listarProductos,
 } from '../db/repos/catalogo';
+import { borrarImagenProducto, guardarImagenProducto } from '../utils/imagenes';
 import { useAvisos } from '../store/avisos';
 import { useSesion } from '../store/sesion';
 import { useTema } from '../store/tema';
@@ -51,6 +53,8 @@ export default function ProductosScreen() {
     precio: string;
     emoji: string;
     color: string;
+    imagen: string | null;
+    imagenCambiada: boolean;
     categoriaId: number | null;
     activo: boolean;
     stock: string;
@@ -62,6 +66,8 @@ export default function ProductosScreen() {
     precio: '',
     emoji: '🛍️',
     color: '#A855F7',
+    imagen: null,
+    imagenCambiada: false,
     categoriaId: null,
     activo: true,
     stock: '',
@@ -97,11 +103,25 @@ export default function ProductosScreen() {
       precio: p ? String(p.precio) : '',
       emoji: p?.emoji ?? '🛍️',
       color: p?.color ?? '#A855F7',
+      imagen: p?.imagen ?? null,
+      imagenCambiada: false,
       categoriaId: p?.categoriaId ?? null,
       activo: p?.activo ?? true,
       stock: p ? String(p.stock) : '',
       stockMinimo: p ? String(p.stockMinimo) : '5',
     });
+  }
+
+  async function elegirFoto() {
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!res.canceled && res.assets[0]) {
+      setForm((f) => ({ ...f, imagen: res.assets[0].uri, imagenCambiada: true }));
+    }
   }
 
   async function guardar() {
@@ -131,10 +151,29 @@ export default function ProductosScreen() {
       stock,
       stockMinimo,
     };
+    let imagen = form.imagen;
+    if (form.imagenCambiada) {
+      if (form.imagen) {
+        const nueva = await guardarImagenProducto(form.imagen);
+        if (nueva) {
+          imagen = nueva;
+          if (form.editar?.imagen) {
+            await borrarImagenProducto(form.editar.imagen);
+          }
+        } else if (form.editar?.imagen) {
+          imagen = form.editar.imagen;
+        }
+      } else {
+        imagen = null;
+        if (form.editar?.imagen) {
+          await borrarImagenProducto(form.editar.imagen);
+        }
+      }
+    }
     if (form.editar) {
-      await actualizarProducto(db, { ...datos, id: form.editar.id });
+      await actualizarProducto(db, { ...datos, id: form.editar.id, imagen });
     } else {
-      await crearProducto(db, datos);
+      await crearProducto(db, { ...datos, imagen });
     }
     setForm((f) => ({ ...f, abierto: false }));
     await cargar();
@@ -143,6 +182,7 @@ export default function ProductosScreen() {
   async function borrar() {
     if (!borrando) return;
     await eliminarProducto(db, borrando.id);
+    await borrarImagenProducto(borrando.imagen);
     setBorrando(null);
     await cargar();
   }
@@ -221,7 +261,11 @@ export default function ProductosScreen() {
                   style={[styles.filaProducto, { backgroundColor: colores.superficie, borderColor: colores.borde }]}
                 >
                   <View style={[styles.emojiMini, { backgroundColor: `${p.color}14`, borderColor: colores.borde }]}>
-                    <Text style={{ fontSize: 22 }}>{p.emoji}</Text>
+                    {p.imagen ? (
+                      <Image source={{ uri: p.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    ) : (
+                      <Text style={{ fontSize: 22 }}>{p.emoji}</Text>
+                    )}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.filaTitulo, { color: colores.texto }]}>{p.nombre}</Text>
@@ -310,6 +354,47 @@ export default function ProductosScreen() {
           onChange={(t) => setForm((f) => ({ ...f, emoji: t }))}
           placeholder="🍕"
         />
+        <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Foto del producto (opcional)</Text>
+        <View style={styles.fotoFila}>
+          <Pressable
+            onPress={elegirFoto}
+            style={({ pressed }) => [
+              styles.fotoCaja,
+              {
+                backgroundColor: colores.superficie,
+                borderColor: colores.borde,
+              },
+              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+            ]}
+          >
+            {form.imagen ? (
+              <>
+                <Image source={{ uri: form.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                <View style={styles.fotoCambiar}>
+                  <MaterialIcons name="photo-camera" size={14} color="#FFFFFF" />
+                </View>
+              </>
+            ) : (
+              <>
+                <MaterialIcons name="add-a-photo" size={26} color={colores.textoSuave} />
+                <Text style={[styles.fotoTexto, { color: colores.textoSuave }]}>Agregar foto</Text>
+              </>
+            )}
+          </Pressable>
+          {form.imagen ? (
+            <Pressable
+              onPress={() => setForm((f) => ({ ...f, imagen: null, imagenCambiada: true }))}
+              style={({ pressed }) => [
+                styles.fotoQuitar,
+                { backgroundColor: colores.peligroSuave },
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <MaterialIcons name="delete-outline" size={18} color={colores.peligro} />
+              <Text style={[styles.fotoQuitarTexto, { color: colores.peligro }]}>Quitar</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Color</Text>
         <PaletaColores seleccion={form.color} onSeleccion={(c) => setForm((f) => ({ ...f, color: c }))} />
         <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Categoría</Text>
@@ -384,7 +469,41 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  fotoFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
+  fotoCaja: {
+    width: 96,
+    height: 96,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    overflow: 'hidden',
+  },
+  fotoTexto: { fontSize: typography.cuerpoChico, fontFamily: fuentes.medium },
+  fotoCambiar: {
+    position: 'absolute',
+    right: 6,
+    bottom: 6,
+    width: 26,
+    height: 26,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fotoQuitar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.full,
+  },
+  fotoQuitarTexto: { fontSize: typography.cuerpoChico, fontFamily: fuentes.semibold },
   filaTitulo: { fontSize: typography.cuerpo, fontFamily: fuentes.bold },
   filaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular },
   precioTexto: {

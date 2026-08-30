@@ -2,6 +2,7 @@
 import {
   Animated,
   FlatList,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -139,7 +140,7 @@ export default function PosScreen() {
       mostrarAviso('Stock insuficiente', `Solo quedan ${p.stock} unidades de ${p.nombre}.`);
       return;
     }
-    agregar({ productoId: p.id, nombre: p.nombre, emoji: p.emoji, color: p.color, precio: p.precio });
+    agregar({ productoId: p.id, nombre: p.nombre, emoji: p.emoji, color: p.color, imagen: p.imagen, precio: p.precio });
   }
 
   function aumentarLinea(i: number) {
@@ -335,7 +336,11 @@ export default function PosScreen() {
                       },
                     ]}
                   >
-                    <Text style={styles.productoEmoji}>{item.emoji}</Text>
+                    {item.imagen ? (
+                      <Image source={{ uri: item.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    ) : (
+                      <Text style={styles.productoEmoji}>{item.emoji}</Text>
+                    )}
                     {agotado ? (
                       <View style={styles.agotadoSello}>
                         <Text style={[styles.agotadoSelloTexto, { color: colores.peligro }]}>Agotado</Text>
@@ -462,7 +467,11 @@ export default function PosScreen() {
                 <View style={[styles.linea, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
                   <View style={styles.lineaInfo}>
                     <View style={[styles.lineaEmoji, { backgroundColor: `${l.color}14` }]}>
-                      <Text style={{ fontSize: 22 }}>{l.emoji}</Text>
+                      {l.imagen ? (
+                        <Image source={{ uri: l.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                      ) : (
+                        <Text style={{ fontSize: 22 }}>{l.emoji}</Text>
+                      )}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.lineaNombre, { color: colores.texto }]} numberOfLines={1}>
@@ -728,6 +737,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
+    overflow: 'hidden',
   },
   productoEmoji: { fontSize: 34 },
   agotadoSello: {
@@ -802,6 +812,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   lineaNombre: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
   lineaPrecio: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular },

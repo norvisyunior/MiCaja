@@ -23,6 +23,7 @@ export interface Producto {
   precio: number;
   emoji: string;
   color: string;
+  imagen: string | null;
   orden: number;
   activo: boolean;
   stock: number;

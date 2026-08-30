@@ -19,6 +19,7 @@ export interface LineaVenta {
   nombre: string;
   emoji: string;
   color: string;
+  imagen: string | null;
   precio: number;
   cantidad: number;
 }

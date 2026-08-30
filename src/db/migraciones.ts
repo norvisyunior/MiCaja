@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const DATABASE_VERSION = 2;
+export const DATABASE_VERSION = 3;
 
 export async function migrarBase(db: SQLiteDatabase) {
   const resultado = await db.getFirstAsync<{ user_version: number }>(
@@ -23,6 +23,9 @@ export async function migrarBase(db: SQLiteDatabase) {
     }
     if (!nombres.has('stock_minimo')) {
       alteraciones.push('ALTER TABLE productos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 5');
+    }
+    if (!nombres.has('imagen')) {
+      alteraciones.push('ALTER TABLE productos ADD COLUMN imagen TEXT');
     }
     if (alteraciones.length > 0) {
       await db.execAsync(alteraciones.join(';'));
@@ -61,6 +64,7 @@ export async function migrarBase(db: SQLiteDatabase) {
         precio REAL NOT NULL DEFAULT 0,
         emoji TEXT NOT NULL DEFAULT '🍽️',
         color TEXT NOT NULL DEFAULT '#0EA5E9',
+        imagen TEXT,
         orden INTEGER NOT NULL DEFAULT 0,
         activo INTEGER NOT NULL DEFAULT 1,
         stock INTEGER NOT NULL DEFAULT 0,

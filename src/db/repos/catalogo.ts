@@ -8,6 +8,7 @@ interface FilaProducto {
   precio: number;
   emoji: string;
   color: string;
+  imagen: string | null;
   orden: number;
   activo: number;
   stock: number;
@@ -21,6 +22,7 @@ const A_PRODUCTO = (f: FilaProducto): Producto => ({
   precio: f.precio,
   emoji: f.emoji,
   color: f.color,
+  imagen: f.imagen ?? null,
   orden: f.orden,
   activo: f.activo === 1,
   stock: f.stock,
@@ -46,13 +48,14 @@ export async function crearProducto(
   p: Omit<Producto, 'id'>
 ): Promise<number> {
   const res = await db.runAsync(
-    `INSERT INTO productos (categoria_id, nombre, precio, emoji, color, orden, activo, stock, stock_minimo)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO productos (categoria_id, nombre, precio, emoji, color, imagen, orden, activo, stock, stock_minimo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     p.categoriaId,
     p.nombre,
     p.precio,
     p.emoji,
     p.color,
+    p.imagen,
     p.orden,
     p.activo ? 1 : 0,
     p.stock,
@@ -66,13 +69,14 @@ export async function actualizarProducto(
   p: Producto
 ): Promise<void> {
   await db.runAsync(
-    `UPDATE productos SET categoria_id = ?, nombre = ?, precio = ?, emoji = ?, color = ?, orden = ?, activo = ?, stock = ?, stock_minimo = ?
+    `UPDATE productos SET categoria_id = ?, nombre = ?, precio = ?, emoji = ?, color = ?, imagen = ?, orden = ?, activo = ?, stock = ?, stock_minimo = ?
      WHERE id = ?`,
     p.categoriaId,
     p.nombre,
     p.precio,
     p.emoji,
     p.color,
+    p.imagen,
     p.orden,
     p.activo ? 1 : 0,
     p.stock,

@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,6 +24,7 @@ import {
 } from '../db/repos/catalogo';
 import { guardarSetting, obtenerSettings } from '../db/repos/settings';
 import { exportarVentasPDF, type RangoExportacion } from '../db/exportar';
+import { exportarBackup, seleccionarArchivoRestore, validarArchivoRestore, restaurarBackup } from '../db/backup';
 import { useSesion } from '../store/sesion';
 import { useAvisos } from '../store/avisos';
 import { useTema } from '../store/tema';
@@ -64,7 +66,7 @@ function Fila({
   sub?: string;
   onPress?: () => void;
   peligro?: boolean;
-  iconoDerecha?: 'chevron-right' | 'logout' | 'file-download' | 'chevron-right' | 'open-in-new';
+  iconoDerecha?: 'chevron-right' | 'logout' | 'file-download' | 'file-upload' | 'open-in-new';
 }) {
   const { colores } = useTema();
   return (
@@ -99,6 +101,11 @@ export default function ConfigScreen() {
 
   const [vista, setVista] = useState<Vista>('menu');
   const [exportar, setExportar] = useState<null | 'hoja'>(null);
+  const [backup, setBackup] = useState<null | 'hoja'>(null);
+  const [restore, setRestore] = useState<null | 'hoja' | 'confirmar'>(null);
+  const [restoreArchivo, setRestoreArchivo] = useState<{ uri: string; nombre: string } | null>(null);
+  const [restoreValidando, setRestoreValidando] = useState(false);
+  const [restoreValidacion, setRestoreValidacion] = useState<{ valido: boolean; error?: string } | null>(null);
 
   if (vista === 'categorias') {
     return <CategoriasVista onAtras={() => setVista('menu')} />;
@@ -229,6 +236,35 @@ export default function ConfigScreen() {
           </View>
         </SombraDura>
 
+        {esAdmin ? (
+          <>
+            <Text style={[styles.seccion, { color: colores.textoSuave }]}>Datos</Text>
+            <SombraDura redondeo={radius.md} offset={3}>
+              <View style={[styles.grupo, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
+                <Fila
+                  icono={<MaterialIcons name="cloud-download" size={22} color={colores.exito} />}
+                  colorIcono={colores.exito}
+                  colorFondo={colores.exitoSuave}
+                  titulo="Backup de datos"
+                  sub="Exportar copia de seguridad"
+                  iconoDerecha="file-download"
+                  onPress={() => setBackup('hoja')}
+                />
+                <View style={[styles.divisor, { backgroundColor: colores.borde }]} />
+                <Fila
+                  icono={<MaterialIcons name="cloud-upload" size={22} color={colores.advertencia} />}
+                  colorIcono={colores.advertencia}
+                  colorFondo={colores.advertenciaSuave}
+                  titulo="Restaurar datos"
+                  sub="Importar copia de seguridad"
+                  iconoDerecha="file-upload"
+                  onPress={() => setRestore('hoja')}
+                />
+              </View>
+            </SombraDura>
+          </>
+        ) : null}
+
         <Text style={[styles.seccion, { color: colores.textoSuave }]}>Sesión</Text>
         <SombraDura redondeo={radius.md} offset={3}>
           <View style={[styles.grupo, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
@@ -256,6 +292,49 @@ export default function ConfigScreen() {
       <ExportarVentasHoja
         visible={exportar === 'hoja'}
         onCerrar={() => setExportar(null)}
+      />
+
+      <BackupHoja
+        visible={backup === 'hoja'}
+        onCerrar={() => setBackup(null)}
+      />
+
+      <RestoreHoja
+        visible={restore !== null}
+        onCerrar={() => {
+          setRestore(null);
+          setRestoreArchivo(null);
+          setRestoreValidacion(null);
+        }}
+        onSeleccionar={async () => {
+          setRestore('hoja');
+          setRestoreValidando(true);
+          const archivo = await seleccionarArchivoRestore();
+          if (archivo) {
+            setRestoreArchivo(archivo);
+            const validacion = await validarArchivoRestore(archivo.uri, archivo.nombre);
+            setRestoreValidacion(validacion);
+            if (validacion.valido) {
+              setRestore('confirmar');
+            }
+          }
+          setRestoreValidando(false);
+        }}
+        archivo={restoreArchivo}
+        validando={restoreValidando}
+        validacion={restoreValidacion}
+        onConfirmarRestore={async () => {
+          if (!restoreArchivo) return;
+          setRestoreValidando(true);
+          const resultado = await restaurarBackup(db, restoreArchivo.uri, restoreArchivo.nombre);
+          setRestoreValidando(false);
+          if (resultado.exito) {
+            mostrarAviso('Restaurado', 'La base de datos fue restaurada. La sesión se cerrará.');
+            setTimeout(() => cerrar(), 1500);
+          } else {
+            mostrarAviso('Error', resultado.error || 'No se pudo restaurar el backup.');
+          }
+        }}
       />
     </Pantalla>
   );
@@ -835,6 +914,171 @@ function NegocioVista({ onAtras }: { onAtras: () => void }) {
   );
 }
 
+function BackupHoja({ visible, onCerrar }: { visible: boolean; onCerrar: () => void }) {
+  const db = useSQLiteContext();
+  const { colores } = useTema();
+  const mostrarAviso = useAvisos((s) => s.mostrar);
+  const [cargando, setCargando] = useState(false);
+
+  async function exportar() {
+    if (cargando) return;
+    setCargando(true);
+    try {
+      const ok = await exportarBackup(db);
+      if (ok) {
+        mostrarAviso('Backup creado', 'El archivo de backup se compartió correctamente.');
+        onCerrar();
+      } else {
+        mostrarAviso('No disponible', 'El intercambio no está disponible en este dispositivo.');
+      }
+    } catch {
+      mostrarAviso('Error', 'No se pudo crear el backup.');
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  return (
+    <Hoja
+      visible={visible}
+      onCerrar={onCerrar}
+      titulo="Backup de datos"
+      subtitulo="Exportar una copia de seguridad de tu base de datos"
+      pie={
+        <Boton
+          titulo="Crear backup"
+          icono="cloud-download"
+          variante="acento"
+          tamanio="lg"
+          cargando={cargando}
+          onPress={exportar}
+        />
+      }
+    >
+      <View style={[styles.backupInfo, { backgroundColor: colores.exitoSuave, borderColor: colores.exito }]}>
+        <MaterialIcons name="info-outline" size={20} color={colores.exito} />
+        <Text style={[styles.backupInfoTexto, { color: colores.texto }]}>
+          Se exportará una copia completa de la base de datos con todos los datos: productos, ventas, usuarios y configuración.
+        </Text>
+      </View>
+      <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>El backup incluye:</Text>
+      <View style={{ gap: spacing.xs }}>
+        {['Productos y categorías', 'Historial de ventas', 'Usuarios y turnos', 'Configuración del negocio'].map((item) => (
+          <View key={item} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <MaterialIcons name="check-circle" size={16} color={colores.exito} />
+            <Text style={{ fontSize: typography.cuerpoChico, color: colores.texto }}>{item}</Text>
+          </View>
+        ))}
+      </View>
+    </Hoja>
+  );
+}
+
+function RestoreHoja({
+  visible,
+  onCerrar,
+  onSeleccionar,
+  archivo,
+  validando,
+  validacion,
+  onConfirmarRestore,
+}: {
+  visible: boolean;
+  onCerrar: () => void;
+  onSeleccionar: () => void;
+  archivo: { uri: string; nombre: string } | null;
+  validando: boolean;
+  validacion: { valido: boolean; error?: string } | null;
+  onConfirmarRestore: () => void;
+}) {
+  const { colores } = useTema();
+
+  return (
+    <Hoja
+      visible={visible}
+      onCerrar={onCerrar}
+      titulo="Restaurar datos"
+      subtitulo="Importar un backup anterior"
+      pie={
+        !archivo ? (
+          <Boton
+            titulo="Seleccionar archivo"
+            icono="file-upload"
+            variante="acento"
+            tamanio="lg"
+            cargando={validando}
+            onPress={onSeleccionar}
+          />
+        ) : validacion?.valido ? (
+          <Boton
+            titulo="Restaurar backup"
+            icono="cloud-upload"
+            variante="peligro"
+            tamanio="lg"
+            cargando={validando}
+            onPress={onConfirmarRestore}
+          />
+        ) : (
+          <Boton
+            titulo="Intentar de nuevo"
+            icono="refresh"
+            variante="acento"
+            tamanio="lg"
+            onPress={onSeleccionar}
+          />
+        )
+      }
+    >
+      {!archivo ? (
+        <>
+          <View style={[styles.backupInfo, { backgroundColor: colores.peligroSuave, borderColor: colores.peligro }]}>
+            <MaterialIcons name="warning" size={20} color={colores.peligro} />
+            <Text style={[styles.backupInfoTexto, { color: colores.texto }]}>
+              Esta acción reemplazará TODOS los datos actuales con los del backup. Esta acción no se puede deshacer.
+            </Text>
+          </View>
+          <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Se restaurarán:</Text>
+          <View style={{ gap: spacing.xs }}>
+            {['Productos y categorías', 'Historial de ventas', 'Usuarios y turnos', 'Configuración del negocio'].map((item) => (
+              <View key={item} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <MaterialIcons name="warning" size={16} color={colores.advertencia} />
+                <Text style={{ fontSize: typography.cuerpoChico, color: colores.texto }}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : validando ? (
+        <View style={{ alignItems: 'center', paddingVertical: spacing.lg }}>
+          <ActivityIndicator size="large" color={colores.primario} />
+          <Text style={{ marginTop: spacing.md, color: colores.textoSuave }}>Validando archivo...</Text>
+        </View>
+      ) : validacion?.valido ? (
+        <View style={{ gap: spacing.md }}>
+          <View style={[styles.backupInfo, { backgroundColor: colores.exitoSuave, borderColor: colores.exito }]}>
+            <MaterialIcons name="check-circle" size={20} color={colores.exito} />
+            <Text style={[styles.backupInfoTexto, { color: colores.texto }]}>
+              Archivo válido: {archivo.nombre}
+            </Text>
+          </View>
+          <View style={[styles.backupInfo, { backgroundColor: colores.peligroSuave, borderColor: colores.peligro }]}>
+            <MaterialIcons name="warning" size={20} color={colores.peligro} />
+            <Text style={[styles.backupInfoTexto, { color: colores.texto }]}>
+              Se cerrará la sesión automáticamente después de restaurar. Asegúrate de que el backup es correcto.
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.backupInfo, { backgroundColor: colores.peligroSuave, borderColor: colores.peligro }]}>
+          <MaterialIcons name="error" size={20} color={colores.peligro} />
+          <Text style={[styles.backupInfoTexto, { color: colores.texto }]}>
+            {validacion?.error || 'Archivo no válido'}
+          </Text>
+        </View>
+      )}
+    </Hoja>
+  );
+}
+
 const styles = StyleSheet.create({
   contenido: { paddingHorizontal: spacing.lg },
   usuarioTarjeta: {
@@ -977,5 +1221,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backupInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  backupInfoTexto: {
+    flex: 1,
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.medium,
+    lineHeight: 20,
   },
 });
