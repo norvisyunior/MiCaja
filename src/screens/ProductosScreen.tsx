@@ -54,6 +54,7 @@ export default function ProductosScreen() {
     emoji: string;
     color: string;
     imagen: string | null;
+    imagenBase64: string | null;
     imagenCambiada: boolean;
     categoriaId: number | null;
     activo: boolean;
@@ -67,6 +68,7 @@ export default function ProductosScreen() {
     emoji: '🛍️',
     color: '#A855F7',
     imagen: null,
+    imagenBase64: null,
     imagenCambiada: false,
     categoriaId: null,
     activo: true,
@@ -104,6 +106,7 @@ export default function ProductosScreen() {
       emoji: p?.emoji ?? '🛍️',
       color: p?.color ?? '#A855F7',
       imagen: p?.imagen ?? null,
+      imagenBase64: null,
       imagenCambiada: false,
       categoriaId: p?.categoriaId ?? null,
       activo: p?.activo ?? true,
@@ -118,9 +121,15 @@ export default function ProductosScreen() {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
+      base64: true,
     });
     if (!res.canceled && res.assets[0]) {
-      setForm((f) => ({ ...f, imagen: res.assets[0].uri, imagenCambiada: true }));
+      setForm((f) => ({
+        ...f,
+        imagen: res.assets[0].uri,
+        imagenBase64: res.assets[0].base64 ?? null,
+        imagenCambiada: true,
+      }));
     }
   }
 
@@ -154,7 +163,7 @@ export default function ProductosScreen() {
     let imagen = form.imagen;
     if (form.imagenCambiada) {
       if (form.imagen) {
-        const nueva = await guardarImagenProducto(form.imagen);
+        const nueva = await guardarImagenProducto(form.imagen, form.imagenBase64);
         if (nueva) {
           imagen = nueva;
           if (form.editar?.imagen) {
@@ -383,7 +392,7 @@ export default function ProductosScreen() {
           </Pressable>
           {form.imagen ? (
             <Pressable
-              onPress={() => setForm((f) => ({ ...f, imagen: null, imagenCambiada: true }))}
+              onPress={() => setForm((f) => ({ ...f, imagen: null, imagenBase64: null, imagenCambiada: true }))}
               style={({ pressed }) => [
                 styles.fotoQuitar,
                 { backgroundColor: colores.peligroSuave },

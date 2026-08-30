@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { imagenArchivoADataUri } from '../utils/imagenes';
 
-export const DATABASE_VERSION = 3;
+export const DATABASE_VERSION = 4;
 
 export async function migrarBase(db: SQLiteDatabase) {
   const resultado = await db.getFirstAsync<{ user_version: number }>(
@@ -129,6 +130,15 @@ export async function migrarBase(db: SQLiteDatabase) {
   }
 
   if (versionActual < DATABASE_VERSION) {
+    if (versionActual < 4) {
+      const productos = await db.getAllAsync<{ id: number; imagen: string | null }>(
+        `SELECT id, imagen FROM productos WHERE imagen IS NOT NULL AND imagen LIKE 'file://%'`
+      );
+      for (const p of productos) {
+        const dataUri = await imagenArchivoADataUri(p.imagen!);
+        await db.runAsync(`UPDATE productos SET imagen = ? WHERE id = ?`, dataUri, p.id);
+      }
+    }
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
   }
 }

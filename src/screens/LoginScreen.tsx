@@ -43,7 +43,7 @@ export default function LoginScreen() {
   const [error, setError] = useState(false);
 
   const { width } = useWindowDimensions();
-  const columnas = width >= 700 ? 3 : 2;
+  const columnas = 1;
 
   const anims = useMemo(() => usuarios.map(() => new Animated.Value(0)), [usuarios]);
   const entradaMarca = useRef(new Animated.Value(0)).current;
