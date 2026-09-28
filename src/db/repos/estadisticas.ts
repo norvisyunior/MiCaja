@@ -6,7 +6,7 @@ export interface ResumenDia {
   ticketPromedio: number;
   efectivo: number;
   digital: number;
-  topProducto: { nombre: string; emoji: string; cantidad: number; total: number } | null;
+  topProducto: { nombre: string; emoji: string; imagen: string | null; cantidad: number; total: number } | null;
 }
 
 export interface VentaPorDia {
@@ -24,6 +24,7 @@ export interface VentaPorForma {
 export interface TopProducto {
   nombre: string;
   emoji: string;
+  imagen: string | null;
   cantidad: number;
   total: number;
 }
@@ -55,16 +56,17 @@ export async function resumenDia(
   const top = await db.getFirstAsync<{
     nombre: string;
     emoji: string;
+    imagen: string | null;
     cantidad: number;
     total: number;
   }>(
-    `SELECT vi.nombre, COALESCE(p.emoji, '🛍️') AS emoji,
+    `SELECT vi.nombre, COALESCE(p.emoji, '🛍️') AS emoji, p.imagen,
             SUM(vi.cantidad) AS cantidad, SUM(vi.subtotal) AS total
      FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN productos p ON p.id = vi.producto_id
      WHERE v.${RANGO_VALIDO.replace('anulada = 0 AND ', '')}
-     GROUP BY vi.nombre, p.emoji
+     GROUP BY vi.nombre, p.emoji, p.imagen
      ORDER BY cantidad DESC
      LIMIT 1`,
     desdeISO,
@@ -78,7 +80,7 @@ export async function resumenDia(
     efectivo: resumen?.efectivo ?? 0,
     digital: resumen?.digital ?? 0,
     topProducto: top
-      ? { nombre: top.nombre, emoji: top.emoji, cantidad: top.cantidad, total: top.total }
+      ? { nombre: top.nombre, emoji: top.emoji, imagen: top.imagen, cantidad: top.cantidad, total: top.total }
       : null,
   };
 }
@@ -124,13 +126,13 @@ export async function topProductos(
   limite = 5
 ): Promise<TopProducto[]> {
   return db.getAllAsync<TopProducto>(
-    `SELECT vi.nombre, COALESCE(p.emoji, '🛍️') AS emoji,
+    `SELECT vi.nombre, COALESCE(p.emoji, '🛍️') AS emoji, p.imagen,
             SUM(vi.cantidad) AS cantidad, SUM(vi.subtotal) AS total
      FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN productos p ON p.id = vi.producto_id
      WHERE v.anulada = 0 AND v.fecha_iso >= ? AND v.fecha_iso < ?
-     GROUP BY vi.nombre, p.emoji
+     GROUP BY vi.nombre, p.emoji, p.imagen
      ORDER BY cantidad DESC
      LIMIT ?`,
     desdeISO,

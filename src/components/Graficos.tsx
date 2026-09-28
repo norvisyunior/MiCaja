@@ -1,4 +1,4 @@
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, StyleSheet, Text, View } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { useTema } from '../store/tema';
 import { fuentes, radius, spacing, typography } from '../theme';
@@ -98,7 +98,7 @@ export function FilasProgreso({
   items,
   simbolo = '',
 }: {
-  items: { emoji: string; nombre: string; valor: number; detalle: string }[];
+  items: { emoji: string; imagen?: string | null; nombre: string; valor: number; detalle: string }[];
   simbolo?: string;
 }) {
   const { colores } = useTema();
@@ -108,7 +108,11 @@ export function FilasProgreso({
       {items.map((it, i) => (
         <View key={`${it.nombre}-${i}`} style={{ gap: 6 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <Text style={{ fontSize: 18 }}>{it.emoji}</Text>
+            {it.imagen ? (
+              <Image source={{ uri: it.imagen }} style={{ width: 28, height: 28, borderRadius: radius.sm }} />
+            ) : (
+              <Text style={{ fontSize: 18 }}>{it.emoji}</Text>
+            )}
             <Text
               style={{ flex: 1, fontSize: typography.cuerpo, fontFamily: fuentes.semibold, color: colores.texto }}
               numberOfLines={1}

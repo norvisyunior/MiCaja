@@ -229,6 +229,7 @@ export default function ResumenScreen() {
             <FilasProgreso
               items={tops.map((t) => ({
                 emoji: t.emoji,
+                imagen: t.imagen,
                 nombre: t.nombre,
                 valor: t.cantidad,
                 detalle: `${t.cantidad} u · ${formatearDinero(t.total, simbolo)}`,

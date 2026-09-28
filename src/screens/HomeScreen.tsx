@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -204,7 +204,11 @@ export default function HomeScreen() {
                   { backgroundColor: colores.advertenciaSuave },
                 ]}
               >
-                <Text style={{ fontSize: 22 }}>{resumen.topProducto.emoji}</Text>
+                {resumen.topProducto.imagen ? (
+                  <Image source={{ uri: resumen.topProducto.imagen }} style={{ width: 28, height: 28, borderRadius: radius.sm }} />
+                ) : (
+                  <Text style={{ fontSize: 22 }}>{resumen.topProducto.emoji}</Text>
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.topTitulo, { color: colores.textoSuave }]}>
@@ -365,7 +369,7 @@ const styles = StyleSheet.create({
     fontFamily: fuentes.medium,
     marginTop: 2,
   },
-  filaTarjetas: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md },
+  filaTarjetas: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md, overflow: 'hidden' },
   tarjetaMitad: {
     flex: 1,
     padding: spacing.lg,
