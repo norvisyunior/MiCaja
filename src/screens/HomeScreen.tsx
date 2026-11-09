@@ -3,7 +3,7 @@ import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from '
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { Settings, TurnoCaja } from '../types';
 import { resumenDia, type ResumenDia } from '../db/repos/estadisticas';
 import { turnoAbierto } from '../db/repos/turnos';

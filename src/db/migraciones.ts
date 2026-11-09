@@ -1,7 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { imagenArchivoADataUri } from '../utils/imagenes';
+import { crearPinHash, esPinHasheado } from '../utils/pin';
 
-export const DATABASE_VERSION = 4;
+export const DATABASE_VERSION = 5;
 
 export async function migrarBase(db: SQLiteDatabase) {
   const resultado = await db.getFirstAsync<{ user_version: number }>(
@@ -33,6 +34,25 @@ export async function migrarBase(db: SQLiteDatabase) {
     }
   }
 
+  // Autocuración de las columnas de seguridad del PIN.
+  const tablaUsuarios = await db.getFirstAsync<{ n: number }>(
+    `SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'usuarios'`
+  );
+  if (tablaUsuarios && tablaUsuarios.n > 0) {
+    const columnas = await db.getAllAsync<{ name: string }>('PRAGMA table_info(usuarios)');
+    const nombres = new Set(columnas.map((c) => c.name));
+    const alteraciones: string[] = [];
+    if (!nombres.has('intentos_fallidos')) {
+      alteraciones.push('ALTER TABLE usuarios ADD COLUMN intentos_fallidos INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!nombres.has('bloqueado_hasta')) {
+      alteraciones.push('ALTER TABLE usuarios ADD COLUMN bloqueado_hasta TEXT');
+    }
+    if (alteraciones.length > 0) {
+      await db.execAsync(alteraciones.join(';'));
+    }
+  }
+
   if (versionActual >= DATABASE_VERSION) {
     return;
   }
@@ -47,7 +67,9 @@ export async function migrarBase(db: SQLiteDatabase) {
         nombre TEXT NOT NULL,
         rol TEXT NOT NULL DEFAULT 'dependiente' CHECK (rol IN ('admin','dependiente')),
         pin TEXT NOT NULL DEFAULT '',
-        activo INTEGER NOT NULL DEFAULT 1
+        activo INTEGER NOT NULL DEFAULT 1,
+        intentos_fallidos INTEGER NOT NULL DEFAULT 0,
+        bloqueado_hasta TEXT
       );
 
       CREATE TABLE IF NOT EXISTS categorias (
@@ -139,6 +161,19 @@ export async function migrarBase(db: SQLiteDatabase) {
         await db.runAsync(`UPDATE productos SET imagen = ? WHERE id = ?`, dataUri, p.id);
       }
     }
+
+    // v5: convertir los PIN en texto plano a hashes con sal.
+    if (versionActual < 5) {
+      const usuarios = await db.getAllAsync<{ id: number; pin: string }>(
+        `SELECT id, pin FROM usuarios`
+      );
+      for (const u of usuarios) {
+        if (!u.pin || esPinHasheado(u.pin)) continue;
+        const hash = await crearPinHash(u.pin);
+        await db.runAsync(`UPDATE usuarios SET pin = ? WHERE id = ?`, hash, u.id);
+      }
+    }
+
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
   }
 }

@@ -9,9 +9,10 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { Settings, Usuario } from '../types';
 import { listarUsuariosActivos } from '../db/repos/catalogo';
+import { verificarAcceso } from '../db/repos/acceso';
 import { obtenerSettings } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
 import { useCarrito } from '../store/carrito';
@@ -40,13 +41,15 @@ export default function LoginScreen() {
 
   const [seleccion, setSeleccion] = useState<Usuario | null>(null);
   const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
+  const [mensajeError, setMensajeError] = useState<string | null>(null);
+  const [verificando, setVerificando] = useState(false);
 
   const { width } = useWindowDimensions();
   const columnas = 1;
 
   const anims = useMemo(() => usuarios.map(() => new Animated.Value(0)), [usuarios]);
   const entradaMarca = useRef(new Animated.Value(0)).current;
+  const intentoRef = useRef(0);
 
   useEffect(() => {
     Animated.timing(entradaMarca, { toValue: 1, duration: 450, useNativeDriver: true }).start();
@@ -72,27 +75,64 @@ export default function LoginScreen() {
     })().catch(() => setCargando(false));
   }, [db]);
 
-  function onDigito(d: string) {
-    if (!seleccion) return;
+  async function onDigito(d: string) {
+    if (!seleccion || verificando) return;
     const nuevo = pin + d;
-    setError(false);
-    if (nuevo.length === 4) {
-      setPin('');
-      if (nuevo === seleccion.pin) {
+    setMensajeError(null);
+    setPin(nuevo);
+
+    if (nuevo.length < 4) return;
+
+    setVerificando(true);
+    const intentoActual = ++intentoRef.current;
+    try {
+      const resultado = await verificarAcceso(db, seleccion.id, nuevo);
+      if (intentoActual !== intentoRef.current) return;
+      if (resultado.ok) {
+        setPin('');
         setSeleccion(null);
         vaciarCarrito();
         iniciar(seleccion);
+      } else if (resultado.motivo === 'bloqueado') {
+        const minutos = Math.max(
+          1,
+          Math.ceil((Date.parse(resultado.bloqueadoHasta) - Date.now()) / 60000)
+        );
+        setMensajeError(`Demasiados intentos. Espera ${minutos} minuto(s) e intenta de nuevo.`);
+        setPin('');
+      } else if (resultado.motivo === 'inactivo') {
+        setMensajeError('Este usuario está desactivado.');
+        setPin('');
       } else {
-        setError(true);
+        const restantes = resultado.intentosRestantes;
+        setMensajeError(
+          restantes > 0
+            ? `PIN incorrecto. Te quedan ${restantes} intento(s).`
+            : 'PIN incorrecto.'
+        );
+        setPin('');
       }
-      return;
+    } catch {
+      if (intentoActual !== intentoRef.current) return;
+      setMensajeError('No se pudo verificar el PIN. Intenta de nuevo.');
+      setPin('');
+    } finally {
+      if (intentoActual === intentoRef.current) setVerificando(false);
     }
-    setPin(nuevo);
   }
 
   function onBorrar() {
+    if (verificando) return;
     setPin((p) => p.slice(0, -1));
-    setError(false);
+    setMensajeError(null);
+  }
+
+  function cerrarHoja() {
+    intentoRef.current += 1;
+    setSeleccion(null);
+    setPin('');
+    setMensajeError(null);
+    setVerificando(false);
   }
 
   if (cargando || !settings) {
@@ -154,7 +194,12 @@ export default function LoginScreen() {
             >
               <SombraDura redondeo={radius.lg} offset={2} estilo={{ width: '100%' }}>
                 <Pressable
-                  onPress={() => setSeleccion(item)}
+                  onPress={() => {
+                    intentoRef.current += 1;
+                    setPin('');
+                    setMensajeError(null);
+                    setSeleccion(item);
+                  }}
                   style={({ pressed }) => [
                     styles.tarjetaUsuario,
                     {
@@ -193,11 +238,7 @@ export default function LoginScreen() {
 
       <Hoja
         visible={!!seleccion}
-        onCerrar={() => {
-          setSeleccion(null);
-          setPin('');
-          setError(false);
-        }}
+        onCerrar={cerrarHoja}
         titulo={`PIN de ${seleccion?.nombre ?? ''}`}
         subtitulo="Ingresa tu código de 4 dígitos"
       >
@@ -216,7 +257,12 @@ export default function LoginScreen() {
             />
           ))}
         </View>
-        {error ? (
+        {verificando ? (
+          <View style={[styles.errorPin, { backgroundColor: colores.infoSuave }]}>
+            <MaterialIcons name="hourglass-top" size={18} color={colores.info} />
+            <Text style={[styles.errorPinTexto, { color: colores.info }]}>Verificando…</Text>
+          </View>
+        ) : mensajeError ? (
           <View
             style={[
               styles.errorPin,
@@ -225,7 +271,7 @@ export default function LoginScreen() {
           >
             <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
             <Text style={[styles.errorPinTexto, { color: colores.peligro }]}>
-              PIN incorrecto, intenta de nuevo
+              {mensajeError}
             </Text>
           </View>
         ) : null}
@@ -233,11 +279,8 @@ export default function LoginScreen() {
         <Boton
           titulo="Cancelar"
           variante="secundario"
-          onPress={() => {
-            setSeleccion(null);
-            setPin('');
-            setError(false);
-          }}
+          onPress={cerrarHoja}
+          bloqueado={verificando}
           estilo={{ marginTop: spacing.lg }}
         />
       </Hoja>

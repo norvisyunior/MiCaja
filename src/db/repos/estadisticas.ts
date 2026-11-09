@@ -65,7 +65,7 @@ export async function resumenDia(
      FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN productos p ON p.id = vi.producto_id
-     WHERE v.${RANGO_VALIDO.replace('anulada = 0 AND ', '')}
+     WHERE v.anulada = 0 AND v.fecha_iso >= ? AND v.fecha_iso < ?
      GROUP BY vi.nombre, p.emoji, p.imagen
      ORDER BY cantidad DESC
      LIMIT 1`,

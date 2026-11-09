@@ -2,8 +2,10 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { claveDiaLocal } from '../utils/fechas';
 
 export async function sembrarDatosIniciales(db: SQLiteDatabase) {
+  // Se usa la tabla settings como marca de siembra: así, si el usuario borra
+  // todas las cuentas, no se recrean datos ni se duplican productos.
   const fila = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) AS count FROM usuarios'
+    'SELECT COUNT(*) AS count FROM settings'
   );
 
   if (fila && fila.count > 0) {
@@ -36,19 +38,8 @@ export async function sembrarDatosIniciales(db: SQLiteDatabase) {
       ['tema', 'claro']
     );
 
-    await db.runAsync(
-      `INSERT INTO usuarios (nombre, rol, pin, activo) VALUES (?, ?, ?, 1)`,
-      'Administrador',
-      'admin',
-      '1234'
-    );
-
-    await db.runAsync(
-      `INSERT INTO usuarios (nombre, rol, pin, activo) VALUES (?, ?, ?, 1)`,
-      'Dependiente',
-      'dependiente',
-      '1234'
-    );
+    // No se crean usuarios por defecto: el primer arranque obliga a configurar
+    // un administrador con su propio PIN.
 
     const { lastInsertRowId: catBebidas } = await db.runAsync(
       `INSERT INTO categorias (nombre, color, orden, activo) VALUES (?, ?, 1, 1)`,

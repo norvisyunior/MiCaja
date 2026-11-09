@@ -1,8 +1,37 @@
-import { Platform } from 'react-native';
+import { Image, Platform } from 'react-native';
 import { File } from 'expo-file-system';
+import { manipulateAsync, SaveFormat, type Action } from 'expo-image-manipulator';
+
+// Las fotos se guardan dentro de SQLite como base64. Para que la base de datos
+// y los backups no crezcan sin control, se limitan a 800 px por lado y se
+// recomprimen en JPEG.
+const MAX_LADO = 800;
+const CALIDAD = 0.7;
 
 export function uriToDataUri(base64: string, mimeType = 'image/jpeg'): string {
   return `data:${mimeType};base64,${base64}`;
+}
+
+function medirImagen(uri: string): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    Image.getSize(
+      uri,
+      (width, height) => resolve({ width, height }),
+      () => resolve(null)
+    );
+  });
+}
+
+async function accionesParaOptimizar(uri: string): Promise<Action[]> {
+  const medidas = await medirImagen(uri);
+  if (!medidas || medidas.width <= 0 || medidas.height <= 0) {
+    return [{ resize: { width: MAX_LADO } }];
+  }
+
+  const escala = Math.min(1, MAX_LADO / medidas.width, MAX_LADO / medidas.height);
+  if (escala >= 1) return [];
+
+  return [{ resize: { width: Math.max(1, Math.round(medidas.width * escala)) } }];
 }
 
 async function blobUriADataUri(uri: string): Promise<string | null> {
@@ -32,6 +61,27 @@ export async function guardarImagenProducto(
   base64?: string | null
 ): Promise<string | null> {
   if (!uri) return null;
+
+  // Camino principal: redimensionar y recomprimir con código nativo.
+  try {
+    const acciones = await accionesParaOptimizar(uri);
+    const resultado = await manipulateAsync(uri, acciones, {
+      compress: CALIDAD,
+      format: SaveFormat.JPEG,
+      base64: true,
+    });
+
+    if (resultado.base64) {
+      try {
+        new File(resultado.uri).delete();
+      } catch {
+        // El archivo temporal lo limpia el sistema; no es crítico.
+      }
+      return uriToDataUri(resultado.base64, 'image/jpeg');
+    }
+  } catch {
+    // Si el manipulador no está disponible, se usa el respaldo de abajo.
+  }
 
   if (Platform.OS === 'web') {
     if (base64) {

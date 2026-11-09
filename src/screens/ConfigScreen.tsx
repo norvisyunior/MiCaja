@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect, useNavigation, type NavigationProp } from '@react-navigation/native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { Categoria, Settings, Usuario } from '../types';
 import {
   actualizarCategoria,
@@ -695,20 +695,25 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
       mostrarAviso('Falta el nombre', 'Escribe el nombre del usuario.');
       return;
     }
-    if (!/^\d{4}$/.test(form.pin)) {
+    const editar = form.editar;
+    const pinNuevo = form.pin.trim();
+    if (!editar && !/^\d{4}$/.test(pinNuevo)) {
       mostrarAviso('PIN inválido', 'El PIN debe tener exactamente 4 dígitos.');
       return;
     }
-    const editar = form.editar;
+    if (editar && pinNuevo !== '' && !/^\d{4}$/.test(pinNuevo)) {
+      mostrarAviso('PIN inválido', 'El nuevo PIN debe tener exactamente 4 dígitos.');
+      return;
+    }
     if (editar && editar.rol === 'admin' && form.rol === 'dependiente' && admins.length <= 1) {
       mostrarAviso('No permitido', 'Debe existir al menos un administrador.');
       return;
     }
-    const datos = { nombre: form.nombre.trim(), rol: form.rol, pin: form.pin, activo: form.activo };
+    const datos = { nombre: form.nombre.trim(), rol: form.rol, activo: form.activo };
     if (editar) {
-      await actualizarUsuario(db, { ...datos, id: editar.id });
+      await actualizarUsuario(db, { ...datos, id: editar.id }, pinNuevo || undefined);
     } else {
-      await crearUsuario(db, datos);
+      await crearUsuario(db, { ...datos, pin: pinNuevo });
     }
     setForm((f) => ({ ...f, abierto: false }));
     await cargar();
@@ -779,7 +784,7 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
               trackColor={{ true: colores.acento, false: colores.borde }}
             />
             <Pressable
-              onPress={() => setForm({ abierto: true, editar: u, nombre: u.nombre, rol: u.rol, pin: u.pin, activo: u.activo })}
+              onPress={() => setForm({ abierto: true, editar: u, nombre: u.nombre, rol: u.rol, pin: '', activo: u.activo })}
               hitSlop={8}
               style={{ padding: 4 }}
             >
@@ -811,12 +816,28 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
           <Chip etiqueta="Administrador" icono="admin-panel-settings" activo={form.rol === 'admin'} color={colores.primario} onPress={() => setForm((f) => ({ ...f, rol: 'admin' }))} />
         </View>
         <Campo
-          etiqueta="PIN (4 dígitos)"
+          etiqueta={form.editar ? 'Nuevo PIN (opcional)' : 'PIN (4 dígitos)'}
           valor={form.pin}
           onChange={(t) => setForm((f) => ({ ...f, pin: t.replace(/\D/g, '').slice(0, 4) }))}
           teclado="numeric"
-          placeholder="1234"
+          seguro
+          maxLength={4}
+          placeholder={form.editar ? 'Dejar vacío para conservar' : '••••'}
         />
+        {form.editar ? (
+          <Text
+            style={{
+              fontSize: typography.micro,
+              fontFamily: fuentes.regular,
+              color: colores.textoSuave,
+              marginTop: -8,
+              marginBottom: spacing.md,
+            }}
+          >
+            Si dejas el PIN vacío se conserva el actual. Al cambiarlo también se
+            desbloquea el usuario.
+          </Text>
+        ) : null}
         <View style={styles.switchFila}>
           <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Usuario activo</Text>
           <Switch

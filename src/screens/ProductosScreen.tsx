@@ -2,7 +2,7 @@
 import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import type { Categoria, Producto } from '../types';
 import {
@@ -54,7 +54,6 @@ export default function ProductosScreen() {
     emoji: string;
     color: string;
     imagen: string | null;
-    imagenBase64: string | null;
     imagenCambiada: boolean;
     categoriaId: number | null;
     activo: boolean;
@@ -68,7 +67,6 @@ export default function ProductosScreen() {
     emoji: '🛍️',
     color: '#A855F7',
     imagen: null,
-    imagenBase64: null,
     imagenCambiada: false,
     categoriaId: null,
     activo: true,
@@ -106,7 +104,6 @@ export default function ProductosScreen() {
       emoji: p?.emoji ?? '🛍️',
       color: p?.color ?? '#A855F7',
       imagen: p?.imagen ?? null,
-      imagenBase64: null,
       imagenCambiada: false,
       categoriaId: p?.categoriaId ?? null,
       activo: p?.activo ?? true,
@@ -120,14 +117,12 @@ export default function ProductosScreen() {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
-      base64: true,
+      quality: 0.8,
     });
     if (!res.canceled && res.assets[0]) {
       setForm((f) => ({
         ...f,
         imagen: res.assets[0].uri,
-        imagenBase64: res.assets[0].base64 ?? null,
         imagenCambiada: true,
       }));
     }
@@ -163,7 +158,7 @@ export default function ProductosScreen() {
     let imagen = form.imagen;
     if (form.imagenCambiada) {
       if (form.imagen) {
-        const nueva = await guardarImagenProducto(form.imagen, form.imagenBase64);
+        const nueva = await guardarImagenProducto(form.imagen);
         if (nueva) {
           imagen = nueva;
           if (form.editar?.imagen) {
@@ -392,7 +387,7 @@ export default function ProductosScreen() {
           </Pressable>
           {form.imagen ? (
             <Pressable
-              onPress={() => setForm((f) => ({ ...f, imagen: null, imagenBase64: null, imagenCambiada: true }))}
+              onPress={() => setForm((f) => ({ ...f, imagen: null, imagenCambiada: true }))}
               style={({ pressed }) => [
                 styles.fotoQuitar,
                 { backgroundColor: colores.peligroSuave },

@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect } from '@react-navigation/native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { FormaPago, Venta } from '../types';
 import { listarVentas, anularVenta, puedeAnularVenta } from '../db/repos/ventas';
 import { obtenerSettings } from '../db/repos/settings';

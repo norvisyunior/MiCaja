@@ -72,7 +72,7 @@ export async function cerrarTurno(
       `SELECT * FROM turnos_caja WHERE id = ?`,
       turnoId
     );
-    if (!fila) {
+    if (!fila || fila.estado !== 'abierto') {
       return;
     }
 

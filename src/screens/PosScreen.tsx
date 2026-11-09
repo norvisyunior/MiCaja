@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect } from '@react-navigation/native';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { Categoria, Producto, Settings, TurnoCaja } from '../types';
 import { listarCategorias, listarProductosActivos } from '../db/repos/catalogo';
 import { obtenerSettings } from '../db/repos/settings';

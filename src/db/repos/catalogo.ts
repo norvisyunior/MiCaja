@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { Categoria, Producto, Usuario } from '../../types';
+import type { Categoria, Producto, Rol, Usuario } from '../../types';
+import { crearPinHash } from '../../utils/pin';
 
 interface FilaProducto {
   id: number;
@@ -148,7 +149,6 @@ interface FilaUsuario {
   id: number;
   nombre: string;
   rol: string;
-  pin: string;
   activo: number;
 }
 
@@ -156,9 +156,15 @@ const A_USUARIO = (f: FilaUsuario): Usuario => ({
   id: f.id,
   nombre: f.nombre,
   rol: f.rol === 'admin' ? 'admin' : 'dependiente',
-  pin: f.pin,
   activo: f.activo === 1,
 });
+
+export interface NuevoUsuario {
+  nombre: string;
+  rol: Rol;
+  activo: boolean;
+  pin: string;
+}
 
 export async function listarUsuariosActivos(db: SQLiteDatabase): Promise<Usuario[]> {
   const filas = await db.getAllAsync<FilaUsuario>(
@@ -185,24 +191,48 @@ export async function obtenerUsuario(
 
 export async function crearUsuario(
   db: SQLiteDatabase,
-  u: Omit<Usuario, 'id'>
+  u: NuevoUsuario
 ): Promise<number> {
+  const pinHash = await crearPinHash(u.pin);
   const res = await db.runAsync(
-    `INSERT INTO usuarios (nombre, rol, pin, activo) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO usuarios (nombre, rol, pin, activo, intentos_fallidos, bloqueado_hasta)
+     VALUES (?, ?, ?, ?, 0, NULL)`,
     u.nombre,
     u.rol,
-    u.pin,
+    pinHash,
     u.activo ? 1 : 0
   );
   return res.lastInsertRowId;
 }
 
-export async function actualizarUsuario(db: SQLiteDatabase, u: Usuario): Promise<void> {
+/**
+ * Actualiza los datos de un usuario. Si `pinNuevo` se omite, conserva el PIN
+ * actual; si se envía, lo reemplaza por su hash y limpia el bloqueo.
+ */
+export async function actualizarUsuario(
+  db: SQLiteDatabase,
+  u: Usuario,
+  pinNuevo?: string
+): Promise<void> {
+  if (pinNuevo) {
+    const pinHash = await crearPinHash(pinNuevo);
+    await db.runAsync(
+      `UPDATE usuarios
+       SET nombre = ?, rol = ?, activo = ?, pin = ?, intentos_fallidos = 0, bloqueado_hasta = NULL
+       WHERE id = ?`,
+      u.nombre,
+      u.rol,
+      u.activo ? 1 : 0,
+      pinHash,
+      u.id
+    );
+    return;
+  }
+
   await db.runAsync(
-    `UPDATE usuarios SET nombre = ?, rol = ?, pin = ?, activo = ? WHERE id = ?`,
+    `UPDATE usuarios SET nombre = ?, rol = ?, activo = ? WHERE id = ?`,
     u.nombre,
     u.rol,
-    u.pin,
     u.activo ? 1 : 0,
     u.id
   );

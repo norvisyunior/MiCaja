@@ -7,10 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.norvisyunior.micaja"
     },
     "android": {
-      "package": "mc.cajarapida",
+      "package": "com.norvisyunior.micaja",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -29,7 +30,9 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Permite acceder a tus fotos para ponerle imagen a los productos."
+          "photosPermission": "Permite acceder a tus fotos para ponerle imagen a los productos.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ],
       [

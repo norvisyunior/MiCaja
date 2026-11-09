@@ -10,7 +10,7 @@ Punto de venta (POS) para Mipymes cubanas, construido con **React Native (Expo)*
 - **Control de inventario**: stock disponible y stock mínimo por producto, con avisos de agotado y stock insuficiente al vender.
 - **Historial de ventas**: consulta y detalle de ventas del día o por fechas.
 - **Resumen y estadísticas**: ventas e ingresos del día, producto más vendido y gráficos.
-- **Múltiples usuarios**: acceso por PIN con roles (administrador y vendedor).
+- **Múltiples usuarios**: PIN cifrado con SHA-256 y sal, bloqueo temporal tras 5 intentos fallidos y roles (administrador y dependiente).
 - **Exportación**: comparte el historial en PDF u otros formatos.
 - **Tema claro y oscuro**, interfaz en español con tipografías personalizadas.
 
@@ -67,6 +67,10 @@ src/
 ├── types/        # Tipos TypeScript compartidos
 └── utils/        # Utilidades (cálculos, fechas, PDF)
 ```
+
+## ✅ Pruebas antes de entregar
+
+Sigue la lista de [PRUEBAS.md](PRUEBAS.md) en un teléfono Android real antes de publicar o vender la app.
 
 ## 📄 Licencia
 

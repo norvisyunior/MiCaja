@@ -1,18 +1,24 @@
-﻿import { Component, useEffect, useRef, type ReactNode } from 'react';
+﻿import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SQLiteProvider, useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
-import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
-import { Poppins_700Bold } from '@expo-google-fonts/poppins';
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
+import { Inter_800ExtraBold } from '@expo-google-fonts/inter/800ExtraBold';
+import { Poppins_700Bold } from '@expo-google-fonts/poppins/700Bold';
 import { migrarBase } from './src/db/migraciones';
 import { sembrarDatosIniciales } from './src/db/seed';
 import { obtenerSettings } from './src/db/repos/settings';
+import { listarUsuarios } from './src/db/repos/catalogo';
 import { useSesion } from './src/store/sesion';
 import { useTema } from './src/store/tema';
 import LoginScreen from './src/screens/LoginScreen';
+import SetupScreen from './src/screens/SetupScreen';
 import { NavegadorRaiz } from './src/navigation';
 import { AvisoGlobal } from './src/components/AvisoGlobal';
 import { Gradiente } from './src/components/UI';
@@ -105,8 +111,33 @@ class LimiteErrores extends Component<{ children: ReactNode }, { error: Error | 
 }
 
 function Contenido() {
+  const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario);
-  return usuario ? <NavegadorRaiz /> : <LoginScreen />;
+  const [estado, setEstado] = useState<'cargando' | 'setup' | 'login'>('cargando');
+
+  useEffect(() => {
+    if (usuario) {
+      setEstado('login');
+      return;
+    }
+
+    let vigente = true;
+    listarUsuarios(db)
+      .then((usuarios) => {
+        if (vigente) setEstado(usuarios.length > 0 ? 'login' : 'setup');
+      })
+      .catch(() => {
+        if (vigente) setEstado('login');
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [db, usuario]);
+
+  if (usuario) return <NavegadorRaiz />;
+  if (estado === 'cargando') return <Splash />;
+  if (estado === 'setup') return <SetupScreen />;
+  return <LoginScreen />;
 }
 
 export default function App() {

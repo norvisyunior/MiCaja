@@ -21,7 +21,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTema } from '../store/tema';
 import {
@@ -540,6 +540,8 @@ export function Campo({
   multiline,
   autoFocus,
   sufijo,
+  seguro,
+  maxLength,
 }: {
   etiqueta?: string;
   valor: string;
@@ -550,6 +552,8 @@ export function Campo({
   multiline?: boolean;
   autoFocus?: boolean;
   sufijo?: string;
+  seguro?: boolean;
+  maxLength?: number;
 }) {
   const { colores } = useTema();
   const [enfocado, setEnfocado] = useState(false);
@@ -603,6 +607,8 @@ export function Campo({
           keyboardType={teclado}
           multiline={multiline}
           autoFocus={autoFocus}
+          secureTextEntry={seguro}
+          maxLength={maxLength}
           underlineColorAndroid="transparent"
           cursorColor={colores.acento}
           selectionColor="transparent"
