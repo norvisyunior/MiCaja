@@ -1,0 +1,30 @@
+name: EAS Build APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Compilar APK en EAS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Configurar EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Lanzar compilación Android
+        run: eas build --platform android --profile preview --non-interactive --no-wait --message "MiCaja APK desde GitHub Actions"
