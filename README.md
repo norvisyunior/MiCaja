@@ -1,4 +1,4 @@
-# 🏪 Caja Rápida (MiCaja)
+# 🏪 MiCaja
 
 Punto de venta (POS) para Mipymes cubanas, construido con **React Native (Expo)** y **SQLite local**. Funciona sin conexión y con todos los datos guardados en el propio dispositivo.
 

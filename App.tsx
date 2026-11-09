@@ -68,7 +68,7 @@ function Splash() {
         >
           <Text style={styles.splashEmoji}>$</Text>
         </Gradiente>
-        <Text style={[styles.splashNombre, { color: colores.texto }]}>Caja Rápida</Text>
+        <Text style={[styles.splashNombre, { color: colores.texto }]}>MiCaja</Text>
         <Text style={[styles.splashSub, { color: colores.textoSuave }]}>Punto de venta simple y veloz</Text>
       </Animated.View>
     </View>

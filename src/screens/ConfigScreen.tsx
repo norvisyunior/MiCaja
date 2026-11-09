@@ -286,7 +286,7 @@ export default function ConfigScreen() {
           </View>
         </SombraDura>
 
-        <Text style={[styles.version, { color: colores.textoSuave }]}>Caja Rápida · v1.0.0</Text>
+        <Text style={[styles.version, { color: colores.textoSuave }]}>MiCaja · v1.0.0</Text>
       </ScrollView>
 
       <ExportarVentasHoja

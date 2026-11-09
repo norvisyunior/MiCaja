@@ -28,7 +28,7 @@ function nombreBackup(): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   const fecha = `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}`;
   const hora = `${pad(ahora.getHours())}${pad(ahora.getMinutes())}${pad(ahora.getSeconds())}`;
-  return `caja-rapida-${fecha}-${hora}.json`;
+  return `micaja-${fecha}-${hora}.json`;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

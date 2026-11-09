@@ -114,7 +114,7 @@ export async function exportarVentasPDF(
   const totalDigital = validas.reduce((a, v) => a + v.montoDigital, 0);
 
   const datosReporte: DatosReporteVentas = {
-    negocio: aLatin1(settings.nombreNegocio ?? 'Caja Rápida'),
+    negocio: aLatin1(settings.nombreNegocio ?? 'MiCaja'),
     titulo: 'Reporte de ventas',
     rango: aLatin1(etiqueta),
     generado: aLatin1(new Date().toLocaleString('es-CU', { dateStyle: 'long', timeStyle: 'short' })),
