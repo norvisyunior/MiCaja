@@ -112,7 +112,9 @@ export async function cerrarTurno(
     desglose['digital_total'] = totalDigital;
 
     const totalEsperado = resumen?.total ?? 0;
-    const diferencia = dineroReal - totalEsperado;
+    // El arqueo se compara contra el efectivo esperado, no contra el total
+    // vendido: el dinero digital no está físicamente en la caja.
+    const diferencia = dineroReal - totalEfectivo;
 
     await db.runAsync(
       `UPDATE turnos_caja

@@ -72,7 +72,7 @@ export default function TurnoScreen() {
   }
 
   async function abrirArqueo() {
-    setDineroTexto(String(resumen?.total ?? 0));
+    setDineroTexto(String(resumen?.efectivo ?? 0));
     setArqueando(true);
   }
 
@@ -92,7 +92,7 @@ export default function TurnoScreen() {
     }
   }
 
-  const diferencia = turno ? parsearMonto(dineroTexto) - (resumen?.total ?? 0) : 0;
+  const diferencia = turno ? parsearMonto(dineroTexto) - (resumen?.efectivo ?? 0) : 0;
 
   if (cargando) {
     return (
@@ -223,9 +223,9 @@ export default function TurnoScreen() {
         pie={
           <View>
             <View style={styles.filaArqueo}>
-              <Text style={[styles.textoArqueo, { color: colores.textoSuave }]}>Esperado</Text>
+              <Text style={[styles.textoArqueo, { color: colores.textoSuave }]}>Efectivo esperado</Text>
               <Text style={[styles.valorArqueo, { color: colores.texto }]}>
-                {formatearDinero(resumen?.total ?? 0, simbolo)}
+                {formatearDinero(resumen?.efectivo ?? 0, simbolo)}
               </Text>
             </View>
             <View style={styles.filaArqueo}>
@@ -315,7 +315,8 @@ export default function TurnoScreen() {
               </Text>
             ) : null}
             <Text style={[styles.resultadoDetalle, { color: colores.textoSuave }]}>
-              {resultado.ventasCount} ventas · {formatearDinero(resultado.totalEsperado, simbolo)} esperados ·{' '}
+              {resultado.ventasCount} ventas · {formatearDinero(resultado.totalEsperado, simbolo)} vendidos ·{' '}
+              {formatearDinero(resultado.desglose.efectivo_total ?? 0, simbolo)} en efectivo esperado ·{' '}
               {formatearDinero(resultado.dineroReal ?? 0, simbolo)} contados
             </Text>
             <Boton

@@ -144,18 +144,26 @@ function validarBackupJson(datos: unknown): { valido: boolean; error?: string } 
 
   const obj = datos as Record<string, unknown>;
 
-  if (!obj.version || !obj.datos || !obj.esquema) {
-    return { valido: false, error: 'El archivo no tiene el formato de backup correcto.' };
+  if (obj.version !== 1) {
+    return { valido: false, error: 'La versión del backup no es compatible.' };
   }
 
-  if (typeof obj.datos !== 'object') {
+  if (!Array.isArray(obj.esquema) || !obj.esquema.every((s) => typeof s === 'string')) {
+    return { valido: false, error: 'El esquema del backup está corrupto.' };
+  }
+
+  if (!obj.datos || typeof obj.datos !== 'object' || Array.isArray(obj.datos)) {
     return { valido: false, error: 'Los datos del backup están corruptos.' };
   }
 
   const datosTablas = obj.datos as Record<string, unknown>;
-  for (const tabla of TABLAS_BACKUP.slice(0, 3)) {
-    if (!Array.isArray(datosTablas[tabla])) {
+  for (const tabla of TABLAS_BACKUP) {
+    const filas = datosTablas[tabla];
+    if (!Array.isArray(filas)) {
       return { valido: false, error: `Falta la tabla "${tabla}" en el backup.` };
+    }
+    if (filas.some((fila) => !fila || typeof fila !== 'object' || Array.isArray(fila))) {
+      return { valido: false, error: `La tabla "${tabla}" contiene datos inválidos.` };
     }
   }
 

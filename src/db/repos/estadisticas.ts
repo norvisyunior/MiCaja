@@ -91,11 +91,11 @@ export async function ventasPorDia(
   hastaISO: string
 ): Promise<VentaPorDia[]> {
   return db.getAllAsync<VentaPorDia>(
-    `SELECT substr(fecha_iso, 1, 10) AS dia,
+    `SELECT date(fecha_iso, 'localtime') AS dia,
             COUNT(*) AS ventas,
             COALESCE(SUM(total), 0) AS total
      FROM ventas WHERE ${RANGO_VALIDO}
-     GROUP BY substr(fecha_iso, 1, 10)
+     GROUP BY date(fecha_iso, 'localtime')
      ORDER BY dia`,
     desdeISO,
     hastaISO

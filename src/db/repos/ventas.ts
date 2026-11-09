@@ -251,9 +251,9 @@ export async function puedeAnularVenta(
       `SELECT estado FROM turnos_caja WHERE id = ?`,
       venta.turno_id
     );
-    if (turno && turno.estado === 'abierto') {
-      return true;
-    }
+    // Solo se puede anular una venta mientras su turno siga abierto. Si el
+    // turno ya se cerró, sus totales históricos no deben cambiar.
+    return turno?.estado === 'abierto';
   }
 
   const esDeHoy = claveDiaLocal(new Date(venta.fecha_iso)) === claveDiaLocal(new Date());

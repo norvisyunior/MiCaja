@@ -110,7 +110,7 @@ function Contenido() {
 }
 
 export default function App() {
-  const [fuentesCargadas] = useFonts({
+  const [fuentesCargadas, errorFuentes] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -119,7 +119,7 @@ export default function App() {
     Poppins_700Bold,
   });
 
-  if (!fuentesCargadas) {
+  if (!fuentesCargadas && !errorFuentes) {
     return <Splash />;
   }
 
