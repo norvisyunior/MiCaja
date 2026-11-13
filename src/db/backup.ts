@@ -3,6 +3,7 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { asegurarUsernames } from './migraciones';
 
 const TABLAS_BACKUP = [
   'usuarios',
@@ -200,6 +201,10 @@ export async function restaurarBackup(
     await db.execAsync('BEGIN TRANSACTION');
 
     try {
+      // El índice único de usuario puede impedir restaurar backups antiguos
+      // (que no traen la columna `usuario`). Se recrea después de rellenarla.
+      await db.execAsync('DROP INDEX IF EXISTS idx_usuarios_usuario');
+
       for (const tabla of TABLAS_BACKUP) {
         await db.execAsync(`DELETE FROM "${tabla}"`);
       }
@@ -224,6 +229,12 @@ export async function restaurarBackup(
           );
         }
       }
+
+      await asegurarUsernames(db);
+      await db.execAsync(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_usuario
+         ON usuarios(usuario COLLATE NOCASE)`
+      );
 
       await db.execAsync('COMMIT');
     } catch (e) {

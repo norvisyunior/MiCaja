@@ -36,10 +36,17 @@ import {
   Pantalla,
   ReglaPunteada,
   Sello,
-  SombraDura,
   parsearMonto,
 } from '../components/UI';
-import { fuentes, gradientes, radius, spacing, typography } from '../theme';
+import {
+  fuentes,
+  gradientes,
+  radius,
+  sombraFlotante,
+  sombraTarjeta,
+  spacing,
+  typography,
+} from '../theme';
 
 const FORMAS: { id: FormaPago; icono: 'payments' | 'phone-android' | 'account-balance-wallet' | 'swap-horiz' }[] = [
   { id: 'efectivo', icono: 'payments' },
@@ -318,14 +325,20 @@ export default function PosScreen() {
           renderItem={({ item }) => {
             const agotado = item.stock <= 0;
             return (
-              <SombraDura redondeo={radius.lg} offset={2} estilo={styles.productoContenedor}>
+              <View style={styles.productoContenedor}>
                 <Pressable
                   onPress={() => agregarProducto(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.nombre}, ${simbolo}${item.precio.toFixed(2)}`}
                   style={({ pressed }) => [
                     styles.producto,
-                    { backgroundColor: colores.superficie, borderColor: colores.borde },
+                    {
+                      backgroundColor: colores.superficie,
+                      borderColor: colores.borde,
+                      ...sombraTarjeta(colores),
+                    },
                     agotado && { opacity: 0.55 },
-                    pressed && { opacity: 0.85 },
+                    pressed && !agotado && { opacity: 0.85, transform: [{ scale: 0.98 }] },
                   ]}
                 >
                   <View
@@ -363,7 +376,7 @@ export default function PosScreen() {
                     {agotado ? 'Sin existencias' : `${item.stock} en stock`}
                   </Text>
                 </Pressable>
-              </SombraDura>
+              </View>
             );
           }}
         />
@@ -371,7 +384,16 @@ export default function PosScreen() {
 
       {hoja === null ? (
         <View style={styles.barraCobro}>
-          <View style={[styles.barraContenido, { backgroundColor: colores.barra, shadowColor: colores.sombra }]}>
+          <View
+            style={[
+              styles.barraContenido,
+              {
+                backgroundColor: colores.barra,
+                borderColor: colores.borde,
+                ...sombraFlotante(colores),
+              },
+            ]}
+          >
             <Animated.View style={{ transform: [{ scale: rebote }], flex: 1 }}>
               <Text style={[styles.barraCantidad, { color: colores.textoSuave }]}>
                 {totales.cantidad} {totales.cantidad === 1 ? 'artículo' : 'artículos'}
@@ -461,10 +483,18 @@ export default function PosScreen() {
         {lineas.length === 0 ? (
           <ListaVacia emoji="🛒" titulo="Carrito vacío" subtitulo="Toca un producto para agregarlo" />
         ) : (
-          <View>
+          <View
+            style={[
+              styles.listaCarrito,
+              { backgroundColor: colores.superficie, borderColor: colores.borde },
+            ]}
+          >
             {lineas.map((l, i) => (
               <View key={`${l.productoId}-${i}`}>
-                <View style={[styles.linea, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
+                {i > 0 ? (
+                  <View style={[styles.lineaDivisor, { backgroundColor: colores.borde }]} />
+                ) : null}
+                <View style={styles.linea}>
                   <View style={styles.lineaInfo}>
                     <View style={[styles.lineaEmoji, { backgroundColor: `${l.color}14` }]}>
                       {l.imagen ? (
@@ -478,7 +508,7 @@ export default function PosScreen() {
                         {l.nombre}
                       </Text>
                       <Text style={[styles.lineaPrecio, { color: colores.textoSuave }]}>
-                        {formatearDinero(l.precio, simbolo)} c/u
+                        {l.cantidad} × {formatearDinero(l.precio, simbolo)}
                       </Text>
                     </View>
                     <Contador
@@ -486,17 +516,20 @@ export default function PosScreen() {
                       onMas={() => aumentarLinea(i)}
                       onMenos={() => disminuir(i)}
                     />
-                    <Pressable onPress={() => quitarLinea(i)} hitSlop={8} style={{ padding: spacing.xs }}>
+                    <Pressable
+                      onPress={() => quitarLinea(i)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar ${l.nombre}`}
+                      style={({ pressed }) => [{ padding: spacing.xs }, pressed && { opacity: 0.55 }]}
+                    >
                       <MaterialIcons name="delete-outline" size={20} color={colores.peligro} />
                     </Pressable>
                   </View>
-                  <Text style={[styles.lineaSubtotal, { color: colores.primario }]}>
+                  <Text style={[styles.lineaSubtotal, { color: colores.acento }]}>
                     {formatearDinero(l.precio * l.cantidad, simbolo)}
                   </Text>
                 </View>
-                {i < lineas.length - 1 ? (
-                  <ReglaPunteada estilo={{ marginVertical: spacing.md }} />
-                ) : null}
               </View>
             ))}
           </View>
@@ -635,15 +668,17 @@ export default function PosScreen() {
               maxWidth: 380,
             }}
           >
-            <SombraDura offset={6} redondeo={radius.xl} estilo={{ width: '100%' }}>
-              <View
-                style={[
-                  styles.exitoTarjeta,
-                  {
-                    backgroundColor: colores.superficie,
-                  },
-                ]}
-              >
+            <View
+              style={[
+                styles.exitoTarjeta,
+                {
+                  backgroundColor: colores.superficie,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: colores.borde,
+                  ...sombraFlotante(colores),
+                },
+              ]}
+            >
                 <Gradiente colores={gradientes.exito} estilo={styles.exitoIcono}>
                   <MaterialIcons name="check" size={40} color="#FFFFFF" />
                 </Gradiente>
@@ -677,7 +712,6 @@ export default function PosScreen() {
                   estilo={{ alignSelf: 'stretch' }}
                 />
               </View>
-            </SombraDura>
           </Animated.View>
         </View>
       ) : null}
@@ -782,12 +816,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
     paddingLeft: spacing.lg,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
   },
   barraCantidad: {
     fontSize: typography.micro,
@@ -800,9 +831,17 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     letterSpacing: -1,
   },
-  linea: {
+  listaCarrito: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  lineaDivisor: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 68,
+    marginRight: spacing.md,
+  },
+  linea: {
     padding: spacing.md,
   },
   lineaInfo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

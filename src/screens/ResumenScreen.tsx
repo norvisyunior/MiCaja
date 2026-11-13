@@ -19,7 +19,7 @@ import {
 import { obtenerSettings } from '../db/repos/settings';
 import { useTema } from '../store/tema';
 import { useSesion } from '../store/sesion';
-import { Boton, Chip, Encabezado, EstadoCarga, Pantalla, SombraDura, Tarjeta } from '../components/UI';
+import { Boton, Chip, Encabezado, EstadoCarga, Pantalla, Tarjeta } from '../components/UI';
 import { Barras, BarraApilada, FilasProgreso } from '../components/Graficos';
 import { fuentes, radius, spacing, typography } from '../theme';
 import { NOMBRES_FORMA_PAGO } from '../utils/calculos';
@@ -121,110 +121,154 @@ export default function ResumenScreen() {
   }));
 
   const kpis = [
-    { etiqueta: 'Ventas', valor: String(resumen.ventas), icono: 'receipt-long', color: colores.info, fondo: colores.infoSuave },
+    {
+      etiqueta: 'Ventas',
+      valor: String(resumen.ventas),
+      icono: 'receipt-long' as const,
+      color: colores.info,
+      fondo: colores.infoSuave,
+    },
     {
       etiqueta: 'Ingresos',
       valor: formatearDinero(resumen.ingresos, simbolo),
-      icono: 'payments',
+      icono: 'payments' as const,
       color: colores.acento,
       fondo: colores.acentoSuave,
     },
     {
       etiqueta: 'Ticket promedio',
       valor: formatearDinero(resumen.ticketPromedio, simbolo),
-      icono: 'shopping-bag',
+      icono: 'shopping-bag' as const,
       color: colores.advertencia,
       fondo: colores.advertenciaSuave,
     },
     {
       etiqueta: 'Efectivo',
       valor: formatearDinero(resumen.efectivo, simbolo),
-      icono: 'currency-exchange',
-      color: colores.primario,
-      fondo: colores.primarioSuave,
+      icono: 'currency-exchange' as const,
+      color: colores.exito,
+      fondo: colores.exitoSuave,
     },
   ];
 
   return (
     <Pantalla>
-      <Encabezado
-        titulo="Resumen"
-        subtitulo="Rendimiento del negocio"
-        derecha={
-          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-            {RANGOS.map((r) => (
-              <Chip key={r.id} etiqueta={r.etiqueta} activo={rango === r.id} onPress={() => setRango(r.id)} />
-            ))}
-          </View>
-        }
-      />
-      <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 110 }]} showsVerticalScrollIndicator={false}>
+      <Encabezado titulo="Resumen" subtitulo="Rendimiento del negocio" />
+      <View style={styles.rangos}>
+        {RANGOS.map((r) => (
+          <Chip
+            key={r.id}
+            etiqueta={r.etiqueta}
+            activo={rango === r.id}
+            onPress={() => setRango(r.id)}
+            estilo={{ flex: 1 }}
+          />
+        ))}
+      </View>
+      <ScrollView
+        contentContainerStyle={[styles.contenido, { paddingBottom: 110 }]}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.kpis}>
           {kpis.map((k) => (
-            <SombraDura key={k.etiqueta} redondeo={radius.lg} offset={2} estilo={styles.kpiContenedor}>
-              <View style={[styles.kpi, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
+            <Tarjeta key={k.etiqueta} padding={spacing.md} estilo={styles.kpiContenedor}>
+              <View style={styles.kpiCabecera}>
                 <View style={[styles.kpiIcono, { backgroundColor: k.fondo }]}>
-                  <MaterialIcons name={k.icono as never} size={18} color={k.color} />
+                  <MaterialIcons name={k.icono} size={19} color={k.color} />
                 </View>
-                <Text style={[styles.kpiValor, { color: colores.texto }]} numberOfLines={1} adjustsFontSizeToFit>
-                  {k.valor}
-                </Text>
-                <Text style={[styles.kpiLabel, { color: colores.textoSuave }]}>{k.etiqueta}</Text>
               </View>
-            </SombraDura>
+              <Text
+                style={[styles.kpiValor, { color: colores.texto }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {k.valor}
+              </Text>
+              <Text style={[styles.kpiLabel, { color: colores.textoSuave }]}>{k.etiqueta}</Text>
+            </Tarjeta>
           ))}
         </View>
 
-        <Tarjeta estilo={styles.tarjeta} redondeo={radius.md}>
+        <Tarjeta estilo={styles.tarjeta}>
           <View style={styles.tarjetaCabecera}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>Ventas por día</Text>
               <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>
                 {ventasTotal} ventas · {formatearDinero(totales, simbolo)}
               </Text>
             </View>
-            <MaterialIcons name="trending-up" size={22} color={colores.acento} />
+            <View style={[styles.cabeceraIcono, { backgroundColor: colores.acentoSuave }]}>
+              <MaterialIcons name="trending-up" size={19} color={colores.acento} />
+            </View>
           </View>
           <Barras datos={datosBarras} />
         </Tarjeta>
 
-        <Tarjeta estilo={styles.tarjeta} redondeo={radius.md}>
+        <Tarjeta estilo={styles.tarjeta}>
           <View style={styles.tarjetaCabecera}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>Formas de pago</Text>
               <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>
                 {formatearDinero(resumen.efectivo + resumen.digital, simbolo)} cobrados
               </Text>
             </View>
-            <MaterialIcons name="account-balance-wallet" size={22} color={colores.info} />
+            <View style={[styles.cabeceraIcono, { backgroundColor: colores.infoSuave }]}>
+              <MaterialIcons name="account-balance-wallet" size={19} color={colores.info} />
+            </View>
           </View>
-          <BarraApilada segmentos={segmentos} />
-          <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
-            {porForma.map((f) => (
-              <View key={f.formaPago} style={styles.leyendaFila}>
-                <View style={[styles.leyendaPunto, { backgroundColor: COLORES_FORMA[f.formaPago] ?? colores.primario }]} />
-                <Text style={[styles.leyendaTexto, { color: colores.texto }]}>
-                  {NOMBRES_FORMA_PAGO[f.formaPago]}
-                </Text>
-                <Text style={[styles.leyendaTotal, { color: colores.texto }]}>
-                  {formatearDinero(f.total, simbolo)}
-                </Text>
-                <Text style={[styles.leyendaVentas, { color: colores.textoSuave }]}>{f.ventas} venta(s)</Text>
+
+          {porForma.length === 0 ? (
+            <Text style={[styles.sinDatos, { color: colores.textoSuave }]}>
+              Sin cobros en este período
+            </Text>
+          ) : (
+            <>
+              <BarraApilada segmentos={segmentos} />
+              <View style={styles.leyenda}>
+                {porForma.map((f) => (
+                  <View key={f.formaPago} style={styles.leyendaFila}>
+                    <View
+                      style={[
+                        styles.leyendaPunto,
+                        { backgroundColor: COLORES_FORMA[f.formaPago] ?? colores.primario },
+                      ]}
+                    />
+                    <Text style={[styles.leyendaTexto, { color: colores.texto }]}>
+                      {NOMBRES_FORMA_PAGO[f.formaPago]}
+                    </Text>
+                    <View style={[styles.leyendaCantidad, { backgroundColor: colores.superficieSuave }]}>
+                      <Text style={[styles.leyendaCantidadTexto, { color: colores.textoSuave }]}>
+                        {f.ventas}
+                      </Text>
+                    </View>
+                    <Text style={[styles.leyendaTotal, { color: colores.texto }]}>
+                      {formatearDinero(f.total, simbolo)}
+                    </Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
+            </>
+          )}
         </Tarjeta>
 
-        <Tarjeta estilo={styles.tarjeta} redondeo={radius.md}>
+        <Tarjeta estilo={styles.tarjeta}>
           <View style={styles.tarjetaCabecera}>
-            <View>
-              <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>Productos más vendidos</Text>
-              <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>Por cantidad de unidades</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>
+                Productos más vendidos
+              </Text>
+              <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>
+                Por cantidad de unidades
+              </Text>
             </View>
-            <MaterialIcons name="emoji-events" size={22} color={colores.advertencia} />
+            <View style={[styles.cabeceraIcono, { backgroundColor: colores.advertenciaSuave }]}>
+              <MaterialIcons name="emoji-events" size={19} color={colores.advertencia} />
+            </View>
           </View>
           {tops.length === 0 ? (
-            <Text style={[styles.sinDatos, { color: colores.textoSuave }]}>Sin ventas en este período</Text>
+            <Text style={[styles.sinDatos, { color: colores.textoSuave }]}>
+              Sin ventas en este período
+            </Text>
           ) : (
             <FilasProgreso
               items={tops.map((t) => ({
@@ -244,7 +288,7 @@ export default function ResumenScreen() {
           variante="suave"
           tamanio="lg"
           onPress={() => navigation.navigate('Turno')}
-          estilo={{ marginTop: spacing.md }}
+          estilo={{ marginTop: spacing.sm }}
         />
       </ScrollView>
     </Pantalla>
@@ -252,6 +296,12 @@ export default function ResumenScreen() {
 }
 
 const styles = StyleSheet.create({
+  rangos: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
   contenido: { paddingHorizontal: spacing.lg, gap: spacing.md },
   kpis: {
     flexDirection: 'row',
@@ -259,30 +309,29 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   kpiContenedor: {
-    width: '48.5%',
+    width: '48.4%',
   },
-  kpi: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-  },
-  kpiIcono: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
+  kpiCabecera: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     marginBottom: spacing.sm,
   },
+  kpiIcono: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   kpiValor: {
-    fontSize: typography.subtitulo,
+    fontSize: typography.titulo,
     fontFamily: fuentes.bold,
     fontVariant: ['tabular-nums'],
-    letterSpacing: -0.4,
+    letterSpacing: -0.6,
   },
   kpiLabel: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.regular,
+    fontSize: typography.micro,
+    fontFamily: fuentes.medium,
     marginTop: 3,
   },
   tarjeta: {
@@ -291,8 +340,15 @@ const styles = StyleSheet.create({
   tarjetaCabecera: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: spacing.md,
     marginBottom: spacing.lg,
+  },
+  cabeceraIcono: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tarjetaTitulo: {
     fontSize: typography.destacado,
@@ -300,18 +356,34 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   tarjetaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
+  leyenda: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
   leyendaFila: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  leyendaPunto: { width: 12, height: 12, borderRadius: radius.full },
-  leyendaTexto: { flex: 1, fontSize: typography.cuerpo, fontFamily: fuentes.regular },
+  leyendaPunto: { width: 10, height: 10, borderRadius: radius.full },
+  leyendaTexto: { flex: 1, fontSize: typography.cuerpoChico, fontFamily: fuentes.medium },
+  leyendaCantidad: {
+    minWidth: 24,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    alignItems: 'center',
+  },
+  leyendaCantidadTexto: { fontSize: 10, fontFamily: fuentes.bold },
   leyendaTotal: {
-    fontSize: typography.cuerpo,
+    fontSize: typography.cuerpoChico,
     fontFamily: fuentes.bold,
     fontVariant: ['tabular-nums'],
   },
-  leyendaVentas: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular },
-  sinDatos: { fontSize: typography.cuerpo, fontFamily: fuentes.regular, textAlign: 'center', paddingVertical: spacing.md },
+  sinDatos: {
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.regular,
+    textAlign: 'center',
+    paddingVertical: spacing.md,
+  },
 });

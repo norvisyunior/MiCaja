@@ -19,6 +19,7 @@ import {
   crearUsuario,
   eliminarCategoria,
   eliminarUsuario,
+  existeNombreUsuario,
   listarCategorias,
   listarUsuarios,
 } from '../db/repos/catalogo';
@@ -36,13 +37,19 @@ import {
   ConfirmarModal,
   Encabezado,
   Gradiente,
+  Grupo,
   Hoja,
   ListaVacia,
   PaletaColores,
   Pantalla,
-  SombraDura,
+  Tarjeta,
 } from '../components/UI';
-import { fuentes, gradientes, paletaProductos, radius, spacing, typography } from '../theme';
+import { fuentes, gradientes, paletaProductos, radius, sombraFlotante, spacing, typography } from '../theme';
+import {
+  esUsuarioValido,
+  generarUsuarioDesdeNombre,
+  normalizarUsuario,
+} from '../utils/usuario';
 import type { ParamListRaiz } from '../navigation';
 
 type Vista = 'menu' | 'categorias' | 'usuarios' | 'negocio';
@@ -124,13 +131,8 @@ export default function ConfigScreen() {
     <Pantalla>
       <Encabezado titulo="Ajustes" subtitulo="Administración del negocio" />
       <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 110 }]}>
-        <SombraDura redondeo={radius.md} offset={3} estilo={{ marginTop: spacing.sm }}>
-          <View
-            style={[
-              styles.usuarioTarjeta,
-              { backgroundColor: colores.superficie, borderColor: colores.borde },
-            ]}
-          >
+        <Tarjeta estilo={{ marginTop: spacing.sm }}>
+          <View style={styles.usuarioTarjeta}>
             <View style={[styles.usuarioAvatar, { backgroundColor: colorAvatar }]}>
               <Text style={[styles.usuarioAvatarTexto, { color: '#FFFFFF' }]}>
                 {usuario.nombre.charAt(0).toUpperCase()}
@@ -138,20 +140,24 @@ export default function ConfigScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.usuarioNombre, { color: colores.texto }]}>{usuario.nombre}</Text>
-              <Badge
-                texto={esAdmin ? 'Administrador' : 'Dependiente'}
-                color={esAdmin ? colores.primarioSuave : colores.infoSuave}
-                colorTexto={esAdmin ? colores.primario : colores.info}
-              />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+                <Badge
+                  texto={esAdmin ? 'Administrador' : 'Dependiente'}
+                  color={esAdmin ? colores.primarioSuave : colores.infoSuave}
+                  colorTexto={esAdmin ? colores.primario : colores.info}
+                />
+                <Text style={[styles.usuarioAlias, { color: colores.textoSuave }]}>
+                  @{usuario.usuario}
+                </Text>
+              </View>
             </View>
           </View>
-        </SombraDura>
+        </Tarjeta>
 
         {esAdmin ? (
           <>
             <Text style={[styles.seccion, { color: colores.textoSuave }]}>Gestión</Text>
-            <SombraDura redondeo={radius.md} offset={3}>
-              <View style={[styles.grupo, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
+            <Grupo>
               <Fila
                 icono={<MaterialIcons name="inventory-2" size={22} color={colores.info} />}
                 colorIcono={colores.info}
@@ -160,7 +166,6 @@ export default function ConfigScreen() {
                 sub="Catálogo, precios y stock"
                 onPress={() => navigation.navigate('Productos')}
               />
-              <View style={[styles.divisor, { backgroundColor: colores.borde }]} />
               <Fila
                 icono={<MaterialIcons name="category" size={22} color={colores.advertencia} />}
                 colorIcono={colores.advertencia}
@@ -169,111 +174,98 @@ export default function ConfigScreen() {
                 sub="Agrupa tus productos"
                 onPress={() => setVista('categorias')}
               />
-              <View style={[styles.divisor, { backgroundColor: colores.borde }]} />
               <Fila
                 icono={<MaterialIcons name="people" size={22} color={colores.acento} />}
                 colorIcono={colores.acento}
                 colorFondo={colores.acentoSuave}
                 titulo="Usuarios"
-                sub="Empleados y PIN de acceso"
+                sub="Empleados y usuarios de acceso"
                 onPress={() => setVista('usuarios')}
               />
-              </View>
-            </SombraDura>
+            </Grupo>
           </>
         ) : null}
 
         <Text style={[styles.seccion, { color: colores.textoSuave }]}>Apariencia</Text>
-        <SombraDura redondeo={radius.md} offset={3}>
-          <View style={[styles.grupo, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
-            <View style={styles.fila}>
-              <View style={[styles.filaIcono, { backgroundColor: colores.primarioSuave }]}>
-                <MaterialIcons name="dark-mode" size={22} color={colores.primario} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.filaTitulo, { color: colores.texto }]}>Modo oscuro</Text>
-                <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
-                  {modo === 'oscuro' ? 'Tema oscuro activo' : 'Tema claro activo'}
-                </Text>
-              </View>
-              <Switch
-                value={modo === 'oscuro'}
-                onValueChange={async (v) => {
-                  alternar();
-                  await guardarSetting(db, 'tema', v ? 'oscuro' : 'claro');
-                }}
-                trackColor={{ true: colores.acento, false: colores.borde }}
-              />
+        <Grupo>
+          <View style={styles.fila}>
+            <View style={[styles.filaIcono, { backgroundColor: colores.primarioSuave }]}>
+              <MaterialIcons name="dark-mode" size={22} color={colores.primario} />
             </View>
-          </View>
-        </SombraDura>
-
-        <Text style={[styles.seccion, { color: colores.textoSuave }]}>Negocio</Text>
-        <SombraDura redondeo={radius.md} offset={3}>
-          <View style={[styles.grupo, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
-            {esAdmin ? (
-              <>
-                <Fila
-                  icono={<MaterialIcons name="storefront" size={22} color={colores.advertencia} />}
-                  colorIcono={colores.advertencia}
-                  colorFondo={colores.advertenciaSuave}
-                  titulo="Nombre y moneda"
-                  sub="Datos que se muestran en la caja"
-                  onPress={() => setVista('negocio')}
-                />
-                <View style={[styles.divisor, { backgroundColor: colores.borde }]} />
-              </>
-            ) : null}
-            <Fila
-              icono={<MaterialIcons name="file-download" size={22} color={colores.info} />}
-              colorIcono={colores.info}
-              colorFondo={colores.infoSuave}
-              titulo="Exportar ventas"
-              sub="Genera un PDF con las ventas"
-              iconoDerecha="file-download"
-              onPress={() => setExportar('hoja')}
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.filaTitulo, { color: colores.texto }]}>Modo oscuro</Text>
+              <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
+                {modo === 'oscuro' ? 'Tema oscuro activo' : 'Tema claro activo'}
+              </Text>
+            </View>
+            <Switch
+              value={modo === 'oscuro'}
+              onValueChange={async (v) => {
+                alternar();
+                await guardarSetting(db, 'tema', v ? 'oscuro' : 'claro');
+              }}
+              trackColor={{ true: colores.acento, false: colores.borde }}
             />
           </View>
-        </SombraDura>
+        </Grupo>
+
+        <Text style={[styles.seccion, { color: colores.textoSuave }]}>Negocio</Text>
+        <Grupo>
+          {esAdmin ? (
+            <Fila
+              icono={<MaterialIcons name="storefront" size={22} color={colores.advertencia} />}
+              colorIcono={colores.advertencia}
+              colorFondo={colores.advertenciaSuave}
+              titulo="Nombre y moneda"
+              sub="Datos que se muestran en la caja"
+              onPress={() => setVista('negocio')}
+            />
+          ) : null}
+          <Fila
+            icono={<MaterialIcons name="file-download" size={22} color={colores.info} />}
+            colorIcono={colores.info}
+            colorFondo={colores.infoSuave}
+            titulo="Exportar ventas"
+            sub="Genera un PDF con las ventas"
+            iconoDerecha="file-download"
+            onPress={() => setExportar('hoja')}
+          />
+        </Grupo>
 
         {esAdmin ? (
           <>
             <Text style={[styles.seccion, { color: colores.textoSuave }]}>Datos</Text>
-            <SombraDura redondeo={radius.md} offset={3}>
-              <View style={[styles.grupo, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
-                <Fila
-                  icono={<MaterialIcons name="cloud-download" size={22} color={colores.exito} />}
-                  colorIcono={colores.exito}
-                  colorFondo={colores.exitoSuave}
-                  titulo="Backup de datos"
-                  sub="Exportar copia de seguridad"
-                  iconoDerecha="file-download"
-                  onPress={() => setBackup('hoja')}
-                />
-                <View style={[styles.divisor, { backgroundColor: colores.borde }]} />
-                <Fila
-                  icono={<MaterialIcons name="cloud-upload" size={22} color={colores.advertencia} />}
-                  colorIcono={colores.advertencia}
-                  colorFondo={colores.advertenciaSuave}
-                  titulo="Restaurar datos"
-                  sub="Importar copia de seguridad"
-                  iconoDerecha="file-upload"
-                  onPress={() => setRestore('hoja')}
-                />
-              </View>
-            </SombraDura>
+            <Grupo>
+              <Fila
+                icono={<MaterialIcons name="cloud-download" size={22} color={colores.exito} />}
+                colorIcono={colores.exito}
+                colorFondo={colores.exitoSuave}
+                titulo="Backup de datos"
+                sub="Exportar copia de seguridad"
+                iconoDerecha="file-download"
+                onPress={() => setBackup('hoja')}
+              />
+              <Fila
+                icono={<MaterialIcons name="cloud-upload" size={22} color={colores.advertencia} />}
+                colorIcono={colores.advertencia}
+                colorFondo={colores.advertenciaSuave}
+                titulo="Restaurar datos"
+                sub="Importar copia de seguridad"
+                iconoDerecha="file-upload"
+                onPress={() => setRestore('hoja')}
+              />
+            </Grupo>
           </>
         ) : null}
 
         <Text style={[styles.seccion, { color: colores.textoSuave }]}>Sesión</Text>
-        <SombraDura redondeo={radius.md} offset={3}>
-          <View style={[styles.grupo, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
+        <Grupo>
           <Fila
             icono={<MaterialIcons name="logout" size={22} color={colores.peligro} />}
             colorIcono={colores.peligro}
             colorFondo={colores.peligroSuave}
             titulo="Cerrar sesión"
-            sub="Volver al acceso con PIN"
+            sub="Volver al inicio de sesión"
             iconoDerecha="logout"
             peligro
             onPress={() =>
@@ -283,8 +275,7 @@ export default function ConfigScreen() {
               ])
             }
           />
-          </View>
-        </SombraDura>
+        </Grupo>
 
         <Text style={[styles.version, { color: colores.textoSuave }]}>MiCaja · v1.0.0</Text>
       </ScrollView>
@@ -589,6 +580,7 @@ function CategoriasVista({ onAtras }: { onAtras: () => void }) {
             onPress={() => setForm({ abierto: true, editar: null, nombre: '', color: '#A855F7' })}
             style={({ pressed }) => [
               styles.fab,
+              { ...sombraFlotante(colores) },
               pressed && { transform: [{ scale: 0.92 }] },
             ]}
           >
@@ -668,10 +660,21 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
   const { colores } = useTema();
   const mostrarAviso = useAvisos((s) => s.mostrar);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
-  const [form, setForm] = useState<{ abierto: boolean; editar: Usuario | null; nombre: string; rol: 'admin' | 'dependiente'; pin: string; activo: boolean }>({
+  const [form, setForm] = useState<{
+    abierto: boolean;
+    editar: Usuario | null;
+    nombre: string;
+    usuario: string;
+    usuarioTocado: boolean;
+    rol: 'admin' | 'dependiente';
+    pin: string;
+    activo: boolean;
+  }>({
     abierto: false,
     editar: null,
     nombre: '',
+    usuario: '',
+    usuarioTocado: false,
     rol: 'dependiente',
     pin: '',
     activo: true,
@@ -695,21 +698,38 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
       mostrarAviso('Falta el nombre', 'Escribe el nombre del usuario.');
       return;
     }
+    const usuarioLimpio = normalizarUsuario(form.usuario);
+    if (!esUsuarioValido(usuarioLimpio)) {
+      mostrarAviso(
+        'Usuario inválido',
+        'El usuario debe tener de 3 a 20 caracteres: letras, números, punto, guion o guion bajo.'
+      );
+      return;
+    }
+    if (await existeNombreUsuario(db, usuarioLimpio, form.editar?.id)) {
+      mostrarAviso('Usuario en uso', 'Ese nombre de usuario ya está tomado.');
+      return;
+    }
     const editar = form.editar;
     const pinNuevo = form.pin.trim();
     if (!editar && !/^\d{4}$/.test(pinNuevo)) {
-      mostrarAviso('PIN inválido', 'El PIN debe tener exactamente 4 dígitos.');
+      mostrarAviso('Contraseña inválida', 'La contraseña debe tener exactamente 4 dígitos.');
       return;
     }
     if (editar && pinNuevo !== '' && !/^\d{4}$/.test(pinNuevo)) {
-      mostrarAviso('PIN inválido', 'El nuevo PIN debe tener exactamente 4 dígitos.');
+      mostrarAviso('Contraseña inválida', 'La nueva contraseña debe tener exactamente 4 dígitos.');
       return;
     }
     if (editar && editar.rol === 'admin' && form.rol === 'dependiente' && admins.length <= 1) {
       mostrarAviso('No permitido', 'Debe existir al menos un administrador.');
       return;
     }
-    const datos = { nombre: form.nombre.trim(), rol: form.rol, activo: form.activo };
+    const datos = {
+      nombre: form.nombre.trim(),
+      usuario: usuarioLimpio,
+      rol: form.rol,
+      activo: form.activo,
+    };
     if (editar) {
       await actualizarUsuario(db, { ...datos, id: editar.id }, pinNuevo || undefined);
     } else {
@@ -742,9 +762,21 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
         onAtras={onAtras}
         derecha={
           <Pressable
-            onPress={() => setForm({ abierto: true, editar: null, nombre: '', rol: 'dependiente', pin: '', activo: true })}
+            onPress={() =>
+              setForm({
+                abierto: true,
+                editar: null,
+                nombre: '',
+                usuario: '',
+                usuarioTocado: false,
+                rol: 'dependiente',
+                pin: '',
+                activo: true,
+              })
+            }
             style={({ pressed }) => [
               styles.fab,
+              { ...sombraFlotante(colores) },
               pressed && { transform: [{ scale: 0.92 }] },
             ]}
           >
@@ -763,6 +795,7 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.filaTitulo, { color: colores.texto }]}>{u.nombre}</Text>
+              <Text style={[styles.usuarioAlias, { color: colores.textoSuave }]}>@{u.usuario}</Text>
               <View style={{ marginTop: 4 }}>
                 <Badge
                   texto={u.rol === 'admin' ? 'Admin' : 'Dependiente'}
@@ -784,7 +817,18 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
               trackColor={{ true: colores.acento, false: colores.borde }}
             />
             <Pressable
-              onPress={() => setForm({ abierto: true, editar: u, nombre: u.nombre, rol: u.rol, pin: '', activo: u.activo })}
+              onPress={() =>
+                setForm({
+                  abierto: true,
+                  editar: u,
+                  nombre: u.nombre,
+                  usuario: u.usuario,
+                  usuarioTocado: true,
+                  rol: u.rol,
+                  pin: '',
+                  activo: u.activo,
+                })
+              }
               hitSlop={8}
               style={{ padding: 4 }}
             >
@@ -806,23 +850,51 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
         <Campo
           etiqueta="Nombre"
           valor={form.nombre}
-          onChange={(t) => setForm((f) => ({ ...f, nombre: t }))}
+          onChange={(texto) =>
+            setForm((f) => ({
+              ...f,
+              nombre: texto,
+              usuario: f.usuarioTocado ? f.usuario : generarUsuarioDesdeNombre(texto),
+            }))
+          }
           placeholder="Ej.: María"
           autoFocus
         />
+        <Campo
+          etiqueta="Usuario de acceso"
+          valor={form.usuario}
+          onChange={(texto) =>
+            setForm((f) => ({
+              ...f,
+              usuarioTocado: true,
+              usuario: texto.replace(/\s/g, '').toLowerCase(),
+            }))
+          }
+          placeholder="Ej.: maria"
+          icono="alternate-email"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="username"
+          textContentType="username"
+          maxLength={20}
+        />
+        <Text style={[styles.formAyuda, { color: colores.textoSuave }]}>
+          Con este usuario y su contraseña se inicia sesión.
+        </Text>
         <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Rol</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
           <Chip etiqueta="Dependiente" icono="storefront" activo={form.rol === 'dependiente'} onPress={() => setForm((f) => ({ ...f, rol: 'dependiente' }))} />
           <Chip etiqueta="Administrador" icono="admin-panel-settings" activo={form.rol === 'admin'} color={colores.primario} onPress={() => setForm((f) => ({ ...f, rol: 'admin' }))} />
         </View>
         <Campo
-          etiqueta={form.editar ? 'Nuevo PIN (opcional)' : 'PIN (4 dígitos)'}
+          etiqueta={form.editar ? 'Nueva contraseña (opcional)' : 'Contraseña (4 dígitos)'}
           valor={form.pin}
-          onChange={(t) => setForm((f) => ({ ...f, pin: t.replace(/\D/g, '').slice(0, 4) }))}
+          onChange={(texto) => setForm((f) => ({ ...f, pin: texto.replace(/\D/g, '').slice(0, 4) }))}
           teclado="numeric"
           seguro
           maxLength={4}
           placeholder={form.editar ? 'Dejar vacío para conservar' : '••••'}
+          autoComplete="new-password"
         />
         {form.editar ? (
           <Text
@@ -834,7 +906,7 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
               marginBottom: spacing.md,
             }}
           >
-            Si dejas el PIN vacío se conserva el actual. Al cambiarlo también se
+            Si dejas la contraseña vacía se conserva la actual. Al cambiarla también se
             desbloquea el usuario.
           </Text>
         ) : null}
@@ -1106,9 +1178,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
   },
   usuarioAvatar: {
     width: 52,
@@ -1123,16 +1192,16 @@ const styles = StyleSheet.create({
     fontFamily: fuentes.bold,
     marginBottom: 4,
   },
+  usuarioAlias: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.medium,
+    marginTop: 2,
+  },
   seccion: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.semibold,
     marginTop: spacing.xl,
     marginBottom: spacing.sm,
-  },
-  grupo: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: spacing.xs,
   },
   fila: {
     flexDirection: 'row',
@@ -1144,19 +1213,16 @@ const styles = StyleSheet.create({
   filaIcono: {
     width: 44,
     height: 44,
-    borderRadius: radius.full,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   filaTitulo: { fontSize: typography.cuerpo, fontFamily: fuentes.bold },
   filaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
-  divisor: { height: 1, marginHorizontal: spacing.md, opacity: 0.6 },
   fab: {
     width: 44,
     height: 44,
     borderRadius: radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -1185,6 +1251,13 @@ const styles = StyleSheet.create({
     fontFamily: fuentes.semibold,
     marginBottom: spacing.sm,
     marginTop: spacing.sm,
+  },
+  formAyuda: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.regular,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.sm,
+    lineHeight: 16,
   },
   switchFila: {
     flexDirection: 'row',

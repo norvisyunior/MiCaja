@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, type ViewStyle } from 'react-native';
 
 export type ModoTema = 'claro' | 'oscuro';
 
@@ -35,22 +35,22 @@ export interface PaletaColores {
 
 export const paletas: Record<ModoTema, PaletaColores> = {
   claro: {
-    fondo: '#EDEFFB',
-    fondoProfundo: '#E3E6F8',
+    fondo: '#F4F5FB',
+    fondoProfundo: '#EBEDF8',
     superficie: '#FFFFFF',
-    superficieSuave: '#F4F5FC',
-    vidrio: 'rgba(255, 255, 255, 0.72)',
-    vidrioSuave: 'rgba(255, 255, 255, 0.5)',
-    primario: '#12143A',
-    primarioOscuro: '#0A0C26',
-    primarioSuave: '#E9EAF9',
+    superficieSuave: '#F5F6FB',
+    vidrio: 'rgba(255, 255, 255, 0.9)',
+    vidrioSuave: 'rgba(255, 255, 255, 0.55)',
+    primario: '#171A3D',
+    primarioOscuro: '#0B0D24',
+    primarioSuave: '#ECEEF9',
     acento: '#7C3AED',
-    acentoSuave: 'rgba(124, 58, 237, 0.12)',
-    texto: '#12143A',
-    textoSuave: '#5B5F85',
+    acentoSuave: 'rgba(124, 58, 237, 0.1)',
+    texto: '#15172F',
+    textoSuave: '#616583',
     textoInverso: '#FFFFFF',
-    borde: 'rgba(18, 20, 58, 0.1)',
-    bordeLuminoso: 'rgba(168, 85, 247, 0.35)',
+    borde: 'rgba(21, 23, 47, 0.08)',
+    bordeLuminoso: 'rgba(124, 58, 237, 0.32)',
     peligro: '#E11D48',
     peligroSuave: 'rgba(225, 29, 72, 0.1)',
     advertencia: '#EA580C',
@@ -65,12 +65,12 @@ export const paletas: Record<ModoTema, PaletaColores> = {
     sombra: '#0A0C26',
   },
   oscuro: {
-    fondo: '#080A24',
-    fondoProfundo: '#05071A',
-    superficie: 'rgba(21, 24, 61, 0.78)',
-    superficieSuave: 'rgba(28, 32, 72, 0.6)',
-    vidrio: 'rgba(21, 24, 61, 0.72)',
-    vidrioSuave: 'rgba(28, 32, 72, 0.6)',
+    fondo: '#080A20',
+    fondoProfundo: '#050614',
+    superficie: 'rgba(22, 25, 58, 0.94)',
+    superficieSuave: 'rgba(30, 34, 74, 0.7)',
+    vidrio: 'rgba(22, 25, 58, 0.86)',
+    vidrioSuave: 'rgba(30, 34, 74, 0.62)',
     primario: '#FFFFFF',
     primarioOscuro: '#D7D9F2',
     primarioSuave: 'rgba(255, 255, 255, 0.1)',
@@ -79,7 +79,7 @@ export const paletas: Record<ModoTema, PaletaColores> = {
     texto: '#FFFFFF',
     textoSuave: '#A5A7C5',
     textoInverso: '#FFFFFF',
-    borde: 'rgba(255, 255, 255, 0.08)',
+    borde: 'rgba(255, 255, 255, 0.09)',
     bordeLuminoso: 'rgba(168, 85, 247, 0.45)',
     peligro: '#FB7185',
     peligroSuave: 'rgba(251, 113, 133, 0.14)',
@@ -137,6 +137,26 @@ export const sombraMedia = (c: PaletaColores) =>
     },
   }).card;
 
+/**
+ * Sombra única para tarjetas. Es deliberadamente suave: en Android una
+ * elevación alta + un borde dibuja lo que parece un "doble borde".
+ */
+export const sombraTarjeta = (c: PaletaColores): ViewStyle => ({
+  shadowColor: c.sombra,
+  shadowOpacity: 0.07,
+  shadowRadius: 16,
+  shadowOffset: { width: 0, height: 7 },
+  elevation: 2,
+});
+
+export const sombraFlotante = (c: PaletaColores): ViewStyle => ({
+  shadowColor: c.sombra,
+  shadowOpacity: 0.14,
+  shadowRadius: 24,
+  shadowOffset: { width: 0, height: 10 },
+  elevation: 6,
+});
+
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -149,8 +169,8 @@ export const spacing = {
 export const radius = {
   sm: 12,
   md: 16,
-  lg: 22,
-  xl: 28,
+  lg: 24,
+  xl: 30,
   full: 999,
 } as const;
 

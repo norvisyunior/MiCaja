@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect } from '@react-navigation/native';
@@ -18,7 +18,18 @@ import {
   inicioMesISO,
   inicioSemanaISO,
 } from '../utils/fechas';
-import { Badge, Boton, Campo, Chip, Encabezado, Hoja, ListaVacia, Pantalla, ReglaPunteada, SombraDura, EstadoCarga } from '../components/UI';
+import {
+  Badge,
+  Boton,
+  Campo,
+  Chip,
+  Encabezado,
+  EstadoCarga,
+  Hoja,
+  ListaVacia,
+  Pantalla,
+  Tarjeta,
+} from '../components/UI';
 import { fuentes, radius, spacing, typography } from '../theme';
 
 type Filtro = 'hoy' | 'semana' | 'mes' | 'todas';
@@ -29,6 +40,8 @@ const FILTROS: { id: Filtro; etiqueta: string }[] = [
   { id: 'mes', etiqueta: 'Mes' },
   { id: 'todas', etiqueta: 'Todas' },
 ];
+
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
 function rango(filtro: Filtro): [string, string] {
   switch (filtro) {
@@ -133,18 +146,27 @@ export default function HistorialScreen() {
     <Pantalla>
       <Encabezado
         titulo="Historial"
-        subtitulo={ventasValidas > 0 ? `${ventasValidas} venta(s) · ${formatearDinero(totalFiltrado, simbolo)}` : 'Tus ventas registradas'}
+        subtitulo={
+          ventasValidas > 0
+            ? `${ventasValidas} venta(s) · ${formatearDinero(totalFiltrado, simbolo)}`
+            : 'Tus ventas registradas'
+        }
       />
-      <View style={[styles.busqueda, { gap: spacing.sm }]}>
+      <View style={styles.busqueda}>
         <Campo
           valor={busqueda}
           onChange={setBusqueda}
           placeholder="Buscar por número, producto o usuario…"
           icono="search"
         />
-        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        <View style={styles.filtros}>
           {FILTROS.map((f) => (
-            <Chip key={f.id} etiqueta={f.etiqueta} activo={filtro === f.id} onPress={() => setFiltro(f.id)} />
+            <Chip
+              key={f.id}
+              etiqueta={f.etiqueta}
+              activo={filtro === f.id}
+              onPress={() => setFiltro(f.id)}
+            />
           ))}
         </View>
       </View>
@@ -156,64 +178,92 @@ export default function HistorialScreen() {
           data={filtradas}
           keyExtractor={(v) => String(v.id)}
           contentContainerStyle={[styles.lista, { paddingBottom: 110 }]}
+          showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <ListaVacia emoji="🧾" titulo="Sin ventas" subtitulo="Las ventas registradas aparecerán aquí" />
           }
           renderItem={({ item }) => {
             const d = new Date(item.fechaIso);
-            const fecha = d.toLocaleDateString('es-CU', { day: '2-digit', month: 'short' });
+            const dia = String(d.getDate()).padStart(2, '0');
+            const mes = MESES[d.getMonth()];
             const hora = d.toLocaleTimeString('es-CU', { hour: '2-digit', minute: '2-digit' });
+            const productos =
+              item.items.length > 0
+                ? item.items.map((it) => it.nombre).slice(0, 3).join(', ')
+                : `Venta N.º ${item.numero}`;
+            const extra = item.items.length > 3 ? ` +${item.items.length - 3}` : '';
+
             return (
-              <SombraDura redondeo={radius.md} offset={3}>
-                <Pressable
-                  onPress={() => abrirDetalle(item)}
-                  style={({ pressed }) => [
-                    styles.filaVenta,
-                    { backgroundColor: colores.superficie, borderColor: colores.borde },
-                    pressed && { opacity: 0.9 },
+              <Tarjeta
+                onPress={() => abrirDetalle(item)}
+                padding={spacing.md}
+                estilo={[styles.venta, item.anulada && { opacity: 0.72 }]}
+              >
+                <View
+                  style={[
+                    styles.fechaBloque,
+                    {
+                      backgroundColor: item.anulada ? colores.peligroSuave : colores.acentoSuave,
+                    },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.fechaBloque,
-                      {
-                        backgroundColor: item.anulada ? colores.peligroSuave : colores.superficieSuave,
-                        borderColor: item.anulada ? colores.peligro : colores.borde,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.fechaDia, { color: item.anulada ? colores.peligro : colores.primario }]}>
-                      {fecha}
-                    </Text>
-                    <Text style={[styles.fechaHora, { color: colores.textoSuave }]}>{hora}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.filaVentaNombre, { color: colores.texto }]} numberOfLines={1}>
-                      {item.items.length > 0 ? item.items.map((it) => it.nombre).slice(0, 3).join(', ') : `Venta N.º ${item.numero}`}
-                      {item.items.length > 3 ? ` +${item.items.length - 3}` : ''}
-                    </Text>
-                    <View style={styles.filaVentaBadges}>
+                  <Text style={[styles.fechaDia, { color: item.anulada ? colores.peligro : colores.acento }]}>
+                    {dia}
+                  </Text>
+                  <Text style={[styles.fechaMes, { color: item.anulada ? colores.peligro : colores.acento }]}>
+                    {mes}
+                  </Text>
+                  <Text style={[styles.fechaHora, { color: colores.textoSuave }]}>{hora}</Text>
+                </View>
+
+                <View style={styles.ventaCentro}>
+                  <Text style={[styles.ventaNombre, { color: colores.texto }]} numberOfLines={1}>
+                    {productos}
+                    {extra}
+                  </Text>
+                  <View style={styles.badges}>
+                    <Badge
+                      texto={`#${item.numero}`}
+                      color={colores.superficieSuave}
+                      colorTexto={colores.textoSuave}
+                    />
+                    <Badge
+                      texto={NOMBRES_FORMA_PAGO[item.formaPago as FormaPago]}
+                      color={colores.infoSuave}
+                      colorTexto={colores.info}
+                    />
+                    {item.usuarioNombre ? (
                       <Badge
-                        texto={NOMBRES_FORMA_PAGO[item.formaPago]}
-                        color={colores.infoSuave}
-                        colorTexto={colores.info}
+                        texto={item.usuarioNombre}
+                        icono="person"
+                        color={colores.superficieSuave}
+                        colorTexto={colores.textoSuave}
                       />
-                      {item.anulada ? (
-                        <Badge texto="Anulada" color={colores.peligroSuave} colorTexto={colores.peligro} icono="block" />
-                      ) : null}
-                    </View>
+                    ) : null}
+                    {item.anulada ? (
+                      <Badge
+                        texto="Anulada"
+                        color={colores.peligroSuave}
+                        colorTexto={colores.peligro}
+                        icono="block"
+                      />
+                    ) : null}
                   </View>
+                </View>
+
+                <View style={styles.ventaDerecha}>
                   <Text
                     style={[
-                      styles.filaVentaTotal,
+                      styles.ventaTotal,
                       { color: colores.texto },
                       item.anulada && { color: colores.textoSuave, textDecorationLine: 'line-through' },
                     ]}
                   >
                     {formatearDinero(item.total, simbolo)}
                   </Text>
-                </Pressable>
-              </SombraDura>
+                  <MaterialIcons name="chevron-right" size={18} color={colores.textoSuave} />
+                </View>
+              </Tarjeta>
             );
           }}
         />
@@ -243,28 +293,61 @@ export default function HistorialScreen() {
         {detalle ? (
           <>
             <View style={styles.detalleCabecera}>
-              <Badge texto={NOMBRES_FORMA_PAGO[detalle.formaPago]} color={colores.infoSuave} colorTexto={colores.info} />
-              <Badge texto={detalle.usuarioNombre ?? '—'} icono="person" color={colores.superficieSuave} colorTexto={colores.textoSuave} />
+              <Badge
+                texto={NOMBRES_FORMA_PAGO[detalle.formaPago]}
+                color={colores.infoSuave}
+                colorTexto={colores.info}
+              />
+              <Badge
+                texto={detalle.usuarioNombre ?? '—'}
+                icono="person"
+                color={colores.superficieSuave}
+                colorTexto={colores.textoSuave}
+              />
               {detalle.anulada ? (
-                <Badge texto="Anulada" color={colores.peligroSuave} colorTexto={colores.peligro} icono="block" />
+                <Badge
+                  texto="Anulada"
+                  color={colores.peligroSuave}
+                  colorTexto={colores.peligro}
+                  icono="block"
+                />
               ) : null}
             </View>
 
-            {detalle.items.map((it) => (
-              <View key={it.id} style={[styles.detalleItem, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.detalleItemNombre, { color: colores.texto }]}>{it.nombre}</Text>
-                  <Text style={[styles.detalleItemSub, { color: colores.textoSuave }]}>
-                    {it.cantidad} × {formatearDinero(it.precioUnitario, simbolo)}
-                  </Text>
-                </View>
-                <Text style={[styles.detalleItemTotal, { color: colores.texto }]}>
-                  {formatearDinero(it.subtotal, simbolo)}
-                </Text>
-              </View>
-            ))}
+            <View
+              style={[
+                styles.grupoItems,
+                { backgroundColor: colores.superficie, borderColor: colores.borde },
+              ]}
+            >
+              {detalle.items.map((it, indice) => (
+                <Fragment key={it.id}>
+                  {indice > 0 ? (
+                    <View style={[styles.itemDivisor, { backgroundColor: colores.borde }]} />
+                  ) : null}
+                  <View style={styles.detalleItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.detalleItemNombre, { color: colores.texto }]}>
+                        {it.nombre}
+                      </Text>
+                      <Text style={[styles.detalleItemSub, { color: colores.textoSuave }]}>
+                        {it.cantidad} × {formatearDinero(it.precioUnitario, simbolo)}
+                      </Text>
+                    </View>
+                    <Text style={[styles.detalleItemTotal, { color: colores.texto }]}>
+                      {formatearDinero(it.subtotal, simbolo)}
+                    </Text>
+                  </View>
+                </Fragment>
+              ))}
+            </View>
 
-            <View style={[styles.detalleTotales, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
+            <View
+              style={[
+                styles.detalleTotales,
+                { backgroundColor: colores.superficie, borderColor: colores.borde },
+              ]}
+            >
               <View style={styles.filaDetalle}>
                 <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>Subtotal</Text>
                 <Text style={[styles.valorDetalle, { color: colores.texto }]}>
@@ -296,18 +379,26 @@ export default function HistorialScreen() {
               <View
                 style={[
                   styles.filaDetalle,
-                  { borderTopWidth: 1, borderTopColor: colores.borde, paddingTop: spacing.sm, marginTop: spacing.sm },
+                  {
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: colores.borde,
+                    paddingTop: spacing.sm,
+                    marginTop: spacing.sm,
+                    marginBottom: 0,
+                  },
                 ]}
               >
                 <Text style={[styles.textoDetalleTotal, { color: colores.texto }]}>Total</Text>
-                <Text style={[styles.valorDetalleTotal, { color: colores.primario }]}>
+                <Text style={[styles.valorDetalleTotal, { color: colores.acento }]}>
                   {formatearDinero(detalle.total, simbolo)}
                 </Text>
               </View>
             </View>
 
             {detalle.anulada ? (
-              <View style={[styles.anuladaInfo, { backgroundColor: colores.peligroSuave, borderColor: colores.peligro }]}>
+              <View
+                style={[styles.anuladaInfo, { backgroundColor: colores.peligroSuave }]}
+              >
                 <MaterialIcons name="info-outline" size={18} color={colores.peligro} />
                 <Text style={[styles.anuladaTexto, { color: colores.peligro }]}>
                   {detalle.motivoAnulacion ?? 'Sin motivo registrado.'}
@@ -316,7 +407,9 @@ export default function HistorialScreen() {
             ) : null}
 
             {!detalle.anulada && noAnulable ? (
-              <View style={[styles.anuladaInfo, { backgroundColor: colores.advertenciaSuave, borderColor: colores.advertencia }]}>
+              <View
+                style={[styles.anuladaInfo, { backgroundColor: colores.advertenciaSuave }]}
+              >
                 <MaterialIcons name="lock" size={18} color={colores.advertencia} />
                 <Text style={[styles.anuladaTexto, { color: colores.advertencia }]}>
                   La caja de esta venta ya está cerrada. No se puede anular.
@@ -326,7 +419,7 @@ export default function HistorialScreen() {
 
             {anulando ? (
               <View style={styles.anularZona}>
-                <ReglaPunteada estilo={{ marginBottom: spacing.lg }} />
+                <View style={[styles.anularDivisor, { backgroundColor: colores.borde }]} />
                 <Campo
                   etiqueta="Motivo de la anulación"
                   valor={motivo}
@@ -336,7 +429,12 @@ export default function HistorialScreen() {
                   autoFocus
                 />
                 <View style={styles.anularBotones}>
-                  <Boton titulo="Cancelar" variante="secundario" onPress={() => setAnulando(false)} estilo={{ flex: 1 }} />
+                  <Boton
+                    titulo="Cancelar"
+                    variante="secundario"
+                    onPress={() => setAnulando(false)}
+                    estilo={{ flex: 1 }}
+                  />
                   <Boton
                     titulo="Confirmar anulación"
                     variante="peligro"
@@ -357,14 +455,12 @@ export default function HistorialScreen() {
 
 const styles = StyleSheet.create({
   busqueda: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
+  filtros: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
   lista: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-  filaVenta: {
+  venta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
   },
   fechaBloque: {
     width: 56,
@@ -373,25 +469,65 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   fechaDia: {
-    fontSize: typography.cuerpoChico,
+    fontSize: 18,
     fontFamily: fuentes.bold,
+    lineHeight: 22,
+    fontVariant: ['tabular-nums'],
   },
-  fechaHora: { fontSize: typography.micro, fontFamily: fuentes.medium, marginTop: 2 },
-  filaVentaNombre: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
-  filaVentaBadges: { flexDirection: 'row', gap: spacing.xs, marginTop: 6, flexWrap: 'wrap' },
-  filaVentaTotal: {
+  fechaMes: {
+    fontSize: 10,
+    fontFamily: fuentes.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  fechaHora: {
+    fontSize: 9,
+    fontFamily: fuentes.medium,
+    marginTop: 3,
+  },
+  ventaCentro: {
+    flex: 1,
+    gap: 6,
+  },
+  ventaNombre: {
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.semibold,
+  },
+  badges: {
+    flexDirection: 'row',
+    gap: 4,
+    flexWrap: 'wrap',
+  },
+  ventaDerecha: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  ventaTotal: {
     fontSize: typography.cuerpo,
     fontFamily: fuentes.bold,
     fontVariant: ['tabular-nums'],
   },
-  detalleCabecera: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md, flexWrap: 'wrap' },
+  detalleCabecera: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    flexWrap: 'wrap',
+  },
+  grupoItems: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
   detalleItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
     padding: spacing.md,
-    marginBottom: spacing.sm,
+    gap: spacing.md,
+  },
+  itemDivisor: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: spacing.md,
+    marginRight: spacing.md,
   },
   detalleItemNombre: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
   detalleItemSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
@@ -404,14 +540,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
     padding: spacing.md,
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
   },
   filaDetalle: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: spacing.xs,
-    borderTopWidth: 0,
-    paddingTop: 0,
   },
   textoDetalle: { fontSize: typography.cuerpo, fontFamily: fuentes.regular },
   valorDetalle: {
@@ -428,12 +562,15 @@ const styles = StyleSheet.create({
   anuladaInfo: {
     flexDirection: 'row',
     gap: spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
     padding: spacing.md,
     marginTop: spacing.md,
   },
   anuladaTexto: { flex: 1, fontFamily: fuentes.semibold },
   anularZona: { marginTop: spacing.lg },
+  anularDivisor: {
+    height: StyleSheet.hairlineWidth,
+    marginBottom: spacing.lg,
+  },
   anularBotones: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
 });

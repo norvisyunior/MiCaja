@@ -29,9 +29,9 @@ import {
   PaletaColores,
   Pantalla,
   parsearMonto,
-  SombraDura,
+  Tarjeta,
 } from '../components/UI';
-import { fuentes, gradientes, radius, spacing, typography } from '../theme';
+import { fuentes, gradientes, radius, sombraFlotante, spacing, typography } from '../theme';
 
 export default function ProductosScreen() {
   const db = useSQLiteContext();
@@ -224,7 +224,7 @@ export default function ProductosScreen() {
             onPress={() => abrirForm(null)}
             style={({ pressed }) => [
               styles.fab,
-              { shadowColor: colores.sombra },
+              { ...sombraFlotante(colores) },
               pressed && { transform: [{ scale: 0.92 }] },
             ]}
           >
@@ -260,31 +260,34 @@ export default function ProductosScreen() {
           filtrados.map((p) => {
             const cat = categorias.find((c) => c.id === p.categoriaId);
             return (
-              <SombraDura key={p.id} offset={2} redondeo={radius.lg} estilo={styles.filaSombra}>
-                <View
-                  style={[styles.filaProducto, { backgroundColor: colores.superficie, borderColor: colores.borde }]}
-                >
-                  <View style={[styles.emojiMini, { backgroundColor: `${p.color}14`, borderColor: colores.borde }]}>
-                    {p.imagen ? (
-                      <Image source={{ uri: p.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                    ) : (
-                      <Text style={{ fontSize: 22 }}>{p.emoji}</Text>
-                    )}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.filaTitulo, { color: colores.texto }]}>{p.nombre}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 4 }}>
-                      <Text style={[styles.precioTexto, { color: p.color }]}>
-                        {p.precio.toFixed(2)}
+              <Tarjeta key={p.id} padding={spacing.md} estilo={styles.filaProducto}>
+                <View style={[styles.emojiMini, { backgroundColor: `${p.color}14` }]}>
+                  {p.imagen ? (
+                    <Image source={{ uri: p.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                  ) : (
+                    <Text style={{ fontSize: 22 }}>{p.emoji}</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.filaTitulo, { color: colores.texto }]} numberOfLines={1}>
+                    {p.nombre}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 3 }}>
+                    <Text style={[styles.precioTexto, { color: p.color }]}>
+                      {p.precio.toFixed(2)}
+                    </Text>
+                    {cat ? (
+                      <Text style={[styles.filaSub, { color: colores.textoSuave }]} numberOfLines={1}>
+                        · {cat.nombre}
                       </Text>
-                      {cat ? (
-                        <Text style={[styles.filaSub, { color: colores.textoSuave }]}>· {cat.nombre}</Text>
-                      ) : null}
-                    </View>
-                    <View style={{ marginTop: 6 }}>
-                      <EstadoStock stock={p.stock} stockMinimo={p.stockMinimo} />
-                    </View>
+                    ) : null}
                   </View>
+                  <View style={{ marginTop: 6, flexDirection: 'row' }}>
+                    <EstadoStock stock={p.stock} stockMinimo={p.stockMinimo} />
+                  </View>
+                </View>
+
+                <View style={styles.accionesProducto}>
                   <Switch
                     value={p.activo}
                     onValueChange={async (v) => {
@@ -293,14 +296,36 @@ export default function ProductosScreen() {
                     }}
                     trackColor={{ true: colores.acento, false: colores.borde }}
                   />
-                  <Pressable onPress={() => abrirForm(p)} hitSlop={8} style={{ padding: 4 }}>
-                    <MaterialIcons name="edit" size={20} color={colores.textoSuave} />
-                  </Pressable>
-                  <Pressable onPress={() => setBorrando(p)} hitSlop={8} style={{ padding: 4 }}>
-                    <MaterialIcons name="delete-outline" size={20} color={colores.peligro} />
-                  </Pressable>
+                  <View style={styles.accionesIconos}>
+                    <Pressable
+                      onPress={() => abrirForm(p)}
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Editar ${p.nombre}`}
+                      style={({ pressed }) => [
+                        styles.accionIcono,
+                        { backgroundColor: colores.superficieSuave },
+                        pressed && { opacity: 0.6 },
+                      ]}
+                    >
+                      <MaterialIcons name="edit" size={18} color={colores.textoSuave} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setBorrando(p)}
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Eliminar ${p.nombre}`}
+                      style={({ pressed }) => [
+                        styles.accionIcono,
+                        { backgroundColor: colores.peligroSuave },
+                        pressed && { opacity: 0.6 },
+                      ]}
+                    >
+                      <MaterialIcons name="delete-outline" size={18} color={colores.peligro} />
+                    </Pressable>
+                  </View>
                 </View>
-              </SombraDura>
+              </Tarjeta>
             );
           })
         )}
@@ -446,34 +471,38 @@ const styles = StyleSheet.create({
   fab: {
     width: 44,
     height: 44,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#FFFFFF',
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  filaSombra: { borderRadius: radius.lg },
   filaProducto: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: spacing.md,
   },
   emojiMini: {
-    width: 44,
-    height: 44,
-    borderWidth: StyleSheet.hairlineWidth,
+    width: 46,
+    height: 46,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  accionesProducto: {
+    alignItems: 'flex-end',
+    gap: spacing.xs,
+  },
+  accionesIconos: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  accionIcono: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fotoFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
   fotoCaja: {

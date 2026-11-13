@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Categoria, Producto, Rol, Usuario } from '../../types';
 import { crearPinHash } from '../../utils/pin';
+import { normalizarUsuario } from '../../utils/usuario';
 
 interface FilaProducto {
   id: number;
@@ -148,6 +149,7 @@ export async function eliminarCategoria(db: SQLiteDatabase, id: number): Promise
 interface FilaUsuario {
   id: number;
   nombre: string;
+  usuario: string | null;
   rol: string;
   activo: number;
 }
@@ -155,12 +157,14 @@ interface FilaUsuario {
 const A_USUARIO = (f: FilaUsuario): Usuario => ({
   id: f.id,
   nombre: f.nombre,
+  usuario: f.usuario ?? '',
   rol: f.rol === 'admin' ? 'admin' : 'dependiente',
   activo: f.activo === 1,
 });
 
 export interface NuevoUsuario {
   nombre: string;
+  usuario: string;
   rol: Rol;
   activo: boolean;
   pin: string;
@@ -195,14 +199,29 @@ export async function crearUsuario(
 ): Promise<number> {
   const pinHash = await crearPinHash(u.pin);
   const res = await db.runAsync(
-    `INSERT INTO usuarios (nombre, rol, pin, activo, intentos_fallidos, bloqueado_hasta)
-     VALUES (?, ?, ?, ?, 0, NULL)`,
+    `INSERT INTO usuarios (nombre, usuario, rol, pin, activo, intentos_fallidos, bloqueado_hasta)
+     VALUES (?, ?, ?, ?, ?, 0, NULL)`,
     u.nombre,
+    normalizarUsuario(u.usuario),
     u.rol,
     pinHash,
     u.activo ? 1 : 0
   );
   return res.lastInsertRowId;
+}
+
+/** Comprueba si un nombre de usuario ya está tomado (sin distinguir mayúsculas). */
+export async function existeNombreUsuario(
+  db: SQLiteDatabase,
+  usuario: string,
+  exceptoId?: number
+): Promise<boolean> {
+  const consulta = `SELECT COUNT(*) AS n FROM usuarios
+     WHERE usuario = ? COLLATE NOCASE${exceptoId ? ' AND id <> ?' : ''}`;
+  const fila = exceptoId
+    ? await db.getFirstAsync<{ n: number }>(consulta, normalizarUsuario(usuario), exceptoId)
+    : await db.getFirstAsync<{ n: number }>(consulta, normalizarUsuario(usuario));
+  return (fila?.n ?? 0) > 0;
 }
 
 /**
@@ -218,9 +237,10 @@ export async function actualizarUsuario(
     const pinHash = await crearPinHash(pinNuevo);
     await db.runAsync(
       `UPDATE usuarios
-       SET nombre = ?, rol = ?, activo = ?, pin = ?, intentos_fallidos = 0, bloqueado_hasta = NULL
+       SET nombre = ?, usuario = ?, rol = ?, activo = ?, pin = ?, intentos_fallidos = 0, bloqueado_hasta = NULL
        WHERE id = ?`,
       u.nombre,
+      normalizarUsuario(u.usuario),
       u.rol,
       u.activo ? 1 : 0,
       pinHash,
@@ -230,8 +250,9 @@ export async function actualizarUsuario(
   }
 
   await db.runAsync(
-    `UPDATE usuarios SET nombre = ?, rol = ?, activo = ? WHERE id = ?`,
+    `UPDATE usuarios SET nombre = ?, usuario = ?, rol = ?, activo = ? WHERE id = ?`,
     u.nombre,
+    normalizarUsuario(u.usuario),
     u.rol,
     u.activo ? 1 : 0,
     u.id

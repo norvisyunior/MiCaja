@@ -87,61 +87,92 @@ export function BarraApilada({
       {segmentos.map((s) => (
         <View
           key={s.etiqueta}
-          style={{ flex: s.valor / total, backgroundColor: s.color, minHeight: 14, borderRightWidth: 2, borderRightColor: colores.superficie }}
+          style={{ flex: s.valor / total, backgroundColor: s.color, minWidth: 6 }}
         />
       ))}
     </View>
   );
 }
 
+const COLORES_RANK = ['#F59E0B', '#94A3B8', '#B45309'];
+
 export function FilasProgreso({
   items,
-  simbolo = '',
 }: {
   items: { emoji: string; imagen?: string | null; nombre: string; valor: number; detalle: string }[];
-  simbolo?: string;
 }) {
   const { colores } = useTema();
   const maxValor = Math.max(...items.map((i) => i.valor), 1);
   return (
     <View style={{ gap: spacing.md }}>
-      {items.map((it, i) => (
-        <View key={`${it.nombre}-${i}`} style={{ gap: 6 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            {it.imagen ? (
-              <Image source={{ uri: it.imagen }} style={{ width: 28, height: 28, borderRadius: radius.sm }} />
-            ) : (
-              <Text style={{ fontSize: 18 }}>{it.emoji}</Text>
-            )}
-            <Text
-              style={{ flex: 1, fontSize: typography.cuerpo, fontFamily: fuentes.semibold, color: colores.texto }}
-              numberOfLines={1}
-            >
-              {it.nombre}
-            </Text>
-            <Text style={{ fontSize: typography.cuerpoChico, fontFamily: fuentes.bold, color: colores.textoSuave }}>
-              {it.detalle}
-            </Text>
-          </View>
-          <View
-            style={{
-              height: 10,
-              borderRadius: radius.full,
-              backgroundColor: colores.superficieSuave,
-              overflow: 'hidden',
-            }}
-          >
-            <Animated.View
+      {items.map((it, i) => {
+        const colorRank = COLORES_RANK[i] ?? colores.acento;
+        return (
+          <View key={`${it.nombre}-${i}`} style={{ gap: 7 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+              <View
+                style={[
+                  styles.rank,
+                  {
+                    backgroundColor: i < 3 ? `${colorRank}1F` : colores.superficieSuave,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontFamily: fuentes.bold,
+                    color: i < 3 ? colorRank : colores.textoSuave,
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {i + 1}
+                </Text>
+              </View>
+              {it.imagen ? (
+                <Image source={{ uri: it.imagen }} style={styles.rankImagen} />
+              ) : (
+                <Text style={{ fontSize: 18, width: 30, textAlign: 'center' }}>{it.emoji}</Text>
+              )}
+              <Text
+                style={{ flex: 1, fontSize: typography.cuerpoChico, fontFamily: fuentes.semibold, color: colores.texto }}
+                numberOfLines={1}
+              >
+                {it.nombre}
+              </Text>
+              <Text
+                style={{
+                  fontSize: typography.micro,
+                  fontFamily: fuentes.semibold,
+                  color: colores.textoSuave,
+                  fontVariant: ['tabular-nums'],
+                }}
+              >
+                {it.detalle}
+              </Text>
+            </View>
+            <View
               style={{
-                width: `${Math.max(4, (it.valor / maxValor) * 100)}%`,
-                height: '100%',
+                height: 8,
+                marginLeft: 30,
                 borderRadius: radius.full,
-                backgroundColor: colores.acento,
+                backgroundColor: colores.superficieSuave,
+                overflow: 'hidden',
               }}
-            />
+            >
+              <View
+                style={{
+                  width: `${Math.max(4, (it.valor / maxValor) * 100)}%`,
+                  height: '100%',
+                  borderRadius: radius.full,
+                  backgroundColor: i < 3 ? colorRank : colores.acento,
+                  opacity: i < 3 ? 1 : 0.7,
+                }}
+              />
+            </View>
           </View>
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
@@ -209,4 +240,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   barraApiladaVacia: { flex: 1 },
+  rank: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankImagen: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.sm,
+  },
 });

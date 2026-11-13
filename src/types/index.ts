@@ -3,6 +3,7 @@ export type Rol = 'admin' | 'dependiente';
 export interface Usuario {
   id: number;
   nombre: string;
+  usuario: string;
   rol: Rol;
   activo: boolean;
 }

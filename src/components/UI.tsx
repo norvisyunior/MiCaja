@@ -1,4 +1,6 @@
 ﻿import React, {
+  Children,
+  Fragment,
   useMemo,
   useState,
   type ComponentProps,
@@ -16,8 +18,10 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
   type KeyboardTypeOptions,
   type StyleProp,
+  type TextInputProps,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -29,6 +33,8 @@ import {
   gradientes,
   paletaProductos,
   radius,
+  sombraFlotante,
+  sombraTarjeta,
   spacing,
   typography,
   type PaletaColores,
@@ -120,12 +126,12 @@ export function SombraDura({
       style={[
         {
           borderRadius: redondeo,
-          backgroundColor: colores.vidrio,
+          backgroundColor: 'transparent',
           shadowColor: colores.sombra,
-          shadowOpacity: 0.32,
-          shadowRadius: offset * 6,
+          shadowOpacity: 0.14,
+          shadowRadius: offset * 4,
           shadowOffset: { width: 0, height: offset },
-          elevation: offset * 2,
+          elevation: offset * 1.5,
         },
         estilo,
       ]}
@@ -285,28 +291,26 @@ export function Tarjeta({
   onPress,
   redondeo = radius.lg,
   contorno = true,
+  padding = spacing.lg,
 }: {
   children: ReactNode;
   estilo?: StyleProp<ViewStyle>;
   onPress?: () => void;
   redondeo?: number;
   contorno?: boolean;
+  padding?: number;
 }) {
   const { colores } = useTema();
   const contenido = (
     <View
       style={[
-        styles.tarjeta,
         {
-          backgroundColor: colores.vidrio,
+          backgroundColor: colores.superficie,
           borderRadius: redondeo,
           borderWidth: contorno ? StyleSheet.hairlineWidth : 0,
           borderColor: contorno ? colores.borde : 'transparent',
-          shadowColor: colores.sombra,
-          shadowOpacity: 0.25,
-          shadowRadius: 22,
-          shadowOffset: { width: 0, height: 8 },
-          elevation: 4,
+          padding,
+          ...sombraTarjeta(colores),
         },
         estilo,
       ]}
@@ -318,10 +322,60 @@ export function Tarjeta({
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [{ width: '100%' }, pressed && { opacity: 0.9, transform: [{ scale: 0.99 }] }]}
+      style={({ pressed }) => [
+        pressed && { opacity: 0.94, transform: [{ scale: 0.995 }] },
+      ]}
     >
       {contenido}
     </Pressable>
+  );
+}
+
+/**
+ * Lista agrupada dentro de una sola tarjeta. Evita el patrón de tarjeta con
+ * sombra + tarjeta interna con borde, que en Android se veía como doble borde.
+ */
+export function Grupo({
+  children,
+  estilo,
+  sangria = 76,
+}: {
+  children: ReactNode;
+  estilo?: StyleProp<ViewStyle>;
+  sangria?: number;
+}) {
+  const { colores } = useTema();
+  const items = Children.toArray(children).filter(Boolean);
+
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: colores.superficie,
+          borderRadius: radius.lg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colores.borde,
+          ...sombraTarjeta(colores),
+        },
+        estilo,
+      ]}
+    >
+      {items.map((child, indice) => (
+        <Fragment key={indice}>
+          {indice > 0 ? (
+            <View
+              style={{
+                height: StyleSheet.hairlineWidth,
+                backgroundColor: colores.borde,
+                marginLeft: sangria,
+                marginRight: spacing.md,
+              }}
+            />
+          ) : null}
+          {child}
+        </Fragment>
+      ))}
+    </View>
   );
 }
 
@@ -542,6 +596,15 @@ export function Campo({
   sufijo,
   seguro,
   maxLength,
+  derecha,
+  onSubmitEditing,
+  returnKeyType,
+  autoCapitalize = 'sentences',
+  autoCorrect,
+  autoComplete,
+  textContentType,
+  editable = true,
+  inputRef,
 }: {
   etiqueta?: string;
   valor: string;
@@ -554,6 +617,15 @@ export function Campo({
   sufijo?: string;
   seguro?: boolean;
   maxLength?: number;
+  derecha?: ReactNode;
+  onSubmitEditing?: () => void;
+  returnKeyType?: TextInputProps['returnKeyType'];
+  autoCapitalize?: TextInputProps['autoCapitalize'];
+  autoCorrect?: boolean;
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
+  editable?: boolean;
+  inputRef?: React.RefObject<TextInput | null>;
 }) {
   const { colores } = useTema();
   const [enfocado, setEnfocado] = useState(false);
@@ -578,20 +650,21 @@ export function Campo({
           alignItems: 'center',
           gap: spacing.sm,
           backgroundColor: colores.superficie,
-          borderWidth: 1.5,
+          borderWidth: 1,
           borderColor: enfocado ? colores.bordeLuminoso : colores.borde,
           borderRadius: radius.md,
           paddingHorizontal: spacing.md,
           minHeight: 52,
           shadowColor: colores.acento,
-          shadowOpacity: enfocado ? 0.25 : 0,
+          shadowOpacity: enfocado ? 0.18 : 0,
           shadowRadius: 10,
           shadowOffset: { width: 0, height: 0 },
-          elevation: enfocado ? 3 : 0,
+          elevation: enfocado ? 2 : 0,
         }}
       >
         {icono ? <MaterialIcons name={icono} size={20} color={colores.textoSuave} /> : null}
         <TextInput
+          ref={inputRef}
           style={{
             flex: 1,
             fontSize: typography.cuerpo,
@@ -611,13 +684,21 @@ export function Campo({
           maxLength={maxLength}
           underlineColorAndroid="transparent"
           cursorColor={colores.acento}
-          selectionColor="transparent"
+          selectionColor={colores.acento}
           onFocus={() => setEnfocado(true)}
           onBlur={() => setEnfocado(false)}
+          onSubmitEditing={onSubmitEditing}
+          returnKeyType={returnKeyType}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
+          editable={editable}
         />
         {sufijo ? (
           <Text style={{ fontSize: typography.cuerpo, fontFamily: fuentes.semibold, color: colores.textoSuave }}>{sufijo}</Text>
         ) : null}
+        {derecha}
       </View>
     </View>
   );
@@ -755,6 +836,8 @@ export function Hoja({
   pie?: ReactNode;
 }) {
   const { colores } = useTema();
+  const { height: altoVentana } = useWindowDimensions();
+
   return (
     <Modal
       visible={visible}
@@ -766,14 +849,18 @@ export function Hoja({
       <View style={[styles.hojaFondo, { backgroundColor: colores.overlay }]}>
         <Pressable style={{ flex: 1 }} onPress={onCerrar} />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          // En Android un Modal no siempre se redimensiona con el teclado.
+          // "padding" eleva el contenido de la hoja y evita que el teclado
+          // tape los últimos campos del formulario.
+          behavior="padding"
+          keyboardVerticalOffset={0}
           style={[
             styles.hoja,
             {
               backgroundColor: colores.superficie,
               borderTopColor: colores.bordeLuminoso,
               borderTopWidth: StyleSheet.hairlineWidth,
-              maxHeight: alturaMaxima * 1000,
+              maxHeight: Math.max(200, altoVentana * alturaMaxima),
             },
           ]}
         >
@@ -824,6 +911,7 @@ export function Hoja({
           </View>
           <ScrollView
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             contentContainerStyle={styles.hojaContenido}
             showsVerticalScrollIndicator={false}
           >
@@ -864,52 +952,53 @@ export function ConfirmarModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCerrar}>
       <View style={[styles.confirmarFondo, { backgroundColor: colores.overlay }]}>
-        <SombraDura offset={6} redondeo={radius.xl} estilo={{ width: '100%', maxWidth: 400 }}>
-          <View
-            style={[
-              styles.confirmarTarjeta,
-              {
-                backgroundColor: 'transparent',
-              },
-            ]}
+        <View
+          style={[
+            styles.confirmarTarjeta,
+            {
+              backgroundColor: colores.superficie,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colores.borde,
+              ...sombraFlotante(colores),
+            },
+          ]}
+        >
+          <Text
+            style={{
+              fontSize: typography.subtitulo,
+              fontFamily: fuentes.bold,
+              color: colores.texto,
+              letterSpacing: -0.3,
+            }}
           >
-            <Text
-              style={{
-                fontSize: typography.subtitulo,
-                fontFamily: fuentes.bold,
-                color: colores.texto,
-                letterSpacing: -0.3,
+            {titulo}
+          </Text>
+          <Text
+            style={{
+              fontSize: typography.cuerpo,
+              color: colores.textoSuave,
+              marginTop: spacing.sm,
+              marginBottom: spacing.xl,
+              fontFamily: fuentes.regular,
+              lineHeight: 22,
+            }}
+          >
+            {mensaje}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: spacing.md }}>
+            <Boton titulo="Cancelar" variante="secundario" tamanio="sm" onPress={onCerrar} estilo={{ flex: 1 }} />
+            <Boton
+              titulo={textoConfirmar}
+              variante={peligro ? 'peligro' : 'primario'}
+              tamanio="sm"
+              onPress={() => {
+                onCerrar();
+                onConfirmar();
               }}
-            >
-              {titulo}
-            </Text>
-            <Text
-              style={{
-                fontSize: typography.cuerpo,
-                color: colores.textoSuave,
-                marginTop: spacing.sm,
-                marginBottom: spacing.xl,
-                fontFamily: fuentes.regular,
-                lineHeight: 22,
-              }}
-            >
-              {mensaje}
-            </Text>
-            <View style={{ flexDirection: 'row', gap: spacing.md }}>
-              <Boton titulo="Cancelar" variante="secundario" tamanio="sm" onPress={onCerrar} estilo={{ flex: 1 }} />
-              <Boton
-                titulo={textoConfirmar}
-                variante={peligro ? 'peligro' : 'primario'}
-                tamanio="sm"
-                onPress={() => {
-                  onCerrar();
-                  onConfirmar();
-                }}
-                estilo={{ flex: 1 }}
-              />
-            </View>
+              estilo={{ flex: 1 }}
+            />
           </View>
-        </SombraDura>
+        </View>
       </View>
     </Modal>
   );
@@ -1064,6 +1153,7 @@ const styles = StyleSheet.create({
   },
   hojaFondo: { flex: 1, justifyContent: 'flex-end' },
   hoja: {
+    flexShrink: 1,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     paddingTop: spacing.xs,

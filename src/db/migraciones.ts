@@ -1,8 +1,42 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { imagenArchivoADataUri } from '../utils/imagenes';
 import { crearPinHash, esPinHasheado } from '../utils/pin';
+import { generarUsuarioDesdeNombre, normalizarUsuario } from '../utils/usuario';
 
-export const DATABASE_VERSION = 5;
+export const DATABASE_VERSION = 6;
+
+/**
+ * Garantiza que todas las cuentas tengan un nombre de usuario único.
+ * Se ejecuta al migrar bases antiguas y al restaurar un backup, de modo que
+ * nadie se quede sin poder iniciar sesión.
+ */
+export async function asegurarUsernames(db: SQLiteDatabase): Promise<void> {
+  const filas = await db.getAllAsync<{ id: number; nombre: string; usuario: string | null }>(
+    `SELECT id, nombre, usuario FROM usuarios`
+  );
+
+  const usados = new Set<string>();
+  for (const fila of filas) {
+    const actual = normalizarUsuario(fila.usuario ?? '');
+    if (actual) usados.add(actual);
+  }
+
+  for (const fila of filas) {
+    const actual = normalizarUsuario(fila.usuario ?? '');
+    if (actual) continue;
+
+    const base = generarUsuarioDesdeNombre(fila.nombre);
+    let candidato = base;
+    let numero = 2;
+    while (usados.has(candidato)) {
+      const sufijo = String(numero++);
+      candidato = `${base.slice(0, 20 - sufijo.length)}${sufijo}`;
+    }
+
+    usados.add(candidato);
+    await db.runAsync(`UPDATE usuarios SET usuario = ? WHERE id = ?`, candidato, fila.id);
+  }
+}
 
 export async function migrarBase(db: SQLiteDatabase) {
   const resultado = await db.getFirstAsync<{ user_version: number }>(
@@ -48,8 +82,24 @@ export async function migrarBase(db: SQLiteDatabase) {
     if (!nombres.has('bloqueado_hasta')) {
       alteraciones.push('ALTER TABLE usuarios ADD COLUMN bloqueado_hasta TEXT');
     }
+    if (!nombres.has('usuario')) {
+      alteraciones.push(`ALTER TABLE usuarios ADD COLUMN usuario TEXT NOT NULL DEFAULT ''`);
+    }
     if (alteraciones.length > 0) {
       await db.execAsync(alteraciones.join(';'));
+    }
+
+    // Rellena usuarios vacíos (bases antiguas o backups restaurados) antes de
+    // crear el índice único.
+    await asegurarUsernames(db);
+    try {
+      await db.execAsync(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_usuario
+         ON usuarios(usuario COLLATE NOCASE)`
+      );
+    } catch {
+      // Si una base muy antigua tuviera duplicados, el índice se creará al
+      // corregir los usuarios desde Ajustes.
     }
   }
 
@@ -65,12 +115,16 @@ export async function migrarBase(db: SQLiteDatabase) {
       CREATE TABLE IF NOT EXISTS usuarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT NOT NULL,
+        usuario TEXT NOT NULL DEFAULT '',
         rol TEXT NOT NULL DEFAULT 'dependiente' CHECK (rol IN ('admin','dependiente')),
         pin TEXT NOT NULL DEFAULT '',
         activo INTEGER NOT NULL DEFAULT 1,
         intentos_fallidos INTEGER NOT NULL DEFAULT 0,
         bloqueado_hasta TEXT
       );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_usuario
+        ON usuarios(usuario COLLATE NOCASE);
 
       CREATE TABLE IF NOT EXISTS categorias (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
