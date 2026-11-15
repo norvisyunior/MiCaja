@@ -46,11 +46,12 @@ npx expo start
 ### Comandos desde la raíz del monorepo
 
 ```bash
-npm run backend   # API de licencias/sync en http://localhost:4000
-npm run mobile    # App Expo (Metro en http://localhost:8081)
-npm run tunel     # Túnel ngrok del backend para probar en un teléfono real
-npm run test      # Pruebas de las 3 partes (móvil, backend, shared)
-npm run typecheck # TypeScript de las 3 partes
+npm run backend        # API de licencias/sync en http://localhost:4000
+npm run mobile         # App Expo (Metro en http://localhost:8081)
+npm run mobile:tunnel  # App Expo con túnel (para teléfono fuera de tu red Wi-Fi)
+npm run tunel          # Túnel ngrok solo del backend (URL para Ajustes › Sincronización)
+npm run test           # Pruebas de las 3 partes (móvil, backend, shared)
+npm run typecheck      # TypeScript de las 3 partes
 ```
 
 ## 📱 Uso rápido
