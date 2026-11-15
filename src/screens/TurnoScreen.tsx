@@ -6,6 +6,8 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { TurnoCaja } from '../types';
 import { cerrarTurno, listarTurnos, turnoAbierto, turnoAbiertoOCrear } from '../db/repos/turnos';
 import { resumenVentasTurno, type ResumenVentasTurno } from '../db/repos/ventas';
+import { evaluarBloqueoOperativo } from '../licencias/verificar';
+import { AvisoLicencia } from '../components/AvisoLicencia';
 import { obtenerSettings } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
 import { useAvisos } from '../store/avisos';
@@ -66,6 +68,11 @@ export default function TurnoScreen() {
   );
 
   async function abrirTurno() {
+    const bloqueo = await evaluarBloqueoOperativo(db);
+    if (bloqueo) {
+      mostrarAviso(bloqueo.titulo, bloqueo.mensaje);
+      return;
+    }
     await turnoAbiertoOCrear(db, usuario.id, new Date());
     await cargar();
   }
@@ -77,6 +84,11 @@ export default function TurnoScreen() {
 
   async function confirmarCierre() {
     if (!turno || guardando) return;
+    const bloqueo = await evaluarBloqueoOperativo(db);
+    if (bloqueo) {
+      mostrarAviso(bloqueo.titulo, bloqueo.mensaje);
+      return;
+    }
     const dineroReal = parsearMonto(dineroTexto);
     setGuardando(true);
     try {
@@ -105,6 +117,8 @@ export default function TurnoScreen() {
   return (
     <Pantalla>
       <Encabezado titulo="Cierre de caja" subtitulo="Apertura, arqueo y cierre del turno" onAtras={() => navigation.goBack()} />
+
+      <AvisoLicencia />
 
       {turno ? (
         <Tarjeta estilo={styles.tarjetaTurno}>

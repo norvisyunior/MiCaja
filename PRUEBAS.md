@@ -72,3 +72,36 @@ Marca cada punto en un teléfono Android real antes de entregar o vender la app.
 - [ ] Abrir el teclado en formularios y confirmar que no tapa los campos.
 - [ ] Usar la app con modo oscuro del sistema.
 - [ ] Revisar que no hay pantallas en blanco ni cierres inesperados.
+
+## 9. Pruebas automáticas
+
+Estas se ejecutan en la computadora, no en el teléfono:
+
+```bash
+# App móvil: lógica pura (licencias, API, configuración de sync)
+npm test
+
+# App móvil: verificación de tipos
+npm run typecheck
+
+# Backend: pruebas de unidad (no necesitan base de datos)
+cd backend && npm test
+
+# Backend: flujo E2E completo (requiere DATABASE_URL y LICENSE_PRIVATE_KEY)
+cd backend && npm test
+```
+
+## 10. Plataforma: activación, sincronización y licencia
+
+Con el backend corriendo en desarrollo (`cd backend && npm run dev`) y Supabase configurado:
+
+- [ ] Desde **Ajustes → Sincronización**, guardar la URL del servidor y activar el dispositivo con un código de activación.
+- [ ] Activar el mismo código en un segundo dispositivo: debe rechazarlo si agotó su límite de usos.
+- [ ] **Adopción de instalación previa:** activar un dispositivo con usuarios/productos/turnos creados antes del código y sincronizar. El snapshot inicial (usuarios → categorías → productos → settings) debe subir primero y los turnos/ventas posteriores deben aplicarse sin errores de llave foránea en `sync_operations`.
+- [ ] Si el servidor rechazó operaciones, **Ajustes → Sincronización** muestra *"N con error"* y el botón **Reintentar las N con error**: al pulsarlo se reencolan con un `operation_id` nuevo y se sincronizan.
+- [ ] Stock tras adoptar: el inventario del servidor debe terminar igual al local (el upsert de producto lleva el stock compensado por operaciones pendientes).
+- [ ] Vender sin conexión: la venta queda en la cola y se envía al recuperar Internet.
+- [ ] Editar un producto offline en un dispositivo y en otro: el cambio con mayor versión gana y el stock se reconcilia.
+- [ ] Marcar una licencia como vencida en el servidor y sincronizar: la app muestra el aviso de licencia vencida e impide vender, abrir caja y cerrar turno.
+- [ ] Con licencia vencida: el historial, los reportes y los datos siguen accesibles.
+- [ ] Renovar la licencia y sincronizar: desaparece el aviso y la caja vuelve a operar.

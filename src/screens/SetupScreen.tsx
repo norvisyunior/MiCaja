@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,7 +23,7 @@ import {
   normalizarUsuario,
 } from '../utils/usuario';
 
-export default function SetupScreen() {
+export default function SetupScreen({ onCancelar }: { onCancelar?: () => void }) {
   const db = useSQLiteContext();
   const iniciar = useSesion((s) => s.iniciar);
   const { colores } = useTema();
@@ -97,6 +98,16 @@ export default function SetupScreen() {
           contentContainerStyle={styles.contenido}
           keyboardShouldPersistTaps="handled"
         >
+          {onCancelar ? (
+            <Pressable
+              onPress={onCancelar}
+              hitSlop={8}
+              style={({ pressed }) => [styles.volver, pressed && { opacity: 0.6 }]}
+            >
+              <MaterialIcons name="arrow-back" size={20} color={colores.textoSuave} />
+              <Text style={[styles.volverTexto, { color: colores.textoSuave }]}>Volver</Text>
+            </Pressable>
+          ) : null}
           <View style={styles.hero}>
             <Gradiente colores={gradientes.primario} estilo={styles.logo}>
               <Text style={styles.logoTexto}>$</Text>
@@ -199,6 +210,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xl,
+  },
+  volver: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    marginBottom: spacing.md,
+  },
+  volverTexto: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.medium,
   },
   hero: {
     alignItems: 'center',

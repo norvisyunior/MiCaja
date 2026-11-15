@@ -1,84 +1,147 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { claveDiaLocal } from '../utils/fechas';
+import { ahoraIso, nuevoUuid, obtenerContextoLocal } from './contexto';
+import { registrarMovimientoLocal } from './repos/inventario';
+import {
+  encolarCategoriaUpsert,
+  encolarProductoUpsert,
+  encolarSettingUpsert,
+} from './sync/encolar';
 
-export async function sembrarDatosIniciales(db: SQLiteDatabase) {
-  // Se usa la tabla settings como marca de siembra: así, si el usuario borra
-  // todas las cuentas, no se recrean datos ni se duplican productos.
-  const fila = await db.getFirstAsync<{ count: number }>(
-    'SELECT COUNT(*) AS count FROM settings'
+async function insertarSetting(
+  db: SQLiteDatabase,
+  clave: string,
+  valor: string,
+  sincronizar: boolean
+): Promise<void> {
+  const res = await db.runAsync(
+    `INSERT OR IGNORE INTO settings (clave, valor, version, updated_at)
+     VALUES (?, ?, 1, ?)`,
+    clave,
+    valor,
+    ahoraIso()
+  );
+  if (sincronizar && res.changes > 0) {
+    await encolarSettingUpsert(db, clave, valor, 1);
+  }
+}
+
+export async function sembrarDatosIniciales(db: SQLiteDatabase): Promise<void> {
+  const marcador = await db.getFirstAsync<{ valor: string }>(
+    `SELECT valor FROM settings WHERE clave = 'datos_iniciales'`
+  );
+  if (marcador?.valor === '1') return;
+
+  const categoriasExistentes = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM categorias`
+  );
+  const negocioExistente = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM settings WHERE clave = 'nombre_negocio'`
   );
 
-  if (fila && fila.count > 0) {
+  if ((categoriasExistentes?.total ?? 0) > 0 || (negocioExistente?.total ?? 0) > 0) {
+    await db.runAsync(
+      `INSERT OR IGNORE INTO settings (clave, valor, version, updated_at)
+       VALUES ('datos_iniciales', '1', 1, ?)`,
+      ahoraIso()
+    );
     return;
   }
 
   await db.withTransactionAsync(async () => {
-    await db.runAsync(
-      `INSERT INTO settings (clave, valor) VALUES (?, ?)`,
-      ['nombre_negocio', 'Mi Negocio']
-    );
-    await db.runAsync(
-      `INSERT INTO settings (clave, valor) VALUES (?, ?)`,
-      ['simbolo_moneda', '$']
-    );
-    await db.runAsync(
-      `INSERT INTO settings (clave, valor) VALUES (?, ?)`,
-      ['moneda', 'CUP']
-    );
-    await db.runAsync(
-      `INSERT INTO settings (clave, valor) VALUES (?, ?)`,
-      ['dia_venta', claveDiaLocal()]
-    );
-    await db.runAsync(
-      `INSERT INTO settings (clave, valor) VALUES (?, ?)`,
-      ['numero_venta_dia', '0']
-    );
-    await db.runAsync(
-      `INSERT INTO settings (clave, valor) VALUES (?, ?)`,
-      ['tema', 'claro']
-    );
+    const contexto = await obtenerContextoLocal(db);
+    const ahora = ahoraIso();
+
+    await insertarSetting(db, 'nombre_negocio', 'Mi Negocio', true);
+    await insertarSetting(db, 'simbolo_moneda', '$', true);
+    await insertarSetting(db, 'moneda', 'CUP', true);
+    await insertarSetting(db, 'dia_venta', claveDiaLocal(), false);
+    await insertarSetting(db, 'numero_venta_dia', '0', false);
+    await insertarSetting(db, 'tema', 'claro', false);
 
     // No se crean usuarios por defecto: el primer arranque obliga a configurar
     // un administrador con su propio PIN.
 
-    const { lastInsertRowId: catBebidas } = await db.runAsync(
-      `INSERT INTO categorias (nombre, color, orden, activo) VALUES (?, ?, 1, 1)`,
-      'Bebidas',
-      '#0EA5E9'
-    );
-    const { lastInsertRowId: catComida } = await db.runAsync(
-      `INSERT INTO categorias (nombre, color, orden, activo) VALUES (?, ?, 2, 1)`,
-      'Comida',
-      '#F59E0B'
-    );
-    const { lastInsertRowId: catDulces } = await db.runAsync(
-      `INSERT INTO categorias (nombre, color, orden, activo) VALUES (?, ?, 3, 1)`,
-      'Dulces',
-      '#EC4899'
-    );
-
-    const productos: Array<[number, string, number, string, string, number, number, number]> = [
-      [catBebidas, 'Refresco', 50, '🥤', '#0EA5E9', 1, 30, 10],
-      [catBebidas, 'Café', 40, '☕', '#8B5CF6', 2, 40, 10],
-      [catComida, 'Pizza', 250, '🍕', '#F59E0B', 3, 12, 5],
-      [catComida, 'Hamburguesa', 200, '🍔', '#EF4444', 4, 15, 5],
-      [catComida, 'Papas', 100, '🍟', '#F97316', 5, 3, 5],
-      [catDulces, 'Helado', 60, '🍦', '#EC4899', 6, 0, 5],
+    const categorias: Array<[string, string, number]> = [
+      ['Bebidas', '#0EA5E9', 1],
+      ['Comida', '#F59E0B', 2],
+      ['Dulces', '#EC4899', 3],
     ];
+    const idsCategorias: number[] = [];
 
-    for (const [categoriaId, nombre, precio, emoji, color, orden, stock, stockMinimo] of productos) {
-      await db.runAsync(
-        `INSERT INTO productos (categoria_id, nombre, precio, emoji, color, orden, activo, stock, stock_minimo)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-        categoriaId,
+    for (const [nombre, color, orden] of categorias) {
+      const res = await db.runAsync(
+        `INSERT INTO categorias
+           (uuid, empresa_id, nombre, color, orden, activo, updated_at, deleted_at, version)
+         VALUES (?, ?, ?, ?, ?, 1, ?, NULL, 1)`,
+        nuevoUuid(),
+        contexto.empresaId,
         nombre,
-        precio,
-        emoji,
         color,
         orden,
-        stock,
-        stockMinimo
+        ahora
       );
+      idsCategorias.push(res.lastInsertRowId);
+      await encolarCategoriaUpsert(db, res.lastInsertRowId);
     }
+
+    const productos: Array<{
+      categoria: number;
+      nombre: string;
+      precio: number;
+      emoji: string;
+      color: string;
+      orden: number;
+      stock: number;
+      stockMinimo: number;
+    }> = [
+      { categoria: idsCategorias[0], nombre: 'Refresco', precio: 50, emoji: '🥤', color: '#0EA5E9', orden: 1, stock: 30, stockMinimo: 10 },
+      { categoria: idsCategorias[0], nombre: 'Café', precio: 40, emoji: '☕', color: '#8B5CF6', orden: 2, stock: 40, stockMinimo: 10 },
+      { categoria: idsCategorias[1], nombre: 'Pizza', precio: 250, emoji: '🍕', color: '#F59E0B', orden: 3, stock: 12, stockMinimo: 5 },
+      { categoria: idsCategorias[1], nombre: 'Hamburguesa', precio: 200, emoji: '🍔', color: '#EF4444', orden: 4, stock: 15, stockMinimo: 5 },
+      { categoria: idsCategorias[1], nombre: 'Papas', precio: 100, emoji: '🍟', color: '#F97316', orden: 5, stock: 3, stockMinimo: 5 },
+      { categoria: idsCategorias[2], nombre: 'Helado', precio: 60, emoji: '🍦', color: '#EC4899', orden: 6, stock: 0, stockMinimo: 5 },
+    ];
+
+    for (const producto of productos) {
+      const uuid = nuevoUuid();
+      const res = await db.runAsync(
+        `INSERT INTO productos
+           (uuid, empresa_id, categoria_id, nombre, precio, emoji, color, orden,
+            activo, stock, stock_minimo, updated_at, deleted_at, version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, 1)`,
+        uuid,
+        contexto.empresaId,
+        producto.categoria,
+        producto.nombre,
+        producto.precio,
+        producto.emoji,
+        producto.color,
+        producto.orden,
+        producto.stock,
+        producto.stockMinimo,
+        ahora
+      );
+
+      if (producto.stock !== 0) {
+        await registrarMovimientoLocal(db, {
+          productoId: res.lastInsertRowId,
+          productoUuid: uuid,
+          tipo: 'inicial',
+          cantidad: producto.stock,
+          referenciaTipo: 'producto',
+          referenciaId: uuid,
+          // El stock viaja en el producto_upsert; el movimiento queda local.
+          sincronizar: false,
+        });
+      }
+      await encolarProductoUpsert(db, res.lastInsertRowId);
+    }
+
+    await db.runAsync(
+      `INSERT OR IGNORE INTO settings (clave, valor, version, updated_at)
+       VALUES ('datos_iniciales', '1', 1, ?)`,
+      ahora
+    );
   });
 }

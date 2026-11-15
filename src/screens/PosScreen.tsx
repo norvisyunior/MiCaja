@@ -16,6 +16,7 @@ import { listarCategorias, listarProductosActivos } from '../db/repos/catalogo';
 import { obtenerSettings } from '../db/repos/settings';
 import { turnoAbierto, turnoAbiertoOCrear } from '../db/repos/turnos';
 import { registrarVenta, type VentaNueva } from '../db/repos/ventas';
+import { evaluarBloqueoOperativo } from '../licencias/verificar';
 import { useSesion } from '../store/sesion';
 import { useCarrito, usarTotales } from '../store/carrito';
 import { useAvisos } from '../store/avisos';
@@ -38,6 +39,7 @@ import {
   Sello,
   parsearMonto,
 } from '../components/UI';
+import { AvisoLicencia } from '../components/AvisoLicencia';
 import {
   fuentes,
   gradientes,
@@ -184,11 +186,21 @@ export default function PosScreen() {
   }
 
   async function abrirCaja() {
+    const bloqueo = await evaluarBloqueoOperativo(db);
+    if (bloqueo) {
+      mostrarAviso(bloqueo.titulo, bloqueo.mensaje);
+      return;
+    }
     await turnoAbiertoOCrear(db, usuario.id, new Date());
     setTurno(await turnoAbierto(db, usuario.id));
   }
 
   async function confirmarVenta() {
+    const bloqueo = await evaluarBloqueoOperativo(db);
+    if (bloqueo) {
+      mostrarAviso(bloqueo.titulo, bloqueo.mensaje);
+      return;
+    }
     if (guardando) return;
     const total = totales.total;
     let montoEfectivo = 0;
@@ -282,6 +294,8 @@ export default function PosScreen() {
           </Pressable>
         )}
       </View>
+
+      <AvisoLicencia />
 
       <FlatList
         horizontal

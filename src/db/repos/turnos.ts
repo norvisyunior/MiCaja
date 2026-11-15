@@ -1,8 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { FormaPago, TurnoCaja } from '../../types';
+import { ahoraIso, nuevoUuid, obtenerContextoLocal } from '../contexto';
+import { encolarTurnoApertura, encolarTurnoCierre } from '../sync/encolar';
 
 interface FilaTurno {
   id: number;
+  uuid: string | null;
   usuario_id: number;
   apertura: string;
   cierre: string | null;
@@ -16,6 +19,7 @@ interface FilaTurno {
 
 const A_TURNO = (f: FilaTurno): TurnoCaja => ({
   id: f.id,
+  uuid: f.uuid ?? undefined,
   usuarioId: f.usuario_id,
   apertura: f.apertura,
   cierre: f.cierre,
@@ -32,20 +36,37 @@ export async function turnoAbiertoOCrear(
   usuarioId: number,
   ahora: Date
 ): Promise<number | null> {
-  const fila = await db.getFirstAsync<FilaTurno>(
-    `SELECT * FROM turnos_caja WHERE estado = 'abierto' AND usuario_id = ? ORDER BY id DESC LIMIT 1`,
-    usuarioId
-  );
-  if (fila) {
-    return fila.id;
-  }
+  let turnoId: number | null = null;
 
-  const res = await db.runAsync(
-    `INSERT INTO turnos_caja (usuario_id, apertura, estado) VALUES (?, ?, 'abierto')`,
-    usuarioId,
-    ahora.toISOString()
-  );
-  return res.lastInsertRowId;
+  await db.withTransactionAsync(async () => {
+    const fila = await db.getFirstAsync<FilaTurno>(
+      `SELECT * FROM turnos_caja
+       WHERE estado = 'abierto' AND usuario_id = ?
+       ORDER BY id DESC LIMIT 1`,
+      usuarioId
+    );
+    if (fila) {
+      turnoId = fila.id;
+      return;
+    }
+
+    const contexto = await obtenerContextoLocal(db);
+    const res = await db.runAsync(
+      `INSERT INTO turnos_caja
+         (uuid, empresa_id, device_id, usuario_id, apertura, estado, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'abierto', ?)`,
+      nuevoUuid(),
+      contexto.empresaId,
+      contexto.deviceId,
+      usuarioId,
+      ahora.toISOString(),
+      ahoraIso()
+    );
+    turnoId = res.lastInsertRowId;
+    await encolarTurnoApertura(db, turnoId);
+  });
+
+  return turnoId;
 }
 
 export async function turnoAbierto(
@@ -119,7 +140,7 @@ export async function cerrarTurno(
     await db.runAsync(
       `UPDATE turnos_caja
        SET cierre = ?, ventas_count = ?, total_esperado = ?, desglose_json = ?,
-           dinero_real = ?, diferencia = ?, estado = 'cerrado'
+           dinero_real = ?, diferencia = ?, estado = 'cerrado', updated_at = ?
        WHERE id = ?`,
       cierre,
       resumen?.ventas ?? 0,
@@ -127,8 +148,11 @@ export async function cerrarTurno(
       JSON.stringify(desglose),
       dineroReal,
       diferencia,
+      ahoraIso(),
       turnoId
     );
+
+    await encolarTurnoCierre(db, turnoId);
 
     resultado = A_TURNO({
       ...fila,

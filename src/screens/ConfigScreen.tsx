@@ -26,8 +26,21 @@ import {
 import { guardarSetting, obtenerSettings } from '../db/repos/settings';
 import { exportarVentasPDF, type RangoExportacion } from '../db/exportar';
 import { exportarBackup, seleccionarArchivoRestore, validarArchivoRestore, restaurarBackup } from '../db/backup';
+import {
+  CLAVE_URL_SERVIDOR,
+  leerTokenDispositivo,
+  leerUrlServidor,
+  normalizarUrlServidor,
+} from '../api/config';
+import { activarConCodigo, nombreDispositivoPorDefecto } from '../sync/activacion';
+import {
+  refrescarEstadoSync,
+  reintentarRechazadas as reintentarRechazadasSync,
+  sincronizar as ejecutarSync,
+} from '../sync/motor';
 import { useSesion } from '../store/sesion';
 import { useAvisos } from '../store/avisos';
+import { useSync } from '../store/sync';
 import { useTema } from '../store/tema';
 import {
   Badge,
@@ -52,7 +65,7 @@ import {
 } from '../utils/usuario';
 import type { ParamListRaiz } from '../navigation';
 
-type Vista = 'menu' | 'categorias' | 'usuarios' | 'negocio';
+type Vista = 'menu' | 'categorias' | 'usuarios' | 'negocio' | 'sync';
 
 const MONEDAS = ['CUP', 'MLC', 'USD'];
 
@@ -105,6 +118,11 @@ export default function ConfigScreen() {
   const { colores, modo, alternar } = useTema();
   const navigation = useNavigation<NavigationProp<ParamListRaiz>>();
   const mostrarAviso = useAvisos((s) => s.mostrar);
+  const sync = useSync();
+
+  useEffect(() => {
+    void refrescarEstadoSync(db);
+  }, [db]);
 
   const [vista, setVista] = useState<Vista>('menu');
   const [exportar, setExportar] = useState<null | 'hoja'>(null);
@@ -122,6 +140,9 @@ export default function ConfigScreen() {
   }
   if (vista === 'negocio') {
     return <NegocioVista onAtras={() => setVista('menu')} />;
+  }
+  if (vista === 'sync') {
+    return <SyncVista onAtras={() => setVista('menu')} />;
   }
 
   const esAdmin = usuario.rol === 'admin';
@@ -253,6 +274,20 @@ export default function ConfigScreen() {
                 sub="Importar copia de seguridad"
                 iconoDerecha="file-upload"
                 onPress={() => setRestore('hoja')}
+              />
+              <Fila
+                icono={<MaterialIcons name="cloud-sync" size={22} color={colores.acento} />}
+                colorIcono={colores.acento}
+                colorFondo={colores.acentoSuave}
+                titulo="Sincronización"
+                sub={
+                  sync.pendientes > 0
+                    ? `${sync.pendientes} operación(es) pendiente(s)`
+                    : sync.ultimaSync
+                      ? 'Todo al día'
+                      : 'Configurar conexión con la nube'
+                }
+                onPress={() => setVista('sync')}
               />
             </Grupo>
           </>
@@ -1002,6 +1037,248 @@ function NegocioVista({ onAtras }: { onAtras: () => void }) {
           </Text>
         </View>
         <Boton titulo="Guardar cambios" icono="save" tamanio="lg" onPress={guardar} />
+      </ScrollView>
+    </Pantalla>
+  );
+}
+
+function SyncVista({ onAtras }: { onAtras: () => void }) {
+  const db = useSQLiteContext();
+  const { colores } = useTema();
+  const mostrarAviso = useAvisos((s) => s.mostrar);
+  const sync = useSync();
+
+  const [url, setUrl] = useState('');
+  const [codigo, setCodigo] = useState('');
+  const [activado, setActivado] = useState<boolean | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [activando, setActivando] = useState(false);
+  const [reintentando, setReintentando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([leerUrlServidor(db), leerTokenDispositivo(db)])
+      .then(([direccion, token]) => {
+        setUrl(direccion);
+        setActivado(!!token);
+      })
+      .catch(() => setActivado(false));
+    void refrescarEstadoSync(db);
+  }, [db]);
+
+  async function guardarUrl() {
+    const limpia = normalizarUrlServidor(url);
+    await guardarSetting(db, CLAVE_URL_SERVIDOR, limpia);
+    setUrl(limpia);
+    mostrarAviso('Servidor guardado', 'La dirección se usará en la próxima sincronización.');
+  }
+
+  async function sincronizarAhora() {
+    if (guardando) return;
+    setError(null);
+    setGuardando(true);
+    try {
+      const resumen = await ejecutarSync(db);
+      mostrarAviso(
+        'Sincronización completada',
+        `${resumen.aplicadas} operación(es) enviadas y ${resumen.cambios} cambio(s) recibidos.`
+      );
+    } catch (fallo) {
+      setError(fallo instanceof Error ? fallo.message : 'No se pudo sincronizar.');
+    } finally {
+      setGuardando(false);
+      await refrescarEstadoSync(db);
+    }
+  }
+
+  async function reintentar() {
+    if (reintentando) return;
+    setError(null);
+    setReintentando(true);
+    try {
+      const resumen = await reintentarRechazadasSync(db);
+      mostrarAviso(
+        'Operaciones reenviadas',
+        resumen.rechazadas > 0
+          ? `${resumen.aplicadas} aplicada(s); ${resumen.rechazadas} siguieron con error.`
+          : `${resumen.aplicadas} aplicada(s) en el servidor.`
+      );
+    } catch (fallo) {
+      setError(fallo instanceof Error ? fallo.message : 'No se pudo reintentar.');
+    } finally {
+      setReintentando(false);
+      await refrescarEstadoSync(db);
+    }
+  }
+
+  async function activar() {
+    if (activando) return;
+    const limpio = codigo.trim().toUpperCase();
+    if (!/^MICAJA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(limpio)) {
+      setError('Escribe un código válido con el formato MICAJA-XXXX-XXXX-XXXX.');
+      return;
+    }
+
+    setError(null);
+    setActivando(true);
+    try {
+      const nombre = await nombreDispositivoPorDefecto(db);
+      const respuesta = await activarConCodigo(db, limpio, nombre);
+      setActivado(true);
+      setCodigo('');
+      await refrescarEstadoSync(db);
+      mostrarAviso('Dispositivo activado', `${respuesta.empresa.nombre} ya puede sincronizarse.`);
+    } catch (fallo) {
+      setError(fallo instanceof Error ? fallo.message : 'No se pudo activar el dispositivo.');
+    } finally {
+      setActivando(false);
+    }
+  }
+
+  const licencia = sync.licencia;
+  const etiquetaLicencia =
+    licencia?.estado === 'activa'
+      ? 'Licencia activa'
+      : licencia?.estado === 'gracia'
+        ? 'En período de gracia'
+        : licencia?.estado === 'vencida'
+          ? 'Licencia vencida'
+          : licencia?.estado === 'invalida'
+            ? 'Licencia inválida'
+            : 'Modo local sin licencia';
+  const colorLicencia =
+    licencia?.estado === 'activa'
+      ? colores.exito
+      : licencia?.estado === 'gracia'
+        ? colores.advertencia
+        : licencia?.estado === 'vencida' || licencia?.estado === 'invalida'
+          ? colores.peligro
+          : colores.info;
+
+  return (
+    <Pantalla>
+      <Encabezado
+        titulo="Sincronización"
+        subtitulo="Nube, respaldo y licencia"
+        onAtras={onAtras}
+      />
+      <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 60 }]}>
+        <Tarjeta estilo={{ marginTop: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.filaTitulo, { color: colores.texto }]}>Estado</Text>
+              <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
+                {sync.pendientes} pendiente(s) · {sync.fallidas} con error
+              </Text>
+              {sync.ultimaSync ? (
+                <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
+                  Última sync: {new Date(sync.ultimaSync).toLocaleString()}
+                </Text>
+              ) : null}
+            </View>
+            <Badge
+              texto={activado ? 'Activado' : 'Sin activar'}
+              color={activado ? colores.exitoSuave : colores.advertenciaSuave}
+              colorTexto={activado ? colores.exito : colores.advertencia}
+            />
+          </View>
+
+          {error ? (
+            <Text style={{ color: colores.peligro, fontFamily: fuentes.medium, fontSize: typography.cuerpoChico, marginTop: spacing.md }}>
+              {error}
+            </Text>
+          ) : null}
+
+          <Boton
+            titulo="Sincronizar ahora"
+            icono="sync"
+            tamanio="lg"
+            cargando={guardando}
+            bloqueado={!activado}
+            onPress={sincronizarAhora}
+            estilo={{ marginTop: spacing.lg }}
+          />
+
+          {sync.fallidas > 0 ? (
+            <Boton
+              titulo={`Reintentar las ${sync.fallidas} con error`}
+              icono="refresh"
+              variante="secundario"
+              tamanio="sm"
+              cargando={reintentando}
+              bloqueado={!activado}
+              onPress={reintentar}
+              estilo={{ marginTop: spacing.sm }}
+            />
+          ) : null}
+        </Tarjeta>
+
+        <Text style={[styles.seccion, { color: colores.textoSuave }]}>Servidor</Text>
+        <Tarjeta>
+          <Campo
+            etiqueta="Dirección del servidor"
+            valor={url}
+            onChange={setUrl}
+            placeholder="http://192.168.1.10:4000"
+            icono="dns"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Boton
+            titulo="Guardar dirección"
+            icono="save"
+            variante="secundario"
+            tamanio="sm"
+            onPress={guardarUrl}
+          />
+        </Tarjeta>
+
+        {activado === false ? (
+          <>
+            <Text style={[styles.seccion, { color: colores.textoSuave }]}>Activar dispositivo</Text>
+            <Tarjeta>
+              <Campo
+                etiqueta="Código de activación"
+                valor={codigo}
+                onChange={(texto) => setCodigo(texto.toUpperCase())}
+                placeholder="MICAJA-XXXX-XXXX-XXXX"
+                icono="vpn-key"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={23}
+              />
+              <Boton
+                titulo="Activar"
+                icono="phonelink-lock"
+                variante="acento"
+                tamanio="lg"
+                cargando={activando}
+                onPress={activar}
+              />
+            </Tarjeta>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.seccion, { color: colores.textoSuave }]}>Licencia</Text>
+            <Tarjeta>
+              <Badge
+                texto={etiquetaLicencia}
+                color={colorLicencia + '1A'}
+                colorTexto={colorLicencia}
+              />
+              {licencia?.payload ? (
+                <Text style={{ color: colores.textoSuave, fontFamily: fuentes.regular, fontSize: typography.cuerpoChico, marginTop: spacing.sm }}>
+                  Plan {licencia.payload.plan} · vence el{' '}
+                  {new Date(licencia.payload.exp * 1000).toLocaleDateString()}
+                </Text>
+              ) : (
+                <Text style={{ color: colores.textoSuave, fontFamily: fuentes.regular, fontSize: typography.cuerpoChico, marginTop: spacing.sm }}>
+                  Sin licencia verificada. La caja funciona en modo local.
+                </Text>
+              )}
+            </Tarjeta>
+          </>
+        )}
       </ScrollView>
     </Pantalla>
   );

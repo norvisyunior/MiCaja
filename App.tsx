@@ -19,7 +19,12 @@ import { useSesion } from './src/store/sesion';
 import { useTema } from './src/store/tema';
 import LoginScreen from './src/screens/LoginScreen';
 import SetupScreen from './src/screens/SetupScreen';
+import BienvenidaScreen from './src/screens/BienvenidaScreen';
+import RegistroScreen from './src/screens/RegistroScreen';
+import ActivacionScreen from './src/screens/ActivacionScreen';
 import { NavegadorRaiz } from './src/navigation';
+import { leerTokenDispositivo } from './src/api/config';
+import { refrescarEstadoSync, sincronizarSilencioso } from './src/sync/motor';
 import { AvisoGlobal } from './src/components/AvisoGlobal';
 import { Gradiente } from './src/components/UI';
 
@@ -113,7 +118,9 @@ class LimiteErrores extends Component<{ children: ReactNode }, { error: Error | 
 function Contenido() {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario);
-  const [estado, setEstado] = useState<'cargando' | 'setup' | 'login'>('cargando');
+  const [estado, setEstado] = useState<
+    'cargando' | 'bienvenida' | 'setup' | 'login' | 'registro' | 'activacion'
+  >('cargando');
 
   useEffect(() => {
     if (usuario) {
@@ -124,7 +131,7 @@ function Contenido() {
     let vigente = true;
     listarUsuarios(db)
       .then((usuarios) => {
-        if (vigente) setEstado(usuarios.length > 0 ? 'login' : 'setup');
+        if (vigente) setEstado(usuarios.length > 0 ? 'login' : 'bienvenida');
       })
       .catch(() => {
         if (vigente) setEstado('login');
@@ -134,9 +141,71 @@ function Contenido() {
     };
   }, [db, usuario]);
 
+  useEffect(() => {
+    if (!usuario) return;
+
+    let vigente = true;
+    async function sincronizarPeriodico(inmediato: boolean) {
+      if (!vigente) return;
+      if (inmediato) await refrescarEstadoSync(db);
+      try {
+        if (await leerTokenDispositivo(db)) {
+          await sincronizarSilencioso(db);
+        }
+      } catch {
+        // La caja sigue funcionando sin conexión.
+      }
+    }
+
+    void sincronizarPeriodico(true);
+    const intervalo = setInterval(() => {
+      void sincronizarPeriodico(false);
+    }, 60_000);
+
+    return () => {
+      vigente = false;
+      clearInterval(intervalo);
+    };
+  }, [db, usuario]);
+
+  async function trasActivacion() {
+    const usuarios = await listarUsuarios(db);
+    setEstado(usuarios.length > 0 ? 'login' : 'setup');
+  }
+
   if (usuario) return <NavegadorRaiz />;
   if (estado === 'cargando') return <Splash />;
-  if (estado === 'setup') return <SetupScreen />;
+  if (estado === 'bienvenida') {
+    return (
+      <BienvenidaScreen
+        onIniciarSesion={() => setEstado('login')}
+        onCrearCuenta={() => setEstado('registro')}
+        onActivar={() => setEstado('activacion')}
+        onConfigurarLocal={() => setEstado('setup')}
+      />
+    );
+  }
+  if (estado === 'setup') {
+    return <SetupScreen onCancelar={() => setEstado('bienvenida')} />;
+  }
+  if (estado === 'registro') {
+    return (
+      <RegistroScreen
+        onAtras={() => setEstado('bienvenida')}
+        onConfigurarLocal={() => setEstado('setup')}
+      />
+    );
+  }
+  if (estado === 'activacion') {
+    return (
+      <ActivacionScreen
+        onAtras={() => setEstado('bienvenida')}
+        onActivado={() => {
+          void trasActivacion();
+        }}
+      />
+    );
+  }
   return <LoginScreen />;
 }
 

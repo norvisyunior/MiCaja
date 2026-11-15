@@ -47,7 +47,7 @@ export async function verificarAcceso(
 ): Promise<ResultadoAcceso> {
   const fila = await db.getFirstAsync<FilaAcceso>(
     `SELECT id, pin, activo, intentos_fallidos, bloqueado_hasta
-     FROM usuarios WHERE id = ?`,
+     FROM usuarios WHERE id = ? AND deleted_at IS NULL`,
     usuarioId
   );
 
@@ -127,7 +127,8 @@ export async function verificarAccesoPorUsuario(
 ): Promise<ResultadoAccesoUsuario> {
   const fila = await db.getFirstAsync<FilaAccesoCompleta>(
     `SELECT id, nombre, usuario, rol, pin, activo, intentos_fallidos, bloqueado_hasta
-     FROM usuarios WHERE usuario = ? COLLATE NOCASE`,
+     FROM usuarios
+     WHERE usuario = ? COLLATE NOCASE AND deleted_at IS NULL`,
     normalizarUsuario(nombreUsuario)
   );
 

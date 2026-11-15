@@ -1,5 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Settings } from '../../types';
+import { ahoraIso } from '../contexto';
+import { SETTINGS_SINCRONIZABLES, encolarSettingUpsert } from '../sync/encolar';
 
 interface FilaSetting {
   clave: string;
@@ -31,17 +33,51 @@ export async function obtenerSettings(db: SQLiteDatabase): Promise<Settings> {
   };
 }
 
+async function escribirSetting(
+  db: SQLiteDatabase,
+  clave: string,
+  valor: string,
+  sincronizar: boolean
+): Promise<void> {
+  const actual = await db.getFirstAsync<{ version: number }>(
+    `SELECT version FROM settings WHERE clave = ?`,
+    clave
+  );
+  const version = (actual?.version ?? 0) + 1;
+
+  await db.runAsync(
+    `INSERT INTO settings (clave, valor, version, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(clave) DO UPDATE SET
+       valor = excluded.valor,
+       version = excluded.version,
+       updated_at = excluded.updated_at`,
+    clave,
+    valor,
+    version,
+    ahoraIso()
+  );
+
+  if (sincronizar && SETTINGS_SINCRONIZABLES.has(clave)) {
+    await encolarSettingUpsert(db, clave, valor, version);
+  }
+}
+
 export async function guardarSetting(
   db: SQLiteDatabase,
   clave: string,
   valor: string
 ): Promise<void> {
-  await db.runAsync(
-    `INSERT INTO settings (clave, valor) VALUES (?, ?)
-     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor`,
-    clave,
-    valor
-  );
+  await db.withTransactionAsync(async () => {
+    await escribirSetting(db, clave, valor, true);
+  });
+}
+
+async function guardarSettingLocal(
+  db: SQLiteDatabase,
+  clave: string,
+  valor: string
+): Promise<void> {
+  await escribirSetting(db, clave, valor, false);
 }
 
 export async function diaVenta(db: SQLiteDatabase): Promise<string> {
@@ -56,12 +92,12 @@ export async function siguienteNumeroVenta(
   const s = await obtenerSettings(db);
 
   if (s.diaVenta !== dia) {
-    await guardarSetting(db, 'dia_venta', dia);
-    await guardarSetting(db, 'numero_venta_dia', '0');
+    await guardarSettingLocal(db, 'dia_venta', dia);
+    await guardarSettingLocal(db, 'numero_venta_dia', '0');
   }
 
   const actual = s.diaVenta === dia ? s.numeroVentaDia : 0;
   const siguiente = actual + 1;
-  await guardarSetting(db, 'numero_venta_dia', String(siguiente));
+  await guardarSettingLocal(db, 'numero_venta_dia', String(siguiente));
   return siguiente;
 }

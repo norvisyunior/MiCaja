@@ -3,9 +3,9 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { asegurarUsernames } from './migraciones';
+import { asegurarEstructuraV7, asegurarUsernames } from './migraciones';
 
-const TABLAS_BACKUP = [
+const TABLAS_CORE = [
   'usuarios',
   'categorias',
   'productos',
@@ -13,6 +13,15 @@ const TABLAS_BACKUP = [
   'ventas',
   'venta_items',
   'settings',
+];
+
+const TABLAS_V2 = [
+  ...TABLAS_CORE,
+  'sync_outbox',
+  'sync_meta',
+  'dispositivo_local',
+  'licencia_local',
+  'movimientos_inventario',
 ];
 
 async function leerContenidoArchivo(uri: string): Promise<string> {
@@ -58,7 +67,7 @@ async function dumpTabla(db: SQLiteDatabase, tabla: string): Promise<{ [col: str
 async function generarBackupJson(db: SQLiteDatabase): Promise<Uint8Array> {
   const datos: { [tabla: string]: { [col: string]: any }[] } = {};
 
-  for (const tabla of TABLAS_BACKUP) {
+  for (const tabla of TABLAS_V2) {
     datos[tabla] = await dumpTabla(db, tabla);
   }
 
@@ -68,7 +77,7 @@ async function generarBackupJson(db: SQLiteDatabase): Promise<Uint8Array> {
   const esquema = esquemaRaw.map((r) => r.sql).filter(Boolean);
 
   const exportar: BackupExportado = {
-    version: 1,
+    version: 2,
     fecha: new Date().toISOString(),
     esquema,
     datos,
@@ -145,7 +154,7 @@ function validarBackupJson(datos: unknown): { valido: boolean; error?: string } 
 
   const obj = datos as Record<string, unknown>;
 
-  if (obj.version !== 1) {
+  if (obj.version !== 1 && obj.version !== 2) {
     return { valido: false, error: 'La versión del backup no es compatible.' };
   }
 
@@ -157,8 +166,9 @@ function validarBackupJson(datos: unknown): { valido: boolean; error?: string } 
     return { valido: false, error: 'Los datos del backup están corruptos.' };
   }
 
+  const tablas = obj.version === 1 ? TABLAS_CORE : TABLAS_V2;
   const datosTablas = obj.datos as Record<string, unknown>;
-  for (const tabla of TABLAS_BACKUP) {
+  for (const tabla of tablas) {
     const filas = datosTablas[tabla];
     if (!Array.isArray(filas)) {
       return { valido: false, error: `Falta la tabla "${tabla}" en el backup.` };
@@ -184,6 +194,17 @@ export async function validarArchivoRestore(
   }
 }
 
+async function leerSettingsPrevios(
+  db: SQLiteDatabase,
+  claves: string[]
+): Promise<Record<string, string>> {
+  const filas = await db.getAllAsync<{ clave: string; valor: string }>(
+    `SELECT clave, valor FROM settings WHERE clave IN (${claves.map(() => '?').join(', ')})`,
+    ...claves
+  );
+  return Object.fromEntries(filas.map((fila) => [fila.clave, fila.valor]));
+}
+
 export async function restaurarBackup(
   db: SQLiteDatabase,
   uri: string,
@@ -197,19 +218,40 @@ export async function restaurarBackup(
       return { exito: false, error: validacion.error };
     }
 
+    const esV1 = parsed.version === 1;
+    const tablas = esV1 ? TABLAS_CORE : TABLAS_V2;
+    const clavesIdentidad = [
+      'empresa_id',
+      'device_id',
+      'empresa_servidor_id',
+      'device_servidor_id',
+      'device_token',
+      'sync_server_url',
+      'licencia_token',
+      'licencia_ultima_verificacion',
+      'licencia_verificada_en',
+    ];
+    const identidadPrevia = esV1 ? await leerSettingsPrevios(db, clavesIdentidad) : {};
+
     await db.execAsync('PRAGMA foreign_keys = OFF');
     await db.execAsync('BEGIN TRANSACTION');
 
     try {
       // El índice único de usuario puede impedir restaurar backups antiguos
       // (que no traen la columna `usuario`). Se recrea después de rellenarla.
-      await db.execAsync('DROP INDEX IF EXISTS idx_usuarios_usuario');
+      await db.execAsync(`
+        DROP INDEX IF EXISTS idx_usuarios_usuario;
+        DROP INDEX IF EXISTS idx_usuarios_usuario_activo;
+      `);
 
-      for (const tabla of TABLAS_BACKUP) {
+      const tablasBorrar = esV1
+        ? [...TABLAS_CORE, 'sync_outbox', 'sync_meta', 'movimientos_inventario']
+        : TABLAS_V2;
+      for (const tabla of tablasBorrar) {
         await db.execAsync(`DELETE FROM "${tabla}"`);
       }
 
-      for (const tabla of TABLAS_BACKUP) {
+      for (const tabla of tablas) {
         const filas = parsed.datos[tabla];
         if (!Array.isArray(filas) || filas.length === 0) continue;
 
@@ -230,11 +272,25 @@ export async function restaurarBackup(
         }
       }
 
+      if (esV1) {
+        const ahora = new Date().toISOString();
+        for (const [clave, valor] of Object.entries(identidadPrevia)) {
+          if (!valor) continue;
+          await db.runAsync(
+            `INSERT INTO settings (clave, valor, version, updated_at)
+             VALUES (?, ?, 1, ?)
+             ON CONFLICT(clave) DO UPDATE SET
+               valor = excluded.valor,
+               updated_at = excluded.updated_at`,
+            clave,
+            valor,
+            ahora
+          );
+        }
+      }
+
       await asegurarUsernames(db);
-      await db.execAsync(
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_usuario
-         ON usuarios(usuario COLLATE NOCASE)`
-      );
+      await asegurarEstructuraV7(db);
 
       await db.execAsync('COMMIT');
     } catch (e) {
