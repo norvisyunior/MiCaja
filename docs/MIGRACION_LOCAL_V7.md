@@ -1,6 +1,6 @@
 # Migración local SQLite v7 — implementada
 
-> Fase 4 completada. `src/db/migraciones.ts` aplica esta estructura de forma aditiva e idempotente. La app puede seguir funcionando sin conexión y sin licencia.
+> Fase 4 completada. `apps/mobile/src/db/migraciones.ts` aplica esta estructura de forma aditiva e idempotente. La app puede seguir funcionando sin conexión y sin licencia.
 
 ## 1. Objetivo
 
@@ -177,7 +177,7 @@ El índice parcial de usuario se crea dentro de `try/catch`: si un backup antigu
 
 ## 4. Cambios en la capa de datos
 
-- Los repositorios reciben `empresa_id` y `device_id` desde `src/db/contexto.ts`.
+- Los repositorios reciben `empresa_id` y `device_id` desde `apps/mobile/src/db/contexto.ts`.
 - Cada escritura sincronizable y su registro en `sync_outbox` van en la misma transacción.
 - Las ventas usan `uuid` local como `local_id` y no dependen de `AUTOINCREMENT` para sincronizar.
 - El stock se calcula con el libro `movimientos_inventario`; `producto_upsert` no modifica stock en el servidor.

@@ -85,15 +85,15 @@ npm test
 npm run typecheck
 
 # Backend: pruebas de unidad (no necesitan base de datos)
-cd backend && npm test
+cd apps/backend && npm test
 
 # Backend: flujo E2E completo (requiere DATABASE_URL y LICENSE_PRIVATE_KEY)
-cd backend && npm test
+cd apps/backend && npm test
 ```
 
 ## 10. Plataforma: activación, sincronización y licencia
 
-Con el backend corriendo en desarrollo (`cd backend && npm run dev`) y Supabase configurado:
+Con el backend corriendo en desarrollo (`cd apps/backend && npm run dev`) y Supabase configurado:
 
 - [ ] Desde **Ajustes → Sincronización**, guardar la URL del servidor y activar el dispositivo con un código de activación.
 - [ ] Activar el mismo código en un segundo dispositivo: debe rechazarlo si agotó su límite de usos.

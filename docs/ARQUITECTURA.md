@@ -30,20 +30,20 @@
 
 ### Repositorio
 
-La app móvil permanece en la raíz para no romper EAS. Se añaden carpetas independientes:
+Monorepo con cada pieza en su carpeta independiente:
 
 ```
 MiCaja/
-├── App.tsx, src/, assets/        # App móvil actual (sin mover)
-├── backend/                      # API Express + TypeScript
-├── shared/                       # Contratos: tipos, Zod, formato de licencia y sync
-├── supabase/migrations/          # Esquema PostgreSQL versionado
-├── vitest/                       # Stubs de React Native para probar la app en Node
-├── docs/                         # Arquitectura, modelo, operación
-└── .github/workflows/            # CI: pruebas, typecheck y build
+├── apps/
+│   ├── mobile/                      # App Expo React Native (App.tsx, src/, assets/)
+│   └── backend/                     # API Express + TypeScript + supabase/migrations/
+├── packages/
+│   └── shared/                      # Contratos: tipos, Zod, formato de licencia y sync
+├── docs/                            # Arquitectura, modelo, operación
+└── .github/workflows/               # CI: build del APK vía EAS
 ```
 
-`backend/` y `shared/` tienen su propio `package.json`; el paquete compartido se consume con `file:../shared`.
+`apps/backend/` y `packages/shared/` tienen su propio `package.json`; el paquete compartido se consume con `file:../../packages/shared`. La app móvil no depende de `@micaja/shared` (incluye su propia copia de tipos en `apps/mobile/src/types`).
 
 ## 3. Flujos principales
 
@@ -120,7 +120,7 @@ Payload:
 }
 ```
 
-La app incluye la clave pública SPKI (base64) y verifica con Ed25519 usando `tweetnacl`, sin dependencias nativas nuevas. Al vencer o invalidarse la licencia, la app bloquea ventas, apertura y cierre de turnos, conserva los datos y sigue permitiendo consultar historial y reportes. La verificación está cubierta por pruebas unitarias (`src/licencias/*.test.ts`).
+La app incluye la clave pública SPKI (base64) y verifica con Ed25519 usando `tweetnacl`, sin dependencias nativas nuevas. Al vencer o invalidarse la licencia, la app bloquea ventas, apertura y cierre de turnos, conserva los datos y sigue permitiendo consultar historial y reportes. La verificación está cubierta por pruebas unitarias (`apps/mobile/src/licencias/*.test.ts`).
 
 ## 6. Infraestructura gratuita
 

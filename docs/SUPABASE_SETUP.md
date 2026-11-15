@@ -6,7 +6,7 @@
 2. Guardar:
    - `DATABASE_URL` del **pooler** (puerto 6543, modo transaction) para la API.
    - `DIRECT_URL` (puerto 5432) para ejecutar migraciones.
-3. Ejecutar las migraciones de `supabase/migrations/` en orden desde el SQL Editor o con `psql`.
+3. Ejecutar las migraciones de `apps/backend/supabase/migrations/` en orden desde el SQL Editor o con `psql`.
 
 ## 2. Crear el rol de la API con RLS
 
@@ -37,7 +37,7 @@ postgresql://micaja_api.CAMBIA_ESTA_CLAVE@<proyecto>.pooler.supabase.com:6543/po
 
 ## 3. Variables de entorno del backend
 
-Copiar `backend/.env.example` a `backend/.env` y completar:
+Copiar `apps/backend/.env.example` a `apps/backend/.env` y completar:
 
 | Variable | Descripción |
 |---|---|
@@ -55,13 +55,13 @@ Copiar `backend/.env.example` a `backend/.env` y completar:
 ## 4. Generar claves de licencia
 
 ```bash
-cd backend
+cd apps/backend
 npm run keys:generate
 ```
 
 El script imprime:
 - **Private key (base64 PKCS8):** va en `LICENSE_PRIVATE_KEY` del backend. Nunca al APK ni al repositorio.
-- **Public key (base64 SPKI):** se incorpora en `src/licencias/verificar.ts` (`CLAVE_PUBLICA_LICENCIA`). Debe coincidir con la clave privada del backend.
+- **Public key (base64 SPKI):** se incorpora en `apps/mobile/src/licencias/verificar.ts` (`CLAVE_PUBLICA_LICENCIA`). Debe coincidir con la clave privada del backend.
 
 ### Probar licencias en desarrollo local sin recompilar el APK
 
@@ -82,14 +82,14 @@ es siempre la incorporada.
 ## 5. Sembrar el primer administrador
 
 ```bash
-cd backend
+cd apps/backend
 npm run seed:admin -- admin@micaja.app 'UnaClaveSegura123'
 ```
 
 ## 6. Ejecutar la API
 
 ```bash
-cd backend
+cd apps/backend
 npm run dev
 ```
 
@@ -101,7 +101,7 @@ curl http://localhost:4000/health
 
 ## 7. Migraciones
 
-Las migraciones SQL están en `supabase/migrations/`:
+Las migraciones SQL están en `apps/backend/supabase/migrations/`:
 
 | Archivo | Contenido |
 |---|---|
@@ -114,12 +114,12 @@ Aplicarlas con Supabase CLI:
 supabase db push
 ```
 
-o manualmente con `psql "$DIRECT_URL" -f supabase/migrations/202611130001_schema.sql` y el segundo archivo.
+o manualmente con `psql "$DIRECT_URL" -f apps/backend/supabase/migrations/202611130001_schema.sql` y el segundo archivo.
 
 ## 8. Pruebas
 
 ```bash
-cd backend
+cd apps/backend
 npm test
 ```
 

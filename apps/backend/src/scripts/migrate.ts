@@ -9,7 +9,7 @@ async function main(): Promise<void> {
     throw new Error('Configura DIRECT_URL o DATABASE_URL');
   }
 
-  const directorio = path.resolve(__dirname, '../../../supabase/migrations');
+  const directorio = path.resolve(__dirname, '../../supabase/migrations');
   const archivos = fs
     .readdirSync(directorio)
     .filter((archivo) => archivo.endsWith('.sql'))

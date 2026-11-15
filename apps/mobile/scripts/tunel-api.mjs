@@ -5,8 +5,8 @@ import ngrok from '@expo/ngrok';
  * probar la app desde un teléfono que no puede alcanzar la PC por la red
  * local. La URL impresa es la que se guarda en Ajustes › Sincronización.
  *
- * Uso:  node tunel-api.mjs   (dejar corriendo mientras se prueba)
- *       node tunel-api.mjs 4001   (otro puerto)
+ * Uso (desde apps/mobile):  node scripts/tunel-api.mjs   (dejar corriendo mientras se prueba)
+ *                           node scripts/tunel-api.mjs 4001   (otro puerto)
  */
 const puerto = Number(process.argv[2] ?? process.env.PORT ?? 4000);
 

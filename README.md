@@ -32,7 +32,8 @@ Punto de venta (POS) para Mipymes cubanas, construido con **React Native (Expo)*
 ## 🚀 Puesta en marcha
 
 ```bash
-# 1. Instalar dependencias
+# 1. Instalar dependencias (desde apps/mobile)
+cd apps/mobile
 npm install
 
 # 2. Iniciar el servidor de desarrollo
@@ -57,20 +58,25 @@ En **Ajustes** puedes cambiar el nombre del negocio, la moneda (CUP, USD, EUR…
 ## 🗂️ Estructura del proyecto
 
 ```
-src/
-├── components/   # Componentes reutilizables (UI, gráficos, avisos)
-├── db/           # SQLite: migraciones, seed, repositorios y exportación
-├── navigation/   # Navegación (tabs + stack)
-├── screens/      # Pantallas (Inicio, Vender, Historial, Resumen, Ajustes, …)
-├── store/        # Estado global (Zustand): sesión, carrito, tema, avisos
-├── theme/        # Paleta de colores, gradientes, tipografías y medidas
-├── types/        # Tipos TypeScript compartidos
-└── utils/        # Utilidades (cálculos, fechas, PDF)
+apps/
+├── mobile/          # App Expo React Native (raíz del proyecto móvil)
+│   └── src/
+│       ├── components/   # Componentes reutilizables (UI, gráficos, avisos)
+│       ├── db/           # SQLite: migraciones, seed, repositorios y exportación
+│       ├── navigation/   # Navegación (tabs + stack)
+│       ├── screens/      # Pantallas (Inicio, Vender, Historial, Resumen, Ajustes, …)
+│       ├── store/        # Estado global (Zustand): sesión, carrito, tema, avisos
+│       ├── theme/        # Paleta de colores, gradientes, tipografías y medidas
+│       ├── types/        # Tipos TypeScript compartidos
+│       └── utils/        # Utilidades (cálculos, fechas, PDF)
+└── backend/         # API Node/Express de licencias y sincronización
+packages/
+└── shared/          # Contratos compartidos (tipos, Zod, licencias)
 ```
 
 ## ✅ Pruebas antes de entregar
 
-Sigue la lista de [PRUEBAS.md](PRUEBAS.md) en un teléfono Android real antes de publicar o vender la app.
+Sigue la lista de [PRUEBAS.md](apps/mobile/PRUEBAS.md) en un teléfono Android real antes de publicar o vender la app.
 
 ## 📄 Licencia
 

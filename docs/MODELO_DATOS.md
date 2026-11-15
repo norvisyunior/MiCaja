@@ -1,6 +1,6 @@
 # Modelo de datos — MiCaja multiempresa
 
-> Fase 2. Implementación PostgreSQL en `supabase/migrations/`.
+> Fase 2. Implementación PostgreSQL en `apps/backend/supabase/migrations/`.
 
 ## 1. Diagrama entidad-relación
 

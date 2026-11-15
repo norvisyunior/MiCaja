@@ -34,21 +34,19 @@ yarn-error.*
 .env
 .env*.local
 !.env.example
-backend/.env
-supabase/.temp/
+apps/backend/supabase/.temp/
+
+# generated builds
+apps/backend/dist/
+packages/shared/dist/
 
 # secretos temporales locales
 temp_jwt.txt
 temp_keys.txt
 
-# generated builds
-backend/dist/
-shared/dist/
-admin/dist/
-
 # typescript
 *.tsbuildinfo
 
 # generated native folders
-/ios
-/android
+apps/mobile/ios
+apps/mobile/android

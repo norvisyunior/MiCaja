@@ -327,7 +327,10 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
       .set('Authorization', `Bearer ${deviceToken}`);
     expect(licencia.status).toBe(200);
     expect(licencia.body.estado).toBe('activa');
-    expect(licencia.body.token).toBe(activar.body.licencia);
+    // La reactivación re-firma la licencia y queda guardada; ese es el
+    // token que el dispositivo debe recibir (el de la primera activación
+    // deja de ser válido al reemitir).
+    expect(licencia.body.token).toBe(reactivar.body.licencia);
 
     const anulacion = await request(app)
       .post('/api/sync/push')

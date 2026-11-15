@@ -15,7 +15,7 @@
     "migrate": "tsx src/scripts/migrate.ts"
   },
   "dependencies": {
-    "@micaja/shared": "file:../shared",
+    "@micaja/shared": "file:../../packages/shared",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

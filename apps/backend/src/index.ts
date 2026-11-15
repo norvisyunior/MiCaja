@@ -19,6 +19,6 @@ app.listen(env.PORT, async () => {
   } catch (error) {
     const detalle = error instanceof Error ? error.message : String(error);
     console.error(`[micaja-api] SIN CONEXIÓN a la base de datos: ${detalle}`);
-    console.error('[micaja-api] revisa DATABASE_URL en backend/.env');
+    console.error('[micaja-api] revisa DATABASE_URL en apps/backend/.env');
   }
 });
