@@ -43,6 +43,16 @@ npx expo start
 #    o presionar 'a' para emulador Android / 'i' para iOS
 ```
 
+### Comandos desde la raíz del monorepo
+
+```bash
+npm run backend   # API de licencias/sync en http://localhost:4000
+npm run mobile    # App Expo (Metro en http://localhost:8081)
+npm run tunel     # Túnel ngrok del backend para probar en un teléfono real
+npm run test      # Pruebas de las 3 partes (móvil, backend, shared)
+npm run typecheck # TypeScript de las 3 partes
+```
+
 ## 📱 Uso rápido
 
 1. **Inicia sesión** con tu PIN (el usuario administrador se crea al primer arranque).

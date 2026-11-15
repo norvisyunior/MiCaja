@@ -6,6 +6,7 @@
   "scripts": {
     "backend": "npm run dev --prefix apps/backend",
     "mobile": "npm start --prefix apps/mobile",
+    "mobile:tunnel": "npm run start:tunnel --prefix apps/mobile",
     "tunel": "node apps/mobile/scripts/tunel-api.mjs",
     "test": "npm test --prefix apps/mobile && npm test --prefix apps/backend && npm test --prefix packages/shared",
     "typecheck": "npm run typecheck --prefix apps/mobile && npm run typecheck --prefix apps/backend && npm run typecheck --prefix packages/shared"
