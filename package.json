@@ -1,0 +1,13 @@
+{
+  "name": "micaja",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo de MiCaja: apps/mobile (Expo) + apps/backend (API) + packages/shared",
+  "scripts": {
+    "backend": "npm run dev --prefix apps/backend",
+    "mobile": "npm start --prefix apps/mobile",
+    "tunel": "node apps/mobile/scripts/tunel-api.mjs",
+    "test": "npm test --prefix apps/mobile && npm test --prefix apps/backend && npm test --prefix packages/shared",
+    "typecheck": "npm run typecheck --prefix apps/mobile && npm run typecheck --prefix apps/backend && npm run typecheck --prefix packages/shared"
+  }
+}
