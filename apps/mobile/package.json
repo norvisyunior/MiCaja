@@ -19,6 +19,7 @@
     "expo-image-manipulator": "~57.0.22",
     "expo-image-picker": "~57.0.21",
     "expo-linear-gradient": "~57.0.2",
+    "expo-network": "~57.0.3",
     "expo-sharing": "~57.0.25",
     "expo-splash-screen": "~57.0.11",
     "expo-sqlite": "~57.0.4",
@@ -47,7 +48,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verificar:clave": "node scripts/verificar-clave-produccion.mjs"
   },
   "private": true
 }

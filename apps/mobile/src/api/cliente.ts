@@ -32,6 +32,23 @@ export interface RespuestaActivacion {
   dispositivo: { id: string; nombre: string; plataforma: string };
   venceEn: string;
   features: string[];
+  via?: 'codigo' | 'invitacion' | 'login';
+  rol?: string;
+}
+
+export interface UsuarioRemotoLogin {
+  id: string;
+  nombre: string;
+  usuario: string;
+  rol: 'propietario' | 'admin' | 'dependiente';
+  activo: boolean;
+  version: number;
+}
+
+export interface RespuestaLoginUsuario extends RespuestaActivacion {
+  via: 'login';
+  rol: 'propietario' | 'admin' | 'dependiente';
+  usuario: UsuarioRemotoLogin;
 }
 
 export interface OperacionSync {
@@ -63,6 +80,13 @@ export interface CambioSync {
 
 export interface RespuestaPull {
   cambios: CambioSync[];
+  /** El servidor tiene más cambios pendientes de entregar. */
+  hayMas?: boolean;
+  /**
+   * Cursor opaco para reanudar el pull. Guarda, por tabla, el `updated_at`
+   * exacto y el último id entregado; el cliente solo debe devolverlo tal cual.
+   */
+  cursor?: string | null;
   licencia: {
     estado: string;
     venceEn: string;
@@ -179,6 +203,7 @@ export async function activarDispositivo(
     nombre: string;
     plataforma: string;
     appVersion: string;
+    reemplazarA?: string;
   }
 ): Promise<RespuestaActivacion> {
   return solicitar<RespuestaActivacion>(
@@ -190,6 +215,83 @@ export async function activarDispositivo(
     },
     false
   );
+}
+
+export async function loginUsuarioGlobal(
+  db: SQLiteDatabase,
+  input: {
+    usuario: string;
+    pin: string;
+    fingerprint: string;
+    nombre: string;
+    plataforma: string;
+    appVersion: string;
+    reemplazarA?: string;
+    cambiarEmpresa?: boolean;
+  }
+): Promise<RespuestaLoginUsuario> {
+  return solicitar<RespuestaLoginUsuario>(
+    db,
+    '/api/auth/usuario',
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+    false
+  );
+}
+
+export interface InfoDispositivo {
+  id: string;
+  nombre: string;
+  plataforma: string;
+  estado: string;
+  esEste: boolean;
+  emitidaEn: string | null;
+  lastSeenAt: string | null;
+}
+
+export interface RespuestaDispositivos {
+  dispositivos: InfoDispositivo[];
+}
+
+export interface RespuestaDesvincular {
+  dispositivo: InfoDispositivo;
+}
+
+export interface RespuestaInvitacion {
+  id: string;
+  rol: string;
+  codigo: string;
+  expiraEn: string;
+}
+
+export async function listarDispositivosRemotos(
+  db: SQLiteDatabase
+): Promise<RespuestaDispositivos> {
+  return solicitar<RespuestaDispositivos>(db, '/api/device/dispositivos', {
+    method: 'GET',
+  });
+}
+
+export async function desvincularDispositivo(
+  db: SQLiteDatabase,
+  input: { dispositivoId?: string; codigo?: string }
+): Promise<RespuestaDesvincular> {
+  return solicitar<RespuestaDesvincular>(db, '/api/device/desvincular', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function crearInvitacion(
+  db: SQLiteDatabase,
+  input: { rol?: string; expiraHoras?: number }
+): Promise<RespuestaInvitacion> {
+  return solicitar<RespuestaInvitacion>(db, '/api/device/invitaciones', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 export async function pushOperaciones(
@@ -206,10 +308,10 @@ export async function pushOperaciones(
 export async function pullCambios(
   db: SQLiteDatabase,
   deviceId: string,
-  since?: string
+  cursor?: string | null
 ): Promise<RespuestaPull> {
-  const params = new URLSearchParams({ deviceId });
-  if (since) params.set('since', since);
+  const params = new URLSearchParams({ deviceId, limit: '500' });
+  if (cursor) params.set('cursor', cursor);
   return solicitar<RespuestaPull>(db, `/api/sync/pull?${params.toString()}`, {
     method: 'GET',
   });

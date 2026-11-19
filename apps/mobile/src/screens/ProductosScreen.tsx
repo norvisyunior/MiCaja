@@ -15,6 +15,7 @@ import {
 import { borrarImagenProducto, guardarImagenProducto } from '../utils/imagenes';
 import { useAvisos } from '../store/avisos';
 import { useSesion } from '../store/sesion';
+import { useSync } from '../store/sync';
 import { useTema } from '../store/tema';
 import {
   Boton,
@@ -39,6 +40,7 @@ export default function ProductosScreen() {
   const navigation = useNavigation();
   const mostrarAviso = useAvisos((s) => s.mostrar);
   const usuario = useSesion((s) => s.usuario)!;
+  const ultimaSync = useSync((s) => s.ultimaSync);
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -85,7 +87,7 @@ export default function ProductosScreen() {
   useFocusEffect(
     useCallback(() => {
       cargar().catch(() => setCargando(false));
-    }, [cargar])
+    }, [cargar, ultimaSync])
   );
 
   const q = busqueda.trim().toLowerCase();

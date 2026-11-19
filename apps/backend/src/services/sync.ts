@@ -3,6 +3,32 @@ import { z } from 'zod';
 import { uuidSchema, ventaInputSchema } from '@micaja/shared';
 import { ApiError } from '../middleware/errors';
 
+/** Claves de settings que el servidor acepta y entrega a los dispositivos. */
+export const SETTINGS_SINCRONIZABLES = [
+  'nombre_negocio',
+  'moneda',
+  'simbolo_moneda',
+] as const;
+
+const settingsSincronizablesSchema = z.enum(SETTINGS_SINCRONIZABLES);
+
+/**
+ * Límites alineados con las columnas `numeric(14,2)` / `numeric(14,3)` de
+ * Postgres. Sin ellos un payload absurdo desbordaría la columna y la
+ * operación acabaría en un 500 en vez de un rechazo claro.
+ */
+const MAX_MONTO = 100_000_000_000;
+const MAX_CANTIDAD = 1_000_000;
+const MAX_STOCK = 100_000_000;
+const MAX_VERSION = 2_147_483_647;
+
+const numeroFinito = z.number().finite();
+const montoSchema = numeroFinito.min(0).max(MAX_MONTO);
+const versionSchema = z.number().int().min(1).max(MAX_VERSION);
+const desgloseSchema = z
+  .record(numeroFinito.min(0).max(MAX_MONTO))
+  .default({});
+
 const anulacionSchema = z.object({
   ventaId: uuidSchema,
   usuarioId: uuidSchema,
@@ -13,7 +39,9 @@ const movimientoSchema = z.object({
   movimientoId: uuidSchema,
   productoId: uuidSchema,
   tipo: z.enum(['inicial', 'entrada', 'salida', 'ajuste']),
-  cantidad: z.number().finite().refine((valor) => valor !== 0, 'CANTIDAD_CERO'),
+  cantidad: numeroFinito
+    .refine((valor) => valor !== 0, 'CANTIDAD_CERO')
+    .refine((valor) => Math.abs(valor) <= MAX_CANTIDAD, 'CANTIDAD_FUERA_DE_RANGO'),
   referenciaTipo: z.string().trim().max(50).optional(),
   referenciaId: uuidSchema.optional(),
 });
@@ -22,37 +50,37 @@ const turnoAperturaSchema = z.object({
   turnoId: uuidSchema,
   usuarioId: uuidSchema,
   apertura: z.string().datetime(),
-  fondoInicial: z.number().min(0).default(0),
-  desglose: z.record(z.number()).default({}),
+  fondoInicial: montoSchema.default(0),
+  desglose: desgloseSchema,
 });
 
 const turnoCierreSchema = z.object({
   turnoId: uuidSchema,
   cierre: z.string().datetime(),
-  ventasCount: z.number().int().min(0),
-  totalEsperado: z.number().min(0),
-  desglose: z.record(z.number()).default({}),
-  dineroReal: z.number().min(0),
-  diferencia: z.number(),
+  ventasCount: z.number().int().min(0).max(MAX_CANTIDAD),
+  totalEsperado: montoSchema,
+  desglose: desgloseSchema,
+  dineroReal: montoSchema,
+  diferencia: numeroFinito.min(-MAX_MONTO).max(MAX_MONTO),
 });
 
 const productoUpsertSchema = z.object({
   id: uuidSchema,
   categoriaId: uuidSchema.nullable().optional(),
   nombre: z.string().trim().min(1).max(120),
-  precio: z.number().min(0),
+  precio: montoSchema,
   emoji: z.string().max(16).default('🍽️'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#0EA5E9'),
   imagen: z.string().max(2_000_000).nullable().optional(),
-  orden: z.number().int().default(0),
+  orden: z.number().int().min(-1_000_000).max(1_000_000).default(0),
   activo: z.boolean().default(true),
   /**
    * Stock absoluto que el cliente ya compensó con sus operaciones pendientes.
    * Si no viene (clientes viejos), el stock se mantiene como esté.
    */
-  stock: z.number().min(0).optional(),
-  stockMinimo: z.number().min(0).default(0),
-  version: z.number().int().min(1),
+  stock: numeroFinito.min(0).max(MAX_STOCK).optional(),
+  stockMinimo: numeroFinito.min(0).max(MAX_STOCK).default(0),
+  version: versionSchema,
   deletedAt: z.string().datetime().nullable().optional(),
 });
 
@@ -60,11 +88,18 @@ const categoriaUpsertSchema = z.object({
   id: uuidSchema,
   nombre: z.string().trim().min(1).max(80),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#E2E8F0'),
-  orden: z.number().int().default(0),
+  orden: z.number().int().min(-1_000_000).max(1_000_000).default(0),
   activo: z.boolean().default(true),
-  version: z.number().int().min(1),
+  version: versionSchema,
   deletedAt: z.string().datetime().nullable().optional(),
 });
+
+const pinHashSchema = z
+  .string()
+  .regex(
+    /^(?:sha256it\$\d{1,6}\$[0-9a-f]{32}\$[0-9a-f]{64}|sha256\$[0-9a-f]{32}\$[0-9a-f]{64})$/,
+    'PIN_HASH_INVALIDO'
+  );
 
 const usuarioUpsertSchema = z.object({
   id: uuidSchema,
@@ -72,14 +107,16 @@ const usuarioUpsertSchema = z.object({
   usuario: z.string().trim().min(3).max(40),
   rol: z.enum(['propietario', 'admin', 'dependiente']).default('dependiente'),
   activo: z.boolean().default(true),
-  version: z.number().int().min(1),
+  /** Hash del PIN que produce la app. Nunca se devuelve en el pull. */
+  pinHash: pinHashSchema.optional(),
+  version: versionSchema,
   deletedAt: z.string().datetime().nullable().optional(),
 });
 
 const settingsUpsertSchema = z.object({
-  clave: z.string().trim().min(1).max(80),
+  clave: settingsSincronizablesSchema,
   valor: z.unknown(),
-  version: z.number().int().min(1),
+  version: versionSchema,
 });
 
 export interface OperacionInput {
@@ -93,6 +130,75 @@ function redondear(valor: number): number {
   return Math.round((valor + Number.EPSILON) * 100) / 100;
 }
 
+type RolDispositivo = 'propietario' | 'admin' | 'dependiente';
+
+async function rolDispositivo(
+  client: PoolClient,
+  empresaId: string,
+  deviceId: string
+): Promise<RolDispositivo> {
+  const fila = await client.query<{ rol: RolDispositivo }>(
+    `select rol::text as rol from dispositivos where empresa_id = $1 and id = $2`,
+    [empresaId, deviceId]
+  );
+  if (!fila.rowCount) {
+    throw new ApiError(404, 'DISPOSITIVO_NO_ENCONTRADO');
+  }
+  return fila.rows[0].rol;
+}
+
+/**
+ * Comprueba que una referencia del payload pertenece al negocio del token.
+ * Sin esto, un id de otro tenant termina en un error de llave foránea (500)
+ * o, peor, en una escritura cruzada si la FK no existe.
+ */
+async function exigirUsuarioDeEmpresa(
+  client: PoolClient,
+  empresaId: string,
+  usuarioId: string
+): Promise<void> {
+  const fila = await client.query(
+    `select 1 from usuarios where empresa_id = $1 and id = $2`,
+    [empresaId, usuarioId]
+  );
+  if (!fila.rowCount) {
+    throw new ApiError(422, 'USUARIO_INVALIDO', 'El usuario no pertenece a este negocio.');
+  }
+}
+
+async function exigirCategoriaDeEmpresa(
+  client: PoolClient,
+  empresaId: string,
+  categoriaId: string
+): Promise<void> {
+  const fila = await client.query(
+    `select 1 from categorias where empresa_id = $1 and id = $2`,
+    [empresaId, categoriaId]
+  );
+  if (!fila.rowCount) {
+    throw new ApiError(422, 'CATEGORIA_INVALIDA', 'La categoría no pertenece a este negocio.');
+  }
+}
+
+async function exigirProductosDeEmpresa(
+  client: PoolClient,
+  empresaId: string,
+  productoIds: string[]
+): Promise<void> {
+  if (productoIds.length === 0) return;
+  const filas = await client.query<{ id: string }>(
+    `select id from productos where empresa_id = $1 and id = any($2::uuid[])`,
+    [empresaId, productoIds]
+  );
+  const existentes = new Set(filas.rows.map((fila) => fila.id));
+  const faltantes = productoIds.filter((id) => !existentes.has(id));
+  if (faltantes.length > 0) {
+    throw new ApiError(422, 'PRODUCTO_INVALIDO', 'El producto no pertenece a este negocio.', {
+      ids: faltantes,
+    });
+  }
+}
+
 async function aplicarVenta(
   client: PoolClient,
   empresaId: string,
@@ -100,6 +206,35 @@ async function aplicarVenta(
   payload: unknown
 ): Promise<unknown> {
   const data = ventaInputSchema.parse(payload);
+
+  await exigirUsuarioDeEmpresa(client, empresaId, data.usuarioId);
+  if (data.turnoId) {
+    const turno = await client.query<{ dispositivo_id: string }>(
+      `select dispositivo_id from turnos_caja where empresa_id = $1 and id = $2`,
+      [empresaId, data.turnoId]
+    );
+    if (!turno.rowCount) {
+      throw new ApiError(422, 'TURNO_INVALIDO', 'El turno no pertenece a este negocio.');
+    }
+    // Una venta pertenece a la caja de la terminal que la registró. Si otra
+    // terminal mete ventas en un turno ajeno, el cierre de caja de la víctima
+    // descuadra sin que nadie haya tocado su teléfono.
+    if (turno.rows[0].dispositivo_id !== deviceId) {
+      throw new ApiError(
+        403,
+        'TURNO_OTRO_DISPOSITIVO',
+        'Solo el dispositivo que abrió el turno puede registrar ventas en él.'
+      );
+    }
+  }
+  const productosVendidos = [
+    ...new Set(
+      data.items
+        .map((item) => item.productoId)
+        .filter((id): id is string => typeof id === 'string')
+    ),
+  ];
+  await exigirProductosDeEmpresa(client, empresaId, productosVendidos);
 
   const existente = await client.query<{ id: string; numero: string }>(
     `select id, numero from ventas
@@ -202,6 +337,7 @@ async function aplicarAnulacion(
   payload: unknown
 ): Promise<unknown> {
   const data = anulacionSchema.parse(payload);
+  await exigirUsuarioDeEmpresa(client, empresaId, data.usuarioId);
 
   const venta = await client.query<{ id: string; anulada: boolean }>(
     `select id, anulada from ventas
@@ -258,6 +394,8 @@ async function aplicarMovimiento(
   payload: unknown
 ): Promise<unknown> {
   const data = movimientoSchema.parse(payload);
+  await exigirProductosDeEmpresa(client, empresaId, [data.productoId]);
+
   const cantidad =
     data.tipo === 'salida'
       ? -Math.abs(data.cantidad)
@@ -270,7 +408,7 @@ async function aplicarMovimiento(
        (id, empresa_id, producto_id, tipo, cantidad, referencia_tipo, referencia_id,
         dispositivo_id)
      values ($1, $2, $3, $4, $5, $6, $7, $8)
-     on conflict (id) do nothing
+     on conflict (empresa_id, id) do nothing
      returning id`,
     [
       data.movimientoId,
@@ -304,11 +442,13 @@ async function aplicarTurnoApertura(
   payload: unknown
 ): Promise<unknown> {
   const data = turnoAperturaSchema.parse(payload);
+  await exigirUsuarioDeEmpresa(client, empresaId, data.usuarioId);
+
   const insertado = await client.query(
     `insert into turnos_caja
        (id, empresa_id, dispositivo_id, usuario_id, apertura, fondo_inicial, desglose, estado)
      values ($1, $2, $3, $4, $5, $6, $7, 'abierto')
-     on conflict (id) do nothing
+     on conflict (empresa_id, id) do nothing
      returning id`,
     [
       data.turnoId,
@@ -329,15 +469,35 @@ async function aplicarTurnoApertura(
 async function aplicarTurnoCierre(
   client: PoolClient,
   empresaId: string,
+  deviceId: string,
   payload: unknown
 ): Promise<unknown> {
   const data = turnoCierreSchema.parse(payload);
-  const actualizado = await client.query(
+
+  const existente = await client.query<{ estado: string; dispositivo_id: string }>(
+    `select estado, dispositivo_id from turnos_caja where empresa_id = $1 and id = $2`,
+    [empresaId, data.turnoId]
+  );
+  if (!existente.rowCount) {
+    throw new ApiError(404, 'TURNO_NO_ENCONTRADO');
+  }
+  const turno = existente.rows[0];
+  if (turno.dispositivo_id !== deviceId) {
+    throw new ApiError(
+      403,
+      'TURNO_OTRO_DISPOSITIVO',
+      'Solo el dispositivo que abrió el turno puede cerrarlo.'
+    );
+  }
+  if (turno.estado === 'cerrado') {
+    return { turnoId: data.turnoId, estado: 'cerrado', idempotente: true };
+  }
+
+  await client.query(
     `update turnos_caja
      set cierre = $3, estado = 'cerrado', ventas_count = $4, total_esperado = $5,
          desglose = $6, dinero_real = $7, diferencia = $8, updated_at = now()
-     where empresa_id = $1 and id = $2 and estado = 'abierto'
-     returning id`,
+     where empresa_id = $1 and id = $2 and dispositivo_id = $9 and estado = 'abierto'`,
     [
       empresaId,
       data.turnoId,
@@ -347,20 +507,10 @@ async function aplicarTurnoCierre(
       JSON.stringify(data.desglose),
       data.dineroReal,
       data.diferencia,
+      deviceId,
     ]
   );
-  if (actualizado.rowCount) {
-    return { turnoId: data.turnoId, estado: 'cerrado' };
-  }
-
-  const existente = await client.query<{ estado: string }>(
-    `select estado from turnos_caja where empresa_id = $1 and id = $2`,
-    [empresaId, data.turnoId]
-  );
-  if (existente.rowCount && existente.rows[0].estado === 'cerrado') {
-    return { turnoId: data.turnoId, estado: 'cerrado', idempotente: true };
-  }
-  throw new ApiError(404, 'TURNO_NO_ENCONTRADO');
+  return { turnoId: data.turnoId, estado: 'cerrado' };
 }
 
 async function aplicarProductoUpsert(
@@ -369,6 +519,9 @@ async function aplicarProductoUpsert(
   payload: unknown
 ): Promise<unknown> {
   const data = productoUpsertSchema.parse(payload);
+  if (data.categoriaId) {
+    await exigirCategoriaDeEmpresa(client, empresaId, data.categoriaId);
+  }
   const conStock = data.stock !== undefined;
   const resultado = await client.query<{ id: string; version: number }>(
     `insert into productos
@@ -464,34 +617,102 @@ async function aplicarCategoriaUpsert(
 async function aplicarUsuarioUpsert(
   client: PoolClient,
   empresaId: string,
+  deviceId: string,
   payload: unknown
 ): Promise<unknown> {
   const data = usuarioUpsertSchema.parse(payload);
-  const resultado = await client.query<{ id: string; version: number }>(
-    `insert into usuarios
-       (id, empresa_id, nombre, usuario, rol, activo, version, deleted_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8)
-     on conflict (empresa_id, id) do update set
-       nombre = excluded.nombre,
-       usuario = excluded.usuario,
-       rol = excluded.rol,
-       activo = excluded.activo,
-       version = excluded.version,
-       deleted_at = excluded.deleted_at,
-       updated_at = now()
-     where excluded.version >= usuarios.version
-     returning id, version`,
-    [
-      data.id,
-      empresaId,
-      data.nombre,
-      data.usuario,
-      data.rol,
-      data.activo,
-      data.version,
-      data.deletedAt ?? null,
-    ]
-  );
+  const rol = await rolDispositivo(client, empresaId, deviceId);
+  let rolFinal = data.rol;
+
+  // La cuenta del dueño se crea localmente como admin. Cuando su dispositivo
+  // (rol propietario) la sincroniza y el negocio todavía no tiene propietario,
+  // se promueve para que pueda reemplazar equipos y proteger su cuenta. La
+  // consulta es idempotente y nunca la ejecuta una terminal de trabajador.
+  if (rol === 'propietario' && data.rol === 'admin' && !data.deletedAt) {
+    const propietario = await client.query<{ id: string }>(
+      `select id from usuarios
+       where empresa_id = $1 and rol = 'propietario' and deleted_at is null
+         and id <> $2
+       limit 1`,
+      [empresaId, data.id]
+    );
+    if (!propietario.rowCount) rolFinal = 'propietario';
+  }
+
+  if (rol !== 'propietario') {
+    if (data.rol === 'propietario') {
+      throw new ApiError(
+        403,
+        'ROL_INSUFICIENTE',
+        'Solo el propietario del negocio puede crear otra cuenta de propietario.'
+      );
+    }
+
+    const actual = await client.query<{ rol: string }>(
+      `select rol::text as rol from usuarios where empresa_id = $1 and id = $2`,
+      [empresaId, data.id]
+    );
+    const rolActual = actual.rows[0]?.rol;
+    if (rolActual === 'propietario') {
+      throw new ApiError(
+        403,
+        'USUARIO_PROTEGIDO',
+        'La cuenta del propietario solo puede modificarla el propietario.'
+      );
+    }
+    if (rol === 'dependiente' && (data.rol !== 'dependiente' || (rolActual && rolActual !== 'dependiente'))) {
+      throw new ApiError(
+        403,
+        'ROL_INSUFICIENTE',
+        'Una terminal de dependiente solo puede crear o modificar cuentas de dependiente.'
+      );
+    }
+  }
+
+  let resultado: { rowCount: number | null; rows: Array<{ id: string; version: number }> };
+  try {
+    resultado = await client.query<{ id: string; version: number }>(
+      `insert into usuarios
+         (id, empresa_id, nombre, usuario, rol, activo, password_hash, version, deleted_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       on conflict (empresa_id, id) do update set
+         nombre = excluded.nombre,
+         usuario = excluded.usuario,
+         rol = case
+           when usuarios.rol = 'propietario' and excluded.rol <> 'propietario'
+             then usuarios.rol
+           else excluded.rol
+         end,
+         activo = excluded.activo,
+         password_hash = coalesce(excluded.password_hash, usuarios.password_hash),
+         version = excluded.version,
+         deleted_at = excluded.deleted_at,
+         updated_at = now()
+       where excluded.version >= usuarios.version
+       returning id, version`,
+      [
+        data.id,
+        empresaId,
+        data.nombre,
+        data.usuario,
+        rolFinal,
+        data.activo,
+        data.pinHash ?? null,
+        data.version,
+        data.deletedAt ?? null,
+      ]
+    );
+  } catch (error) {
+    const pgError = error as { code?: string; constraint?: string };
+    if (pgError.code === '23505' && pgError.constraint?.startsWith('ux_usuarios_')) {
+      throw new ApiError(
+        409,
+        'USUARIO_DUPLICADO',
+        'Ese nombre de usuario ya está en uso. Elige otro.'
+      );
+    }
+    throw error;
+  }
   if (!resultado.rowCount) {
     const actual = await client.query<{ id: string; version: number }>(
       `select id, version from usuarios where empresa_id = $1 and id = $2`,
@@ -507,7 +728,20 @@ async function aplicarSettingsUpsert(
   empresaId: string,
   payload: unknown
 ): Promise<unknown> {
+  const clave = (payload as { clave?: unknown } | null)?.clave;
+  if (
+    typeof clave === 'string' &&
+    !(SETTINGS_SINCRONIZABLES as readonly string[]).includes(clave)
+  ) {
+    throw new ApiError(
+      422,
+      'SETTING_NO_SINCRONIZABLE',
+      'Esa clave de configuración no se sincroniza con la nube.'
+    );
+  }
+
   const data = settingsUpsertSchema.parse(payload);
+
   const resultado = await client.query<{ clave: string; version: number }>(
     `insert into settings (empresa_id, clave, valor, version)
      values ($1, $2, $3, $4)
@@ -543,13 +777,13 @@ export async function aplicarOperacion(
     case 'turno_apertura':
       return aplicarTurnoApertura(client, input.empresaId, input.deviceId, input.payload);
     case 'turno_cierre':
-      return aplicarTurnoCierre(client, input.empresaId, input.payload);
+      return aplicarTurnoCierre(client, input.empresaId, input.deviceId, input.payload);
     case 'producto_upsert':
       return aplicarProductoUpsert(client, input.empresaId, input.payload);
     case 'categoria_upsert':
       return aplicarCategoriaUpsert(client, input.empresaId, input.payload);
     case 'usuario_upsert':
-      return aplicarUsuarioUpsert(client, input.empresaId, input.payload);
+      return aplicarUsuarioUpsert(client, input.empresaId, input.deviceId, input.payload);
     case 'settings_upsert':
       return aplicarSettingsUpsert(client, input.empresaId, input.payload);
     default:

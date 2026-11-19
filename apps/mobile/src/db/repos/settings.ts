@@ -72,7 +72,12 @@ export async function guardarSetting(
   });
 }
 
-async function guardarSettingLocal(
+/**
+ * Escribe un ajuste solo en la SQLite. No entra en la cola de envío: se usa
+ * para valores provisionales o derivados del dispositivo que nunca deben
+ * pisar la configuración del negocio en el servidor.
+ */
+export async function guardarSettingLocal(
   db: SQLiteDatabase,
   clave: string,
   valor: string

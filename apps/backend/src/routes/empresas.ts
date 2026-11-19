@@ -9,6 +9,7 @@ import { registrarAuditoria } from '../services/auditoria';
 import {
   generarCodigoActivacion,
   hashCodigoActivacion,
+  refirmarLicenciasEmpresa,
 } from '../services/licencias';
 
 interface EmpresaListRow {
@@ -259,8 +260,11 @@ empresasRouter.patch(
     const { estado } = z.object({ estado: estadoEmpresaSchema }).parse(req.body);
 
     const resultado = await withAdmin(async (client) => {
+      // No se permite resucitar una empresa borrada (soft delete).
       const empresa = await client.query(
-        `update empresas set estado = $2 where id = $1 returning id, estado`,
+        `update empresas set estado = $2
+         where id = $1 and deleted_at is null
+         returning id, estado`,
         [id, estado]
       );
       if (!empresa.rowCount) {
@@ -272,12 +276,18 @@ empresasRouter.patch(
           `update licencias set estado = 'suspendida' where empresa_id = $1`,
           [id]
         );
+        await client.query(
+          `update dispositivos set licencia_firmada = null, licencia_emitida_en = null
+           where empresa_id = $1 and licencia_firmada is not null`,
+          [id]
+        );
       } else if (estado === 'activa') {
         await client.query(
           `update licencias set estado = 'activa'
            where empresa_id = $1 and estado = 'suspendida'`,
           [id]
         );
+        await refirmarLicenciasEmpresa(client, id);
       }
 
       await registrarAuditoria(client, {

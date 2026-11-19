@@ -14,7 +14,9 @@ import { crearUsuario, existeNombreUsuario } from '../db/repos/catalogo';
 import { guardarSetting } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
 import { useTema } from '../store/tema';
+import type { Usuario } from '../types';
 import { Boton, Campo, Gradiente, Pantalla, Tarjeta } from '../components/UI';
+import { PantallaCodigoRecuperacion } from '../components/CodigoRecuperacion';
 import { fuentes, gradientes, radius, spacing, typography } from '../theme';
 import { esPinValido } from '../utils/pin';
 import {
@@ -36,6 +38,8 @@ export default function SetupScreen({ onCancelar }: { onCancelar?: () => void })
   const [confirmacion, setConfirmacion] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [usuarioCreado, setUsuarioCreado] = useState<Usuario | null>(null);
+  const [codigoRecuperacion, setCodigoRecuperacion] = useState<string | null>(null);
 
   async function comenzar() {
     if (guardando) return;
@@ -73,19 +77,37 @@ export default function SetupScreen({ onCancelar }: { onCancelar?: () => void })
         return;
       }
       await guardarSetting(db, 'nombre_negocio', negocio);
-      const id = await crearUsuario(db, {
+      const { id, codigoRecuperacion: codigo } = await crearUsuario(db, {
         nombre: admin,
         usuario: usuarioLimpio,
         rol: 'admin',
         activo: true,
         pin,
       });
-      iniciar({ id, nombre: admin, usuario: usuarioLimpio, rol: 'admin', activo: true });
+      setUsuarioCreado({
+        id,
+        nombre: admin,
+        usuario: usuarioLimpio,
+        rol: 'admin',
+        activo: true,
+      });
+      setCodigoRecuperacion(codigo);
     } catch {
       setError('No se pudo guardar la configuración. Intenta de nuevo.');
     } finally {
       setGuardando(false);
     }
+  }
+
+  if (codigoRecuperacion && usuarioCreado) {
+    return (
+      <PantallaCodigoRecuperacion
+        nombre={usuarioCreado.nombre}
+        codigo={codigoRecuperacion}
+        textoBoton="Entrar a la caja"
+        onContinuar={() => iniciar(usuarioCreado)}
+      />
+    );
   }
 
   return (

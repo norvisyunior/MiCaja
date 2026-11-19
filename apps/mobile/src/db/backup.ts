@@ -3,7 +3,11 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { asegurarEstructuraV7, asegurarUsernames } from './migraciones';
+import {
+  asegurarEstructuraV7,
+  asegurarEstructuraV8,
+  asegurarUsernames,
+} from './migraciones';
 
 const TABLAS_CORE = [
   'usuarios',
@@ -291,6 +295,7 @@ export async function restaurarBackup(
 
       await asegurarUsernames(db);
       await asegurarEstructuraV7(db);
+      await asegurarEstructuraV8(db);
 
       await db.execAsync('COMMIT');
     } catch (e) {

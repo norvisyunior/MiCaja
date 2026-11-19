@@ -10,7 +10,8 @@ Punto de venta (POS) para Mipymes cubanas, construido con **React Native (Expo)*
 - **Control de inventario**: stock disponible y stock mínimo por producto, con avisos de agotado y stock insuficiente al vender.
 - **Historial de ventas**: consulta y detalle de ventas del día o por fechas.
 - **Resumen y estadísticas**: ventas e ingresos del día, producto más vendido y gráficos.
-- **Múltiples usuarios**: PIN cifrado con SHA-256 y sal, bloqueo temporal tras 5 intentos fallidos y roles (administrador y dependiente).
+- **Múltiples usuarios**: PIN cifrado con SHA-256 salteado (1000 rondas), bloqueo temporal tras 5 intentos fallidos y roles (administrador y dependiente).
+- **Licencia y multi-dispositivo**: activación con código, invitaciones de trabajadores, límite de dispositivos por plan, reemplazo de un teléfono perdido y sincronización entre dispositivos con el mismo negocio.
 - **Exportación**: comparte el historial en PDF u otros formatos.
 - **Tema claro y oscuro**, interfaz en español con tipografías personalizadas.
 

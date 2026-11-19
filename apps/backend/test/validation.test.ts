@@ -3,6 +3,7 @@ import {
   activacionSchema,
   registroSchema,
   syncPushSchema,
+  usuarioLoginSchema,
   ventaInputSchema,
 } from '@micaja/shared';
 
@@ -25,6 +26,32 @@ describe('activacionSchema', () => {
         fingerprint: 'fingerprint-123',
         nombre: 'Caja',
         plataforma: 'android',
+      })
+    ).toThrow();
+  });
+});
+
+describe('usuarioLoginSchema', () => {
+  it('normaliza el usuario y exige PIN de cuatro dígitos', () => {
+    const data = usuarioLoginSchema.parse({
+      usuario: '  AnaQA  ',
+      pin: '1234',
+      fingerprint: 'web-12345678',
+      nombre: 'Chrome',
+      plataforma: 'web',
+    });
+    expect(data.usuario).toBe('anaqa');
+    expect(data.appVersion).toBe('');
+  });
+
+  it('rechaza un PIN fuera de formato', () => {
+    expect(() =>
+      usuarioLoginSchema.parse({
+        usuario: 'anaqa',
+        pin: '12',
+        fingerprint: 'web-12345678',
+        nombre: 'Chrome',
+        plataforma: 'web',
       })
     ).toThrow();
   });

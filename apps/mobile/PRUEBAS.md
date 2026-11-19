@@ -78,18 +78,14 @@ Marca cada punto en un teléfono Android real antes de entregar o vender la app.
 Estas se ejecutan en la computadora, no en el teléfono:
 
 ```bash
-# App móvil: lógica pura (licencias, API, configuración de sync)
+# Desde la raíz del monorepo: app móvil + backend + contratos
 npm test
 
-# App móvil: verificación de tipos
+# Verificación de tipos de las tres piezas
 npm run typecheck
-
-# Backend: pruebas de unidad (no necesitan base de datos)
-cd apps/backend && npm test
-
-# Backend: flujo E2E completo (requiere DATABASE_URL y LICENSE_PRIVATE_KEY)
-cd apps/backend && npm test
 ```
+
+> El flujo E2E del backend se ejecuta dentro de `apps/backend && npm test` y requiere `DATABASE_URL` y `LICENSE_PRIVATE_KEY`; si faltan, esas pruebas se omiten.
 
 ## 10. Plataforma: activación, sincronización y licencia
 
@@ -101,7 +97,24 @@ Con el backend corriendo en desarrollo (`cd apps/backend && npm run dev`) y Supa
 - [ ] Si el servidor rechazó operaciones, **Ajustes → Sincronización** muestra *"N con error"* y el botón **Reintentar las N con error**: al pulsarlo se reencolan con un `operation_id` nuevo y se sincronizan.
 - [ ] Stock tras adoptar: el inventario del servidor debe terminar igual al local (el upsert de producto lleva el stock compensado por operaciones pendientes).
 - [ ] Vender sin conexión: la venta queda en la cola y se envía al recuperar Internet.
+- [ ] **Auto-sync al recuperar Internet:** con la app abierta, poner la red en offline, vender y volver a online; la operación sale sin pulsar *Sincronizar*. Volver a primer plano o a la pestaña también debe reintentar. Repetir con un usuario dependiente: sus ventas también se sincronizan.
+- [ ] **Settings en todos los roles:** cambiar nombre/moneda desde un dispositivo `propietario`, `admin` y `dependiente`; en los tres casos el cambio debe llegar a la nube y verse en el resto de dispositivos tras el `pull`.
 - [ ] Editar un producto offline en un dispositivo y en otro: el cambio con mayor versión gana y el stock se reconcilia.
+- [ ] **Dispositivo sin activar:** en una instalación nueva, configurar el negocio sin conexión y comprobar que la venta y los turnos quedan bloqueados con el aviso *Dispositivo sin activar* hasta introducir el código.
+- [ ] **Gestión de dispositivos** (Ajustes → Sincronización, solo admin): la lista muestra los dispositivos del negocio, marca el actual y permite desvincular. El propio dispositivo se retira sin código; retirar otro exige el código de activación vigente.
+- [ ] **Límite del plan:** con el plan básico (3 dispositivos) activar un cuarto dispositivo: debe ofrecer retirar un dispositivo existente en lugar de fallar; tras elegirlo, el anterior queda inactivo y el nuevo opera.
+- [ ] **Invitación de trabajador:** desde un dispositivo activo, *Invitar trabajador* genera un código (`MICAJA-…`). En una instalación nueva, activar con ese código pide crear la cuenta del trabajador (nombre, usuario y PIN) en lugar de los datos del negocio; al sincronizar, el catálogo del negocio aparece y el trabajador entra con rol dependiente.
+- [ ] Reutilizar una invitación (o esperar su caducidad) debe devolver un error claro, no activar un segundo dispositivo.
+- [ ] **Login global:** en una instalación nueva (o tras borrar datos), entrar con `usuario` + PIN de una cuenta existente. Debe validar contra el servidor, registrar/reutilizar el dispositivo, traer empresa/licencia y abrir la app sin pedir código de activación.
+- [ ] **Usuario único:** crear otro negocio e intentar usar un `usuario` ya existente: debe rechazarse por el índice global. Tras un login global válido, el mismo usuario debe poder entrar desde otro navegador/dispositivo (respetando plazas y rol).
+- [ ] **Misma huella:** cerrar sesión o borrar la cuenta local y volver a entrar con el mismo navegador no debe crear un dispositivo duplicado ni pedir reemplazo; la huella guardada debe reutilizarse.
+- [ ] **PIN incorrecto:** el login global debe responder credenciales inválidas; repetir hasta superar el límite debe devolver `DEMASIADOS_INTENTOS`. Un bloqueo local por intentos no debe saltarse con la nube.
+- [ ] **Dependiente sin plaza:** un usuario `dependiente` desde una huella nueva debe recibir *activación requerida*; `propietario`/`admin` pueden ocupar una plaza libre y solo el propietario puede reemplazar un dispositivo cuando el plan está lleno.
+- [ ] **Hash, no PIN:** crear/editar un usuario y sincronizar; en `usuarios.password_hash` debe quedar `sha256it$…`, el `pull` no debe devolverlo y la red nunca debe llevar el PIN en claro.
+- [ ] **Conflicto de negocio:** con ventas/usuarios locales de otro negocio, el login global debe rechazarse y pedir borrar datos o restaurar respaldo; no debe mezclar catálogos.
+- [ ] **Auto-desvinculación:** en *Dispositivos*, elegir el dispositivo actual y desvincularlo: la app conserva los datos, deja de sincronizar y vuelve a pedir un código de activación (la caja queda bloqueada como *sin activar*). Reactivarlo con un código del mismo negocio restaura la operación sin duplicar datos.
+- [ ] **Un negocio por teléfono:** intentar activar un dispositivo que ya pertenece a otro negocio debe rechazarse con un mensaje que pida borrar los datos o restaurar un respaldo.
 - [ ] Marcar una licencia como vencida en el servidor y sincronizar: la app muestra el aviso de licencia vencida e impide vender, abrir caja y cerrar turno.
+- [ ] **Suspensión desde el servidor:** suspender la licencia por API y sincronizar: el push/pull devuelve `LICENCIA_SUSPENDIDA`, la app invalida la licencia local y bloquea la caja; al reactivarla y sincronizar, vuelve a operar.
 - [ ] Con licencia vencida: el historial, los reportes y los datos siguen accesibles.
 - [ ] Renovar la licencia y sincronizar: desaparece el aviso y la caja vuelve a operar.

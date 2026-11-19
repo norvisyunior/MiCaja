@@ -16,8 +16,25 @@ import {
   type PayloadLicencia,
 } from './token';
 
-export const CLAVE_PUBLICA_LICENCIA =
+/**
+ * Clave pública Ed25519 con la que la app verifica las licencias.
+ *
+ * ⚠️  ANTES DE COMPILAR EL APK DE PRODUCCIÓN:
+ *     `CLAVE_PUBLICA_LICENCIA` debe ser `CLAVE_PUBLICA_LICENCIA_PRODUCCION`.
+ *     Con la clave de desarrollo el teléfono rechaza las licencias firmadas
+ *     por el backend real (motivo `firma`) y la app no permite vender.
+ *     Comprobación automática: `npm run check:clave` (el CI de EAS la ejecuta
+ *     antes de compilar).
+ */
+export const CLAVE_PUBLICA_LICENCIA_PRODUCCION =
+  'MCowBQYDK2VwAyEAuf/OJOGIKRmHYZlk919aoJquA401hR9mjJKqOm2hTUM=';
+
+/** Clave del backend local de desarrollo. NUNCA debe viajar en el APK vendido. */
+export const CLAVE_PUBLICA_LICENCIA_DESARROLLO =
   'MCowBQYDK2VwAyEA19hURrg0/OyBN6MCcyCFpVlfEljem+IugbtwfI/g0Ps=';
+
+/** Clave activa. Para el APK de producción: cambiar a la de producción. */
+export const CLAVE_PUBLICA_LICENCIA = CLAVE_PUBLICA_LICENCIA_DESARROLLO;
 
 export type EstadoLicencia = 'activa' | 'gracia' | 'vencida' | 'invalida' | 'sin_licencia';
 
@@ -25,7 +42,7 @@ export interface ResultadoLicencia {
   estado: EstadoLicencia;
   valida: boolean;
   enGracia: boolean;
-  motivo?: 'firma' | 'empresa' | 'dispositivo' | 'vencida';
+  motivo?: 'firma' | 'empresa' | 'dispositivo' | 'vencida' | 'estado';
   payload?: PayloadLicencia;
   token?: string;
 }
@@ -100,6 +117,29 @@ export async function verificarLicenciaLocal(
     deviceId,
     clavePublica: clavePublica ?? undefined,
   });
+
+  // La sincronización puede marcar la licencia como inválida por orden del
+  // servidor (suspensión, vencimiento, dispositivo bloqueado). Esa marca
+  // pesa más que la firma del token hasta que llegue una nueva licencia.
+  if (resultado.estado === 'activa' && resultado.payload) {
+    const guardada = await db.getFirstAsync<{ estado: string }>(
+      `SELECT estado FROM licencia_local WHERE license_id = ?`,
+      resultado.payload.licenseId
+    );
+    if (guardada?.estado === 'invalida') {
+      const marcada: ResultadoLicencia = {
+        estado: 'invalida',
+        valida: false,
+        enGracia: false,
+        motivo: 'estado',
+        payload: resultado.payload,
+        token,
+      };
+      await guardarLicenciaLocal(db, marcada);
+      return marcada;
+    }
+  }
+
   if (resultado.payload) {
     await guardarLicenciaLocal(db, resultado);
   }
@@ -163,10 +203,18 @@ export interface BloqueoOperativo {
 
 /**
  * Regla pura: qué operaciones comerciales bloquea cada estado de licencia.
- * El modo local sin licencia (`sin_licencia`) nunca bloquea: la caja sigue
- * funcionando offline igual que antes de la plataforma.
+ * La caja no puede operar sin licencia activada: hasta que el dispositivo
+ * no verifique su licencia no se permiten ventas ni turnos (los datos y las
+ * consultas permanecen accesibles).
  */
 export function bloqueoPorEstado(estado: EstadoLicencia): BloqueoOperativo | null {
+  if (estado === 'sin_licencia') {
+    return {
+      titulo: 'Dispositivo sin activar',
+      mensaje:
+        'Este dispositivo aún no activó su licencia. Se conservan todos los datos y puedes consultar el historial, pero no se pueden registrar ventas ni abrir o cerrar turnos hasta activar la licencia.',
+    };
+  }
   if (estado === 'vencida') {
     return {
       titulo: 'Licencia vencida',
@@ -196,6 +244,14 @@ export async function evaluarBloqueoOperativo(
     const resultado = await verificarLicenciaLocal(db);
     return bloqueoPorEstado(resultado.estado);
   } catch {
-    return null;
+    // Un error del control no debe dejar sin caja a un negocio al día (falla
+    // abierta), pero una instalación sin activar NUNCA puede vender por un
+    // error interno: sin token guardado se mantiene el bloqueo.
+    try {
+      const token = await leerSetting(db, CLAVE_LICENCIA_TOKEN);
+      return token ? null : bloqueoPorEstado('sin_licencia');
+    } catch {
+      return bloqueoPorEstado('sin_licencia');
+    }
   }
 }

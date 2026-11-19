@@ -24,15 +24,28 @@ import {
   listarUsuarios,
 } from '../db/repos/catalogo';
 import { guardarSetting, obtenerSettings } from '../db/repos/settings';
+import {
+  cambiarPinPropio,
+  desbloquearUsuario,
+  establecerCodigoRecuperacion,
+  generarCodigoRecuperacionPropio,
+} from '../db/repos/acceso';
 import { exportarVentasPDF, type RangoExportacion } from '../db/exportar';
 import { exportarBackup, seleccionarArchivoRestore, validarArchivoRestore, restaurarBackup } from '../db/backup';
+import { encolarUsuarioUpsert } from '../db/sync/encolar';
+import {
+  crearInvitacion,
+  desvincularDispositivo,
+  listarDispositivosRemotos,
+  type InfoDispositivo,
+} from '../api/cliente';
 import {
   CLAVE_URL_SERVIDOR,
   leerTokenDispositivo,
   leerUrlServidor,
   normalizarUrlServidor,
 } from '../api/config';
-import { activarConCodigo, nombreDispositivoPorDefecto } from '../sync/activacion';
+import { activarConCodigo, nombreDispositivoPorDefecto, olvidarActivacionLocal } from '../sync/activacion';
 import {
   refrescarEstadoSync,
   reintentarRechazadas as reintentarRechazadasSync,
@@ -63,6 +76,8 @@ import {
   generarUsuarioDesdeNombre,
   normalizarUsuario,
 } from '../utils/usuario';
+import { esPinValido } from '../utils/pin';
+import { ContenidoCodigoRecuperacion } from '../components/CodigoRecuperacion';
 import type { ParamListRaiz } from '../navigation';
 
 type Vista = 'menu' | 'categorias' | 'usuarios' | 'negocio' | 'sync';
@@ -131,6 +146,7 @@ export default function ConfigScreen() {
   const [restoreArchivo, setRestoreArchivo] = useState<{ uri: string; nombre: string } | null>(null);
   const [restoreValidando, setRestoreValidando] = useState(false);
   const [restoreValidacion, setRestoreValidacion] = useState<{ valido: boolean; error?: string } | null>(null);
+  const [seguridad, setSeguridad] = useState<null | 'pin' | 'codigo'>(null);
 
   if (vista === 'categorias') {
     return <CategoriasVista onAtras={() => setVista('menu')} />;
@@ -232,16 +248,14 @@ export default function ConfigScreen() {
 
         <Text style={[styles.seccion, { color: colores.textoSuave }]}>Negocio</Text>
         <Grupo>
-          {esAdmin ? (
-            <Fila
-              icono={<MaterialIcons name="storefront" size={22} color={colores.advertencia} />}
-              colorIcono={colores.advertencia}
-              colorFondo={colores.advertenciaSuave}
-              titulo="Nombre y moneda"
-              sub="Datos que se muestran en la caja"
-              onPress={() => setVista('negocio')}
-            />
-          ) : null}
+          <Fila
+            icono={<MaterialIcons name="storefront" size={22} color={colores.advertencia} />}
+            colorIcono={colores.advertencia}
+            colorFondo={colores.advertenciaSuave}
+            titulo="Nombre y moneda"
+            sub="Datos que se muestran en la caja"
+            onPress={() => setVista('negocio')}
+          />
           <Fila
             icono={<MaterialIcons name="file-download" size={22} color={colores.info} />}
             colorIcono={colores.info}
@@ -253,48 +267,66 @@ export default function ConfigScreen() {
           />
         </Grupo>
 
-        {esAdmin ? (
-          <>
-            <Text style={[styles.seccion, { color: colores.textoSuave }]}>Datos</Text>
-            <Grupo>
-              <Fila
-                icono={<MaterialIcons name="cloud-download" size={22} color={colores.exito} />}
-                colorIcono={colores.exito}
-                colorFondo={colores.exitoSuave}
-                titulo="Backup de datos"
-                sub="Exportar copia de seguridad"
-                iconoDerecha="file-download"
-                onPress={() => setBackup('hoja')}
-              />
-              <Fila
-                icono={<MaterialIcons name="cloud-upload" size={22} color={colores.advertencia} />}
-                colorIcono={colores.advertencia}
-                colorFondo={colores.advertenciaSuave}
-                titulo="Restaurar datos"
-                sub="Importar copia de seguridad"
-                iconoDerecha="file-upload"
-                onPress={() => setRestore('hoja')}
-              />
-              <Fila
-                icono={<MaterialIcons name="cloud-sync" size={22} color={colores.acento} />}
-                colorIcono={colores.acento}
-                colorFondo={colores.acentoSuave}
-                titulo="Sincronización"
-                sub={
-                  sync.pendientes > 0
-                    ? `${sync.pendientes} operación(es) pendiente(s)`
-                    : sync.ultimaSync
-                      ? 'Todo al día'
-                      : 'Configurar conexión con la nube'
-                }
-                onPress={() => setVista('sync')}
-              />
-            </Grupo>
-          </>
-        ) : null}
+        <Text style={[styles.seccion, { color: colores.textoSuave }]}>Datos</Text>
+        <Grupo>
+          <Fila
+            icono={<MaterialIcons name="cloud-sync" size={22} color={colores.acento} />}
+            colorIcono={colores.acento}
+            colorFondo={colores.acentoSuave}
+            titulo="Sincronización"
+            sub={
+              sync.pendientes > 0
+                ? `${sync.pendientes} operación(es) pendiente(s)`
+                : sync.fallidas > 0
+                  ? `${sync.fallidas} con error`
+                  : sync.ultimaSync
+                    ? 'Todo al día'
+                    : 'Configurar conexión con la nube'
+            }
+            onPress={() => setVista('sync')}
+          />
+          {esAdmin ? (
+            <Fila
+              icono={<MaterialIcons name="cloud-download" size={22} color={colores.exito} />}
+              colorIcono={colores.exito}
+              colorFondo={colores.exitoSuave}
+              titulo="Backup de datos"
+              sub="Exportar copia de seguridad"
+              iconoDerecha="file-download"
+              onPress={() => setBackup('hoja')}
+            />
+          ) : null}
+          {esAdmin ? (
+            <Fila
+              icono={<MaterialIcons name="cloud-upload" size={22} color={colores.advertencia} />}
+              colorIcono={colores.advertencia}
+              colorFondo={colores.advertenciaSuave}
+              titulo="Restaurar datos"
+              sub="Importar copia de seguridad"
+              iconoDerecha="file-upload"
+              onPress={() => setRestore('hoja')}
+            />
+          ) : null}
+        </Grupo>
 
         <Text style={[styles.seccion, { color: colores.textoSuave }]}>Sesión</Text>
         <Grupo>
+          <Fila
+            icono={<MaterialIcons name="lock-reset" size={22} color={colores.acento} />}
+            colorIcono={colores.acento}
+            colorFondo={colores.acentoSuave}
+            titulo="Cambiar mi PIN"
+            sub="Actualiza tu contraseña de acceso"
+            onPress={() => setSeguridad('pin')}
+          />
+          <Fila
+            icono={<MaterialIcons name="key" size={22} color={colores.info} />}
+            colorIcono={colores.info}
+            colorFondo={colores.infoSuave}
+            titulo="Código de recuperación"
+            sub="Genera una llave para recuperar tu PIN"
+            onPress={() => setSeguridad('codigo')}
+          />
           <Fila
             icono={<MaterialIcons name="logout" size={22} color={colores.peligro} />}
             colorIcono={colores.peligro}
@@ -361,6 +393,12 @@ export default function ConfigScreen() {
             mostrarAviso('Error', resultado.error || 'No se pudo restaurar el backup.');
           }
         }}
+      />
+
+      <SeguridadCuentaHoja
+        visible={seguridad !== null}
+        modo={seguridad ?? 'pin'}
+        onCerrar={() => setSeguridad(null)}
       />
     </Pantalla>
   );
@@ -689,6 +727,212 @@ function CategoriasVista({ onAtras }: { onAtras: () => void }) {
   );
 }
 
+function SeguridadCuentaHoja({
+  visible,
+  modo,
+  onCerrar,
+}: {
+  visible: boolean;
+  modo: 'pin' | 'codigo';
+  onCerrar: () => void;
+}) {
+  const db = useSQLiteContext();
+  const sesion = useSesion((s) => s.usuario)!;
+  const { colores } = useTema();
+  const mostrarAviso = useAvisos((s) => s.mostrar);
+
+  const [pinActual, setPinActual] = useState('');
+  const [pinNuevo, setPinNuevo] = useState('');
+  const [confirmacion, setConfirmacion] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [codigoGenerado, setCodigoGenerado] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setPinActual('');
+    setPinNuevo('');
+    setConfirmacion('');
+    setError(null);
+    setGuardando(false);
+    setCodigoGenerado(null);
+  }, [visible, modo]);
+
+  const esPin = modo === 'pin';
+
+  function mensajeFallo(resultado: {
+    motivo: 'pin' | 'bloqueado' | 'inactivo' | 'nuevo_pin_invalido';
+    intentosRestantes?: number;
+    bloqueadoHasta?: string;
+  }): string {
+    if (resultado.motivo === 'bloqueado') {
+      const minutos = Math.max(
+        1,
+        Math.ceil((Date.parse(resultado.bloqueadoHasta ?? '') - Date.now()) / 60000)
+      );
+      return `Demasiados intentos. Espera ${minutos} minuto(s) e intenta de nuevo.`;
+    }
+    if (resultado.motivo === 'inactivo') {
+      return 'Tu usuario está desactivado. Habla con un administrador.';
+    }
+    if (resultado.motivo === 'nuevo_pin_invalido') {
+      return 'La nueva contraseña debe tener exactamente 4 dígitos.';
+    }
+    return resultado.intentosRestantes && resultado.intentosRestantes > 0
+      ? `PIN actual incorrecto. Te quedan ${resultado.intentosRestantes} intento(s).`
+      : 'PIN actual incorrecto.';
+  }
+
+  async function guardar() {
+    if (guardando) return;
+    if (!/^\d{4}$/.test(pinActual)) {
+      setError('Escribe tu PIN actual de 4 dígitos.');
+      return;
+    }
+    if (esPin) {
+      if (!esPinValido(pinNuevo)) {
+        setError('La nueva contraseña debe tener exactamente 4 dígitos.');
+        return;
+      }
+      if (pinNuevo !== confirmacion) {
+        setError('Las dos contraseñas nuevas no coinciden.');
+        return;
+      }
+    }
+
+    setError(null);
+    setGuardando(true);
+
+    try {
+      if (esPin) {
+        const resultado = await cambiarPinPropio(db, sesion.id, pinActual, pinNuevo);
+        if (!resultado.ok) {
+          setError(mensajeFallo(resultado));
+          setPinActual('');
+          return;
+        }
+        try {
+          await encolarUsuarioUpsert(db, sesion.id);
+        } catch {
+          // El cambio local ya está hecho; se reintenta en el próximo guardado.
+        }
+        mostrarAviso('PIN actualizado', 'Tu nueva contraseña ya está activa.');
+        onCerrar();
+        return;
+      }
+
+      const resultado = await generarCodigoRecuperacionPropio(db, sesion.id, pinActual);
+      if (!resultado.ok) {
+        setError(mensajeFallo(resultado));
+        setPinActual('');
+        return;
+      }
+      setCodigoGenerado(resultado.codigo);
+    } catch {
+      setError('No se pudo completar la operación. Intenta de nuevo.');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Hoja
+      visible={visible}
+      onCerrar={onCerrar}
+      titulo={esPin ? 'Cambiar mi PIN' : 'Código de recuperación'}
+      subtitulo={
+        esPin
+          ? 'Confirma tu PIN actual y elige uno nuevo'
+          : 'Una llave de repuesto para cuando olvides tu PIN'
+      }
+      pie={
+        codigoGenerado ? (
+          <Boton titulo="Listo" icono="check" tamanio="lg" onPress={onCerrar} />
+        ) : (
+          <Boton
+            titulo={esPin ? 'Guardar nuevo PIN' : 'Generar código'}
+            icono={esPin ? 'save' : 'key'}
+            tamanio="lg"
+            cargando={guardando}
+            onPress={guardar}
+          />
+        )
+      }
+    >
+      {codigoGenerado ? (
+        <ContenidoCodigoRecuperacion nombre={sesion.nombre} codigo={codigoGenerado} />
+      ) : (
+        <>
+          <Text style={[styles.formAyuda, { color: colores.textoSuave }]}>
+            {esPin
+              ? 'Si no recuerdas tu PIN actual, cierra esta hoja y usa “¿Olvidaste tu PIN?” en la pantalla de acceso.'
+              : 'Se mostrará una sola vez. Si ya tenías un código, dejará de funcionar y se reemplazará por este.'}
+          </Text>
+
+          {error ? (
+            <View style={[styles.seguridadError, { backgroundColor: colores.peligroSuave }]}>
+              <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
+              <Text style={[styles.seguridadErrorTexto, { color: colores.peligro }]}>
+                {error}
+              </Text>
+            </View>
+          ) : null}
+
+          <Campo
+            etiqueta="PIN actual"
+            valor={pinActual}
+            onChange={(texto) => {
+              setPinActual(texto.replace(/\D/g, '').slice(0, 4));
+              setError(null);
+            }}
+            icono="lock-outline"
+            teclado="numeric"
+            seguro
+            maxLength={4}
+            autoComplete="current-password"
+          />
+
+          {esPin ? (
+            <>
+              <Campo
+                etiqueta="Nuevo PIN (4 dígitos)"
+                valor={pinNuevo}
+                onChange={(texto) => {
+                  setPinNuevo(texto.replace(/\D/g, '').slice(0, 4));
+                  setError(null);
+                }}
+                icono="lock"
+                teclado="numeric"
+                seguro
+                maxLength={4}
+                autoComplete="new-password"
+              />
+              <Campo
+                etiqueta="Confirmar nuevo PIN"
+                valor={confirmacion}
+                onChange={(texto) => {
+                  setConfirmacion(texto.replace(/\D/g, '').slice(0, 4));
+                  setError(null);
+                }}
+                icono="lock"
+                teclado="numeric"
+                seguro
+                maxLength={4}
+                autoComplete="new-password"
+              />
+            </>
+          ) : (
+            <Text style={[styles.formAyuda, { color: colores.textoSuave }]}>
+              El código tiene 12 caracteres y no usa letras I, O ni los números 0 y 1.
+              Anótalo en un lugar seguro.
+            </Text>
+          )}
+        </>
+      )}
+    </Hoja>
+  );
+}
+
 function UsuariosVista({ onAtras }: { onAtras: () => void }) {
   const db = useSQLiteContext();
   const sesion = useSesion((s) => s.usuario)!;
@@ -715,6 +959,7 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
     activo: true,
   });
   const [borrando, setBorrando] = useState<Usuario | null>(null);
+  const [codigoNuevo, setCodigoNuevo] = useState<{ nombre: string; codigo: string } | null>(null);
 
   const cargar = useCallback(async () => {
     setUsuarios(await listarUsuarios(db));
@@ -765,13 +1010,61 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
       rol: form.rol,
       activo: form.activo,
     };
+    let codigoNuevoUsuario: { nombre: string; codigo: string } | null = null;
     if (editar) {
       await actualizarUsuario(db, { ...datos, id: editar.id }, pinNuevo || undefined);
     } else {
-      await crearUsuario(db, { ...datos, pin: pinNuevo });
+      const resultado = await crearUsuario(db, { ...datos, pin: pinNuevo });
+      codigoNuevoUsuario = {
+        nombre: datos.nombre,
+        codigo: resultado.codigoRecuperacion,
+      };
     }
     setForm((f) => ({ ...f, abierto: false }));
     await cargar();
+    if (codigoNuevoUsuario) setCodigoNuevo(codigoNuevoUsuario);
+  }
+
+  async function generarCodigo(u: Usuario) {
+    try {
+      const codigo = await establecerCodigoRecuperacion(db, u.id);
+      if (!codigo) {
+        mostrarAviso('Error', 'No se pudo generar el código de recuperación.');
+        return;
+      }
+      setForm((f) => ({ ...f, abierto: false }));
+      setCodigoNuevo({ nombre: u.nombre, codigo });
+      await cargar();
+    } catch {
+      mostrarAviso('Error', 'No se pudo generar el código de recuperación.');
+    }
+  }
+
+  function pedirCodigo(u: Usuario) {
+    if (u.tieneCodigoRecuperacion) {
+      mostrarAviso(
+        'Regenerar código',
+        `El código anterior de ${u.nombre} dejará de funcionar. ¿Generar uno nuevo?`,
+        [
+          { texto: 'Cancelar', estilo: 'cancel' },
+          {
+            texto: 'Regenerar',
+            estilo: 'peligro',
+            onPress: () => {
+              void generarCodigo(u);
+            },
+          },
+        ]
+      );
+      return;
+    }
+    void generarCodigo(u);
+  }
+
+  async function desbloquear(u: Usuario) {
+    await desbloquearUsuario(db, u.id);
+    await cargar();
+    mostrarAviso('Desbloqueado', `${u.nombre} puede volver a intentar entrar.`);
   }
 
   async function borrar() {
@@ -831,14 +1124,48 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
             <View style={{ flex: 1 }}>
               <Text style={[styles.filaTitulo, { color: colores.texto }]}>{u.nombre}</Text>
               <Text style={[styles.usuarioAlias, { color: colores.textoSuave }]}>@{u.usuario}</Text>
-              <View style={{ marginTop: 4 }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  marginTop: 4,
+                }}
+              >
                 <Badge
                   texto={u.rol === 'admin' ? 'Admin' : 'Dependiente'}
                   color={u.rol === 'admin' ? colores.primarioSuave : colores.infoSuave}
                   colorTexto={u.rol === 'admin' ? colores.primario : colores.info}
                 />
+                {u.tienePin === false ? (
+                  <Badge
+                    texto="Sin PIN aquí"
+                    color={colores.advertenciaSuave}
+                    colorTexto={colores.advertencia}
+                  />
+                ) : null}
+                {u.bloqueado ? (
+                  <Badge
+                    texto="Bloqueado"
+                    color={colores.peligroSuave}
+                    colorTexto={colores.peligro}
+                  />
+                ) : null}
               </View>
             </View>
+            {u.bloqueado ? (
+              <Pressable
+                onPress={() => {
+                  void desbloquear(u);
+                }}
+                hitSlop={8}
+                style={{ padding: 4 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Desbloquear a ${u.nombre}`}
+              >
+                <MaterialIcons name="lock-open" size={20} color={colores.advertencia} />
+              </Pressable>
+            ) : null}
             <Switch
               value={u.activo}
               onValueChange={async (v) => {
@@ -936,14 +1263,43 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
             style={{
               fontSize: typography.micro,
               fontFamily: fuentes.regular,
-              color: colores.textoSuave,
+              color: form.editar.tienePin === false ? colores.advertencia : colores.textoSuave,
               marginTop: -8,
               marginBottom: spacing.md,
             }}
           >
-            Si dejas la contraseña vacía se conserva la actual. Al cambiarla también se
-            desbloquea el usuario.
+            {form.editar.tienePin === false
+              ? 'Esta cuenta llegó por sincronización y aún no tiene PIN en este dispositivo. Asigna uno para que pueda entrar aquí; su PIN en otros dispositivos no cambia.'
+              : 'Si dejas la contraseña vacía se conserva la actual. Al cambiarla también se desbloquea el usuario.'}
           </Text>
+        ) : null}
+        {form.editar ? (
+          <Pressable
+            onPress={() => pedirCodigo(form.editar!)}
+            style={({ pressed }) => [
+              styles.accionCodigo,
+              {
+                backgroundColor: colores.acentoSuave,
+                borderColor: colores.borde,
+              },
+              pressed && { opacity: 0.75 },
+            ]}
+          >
+            <MaterialIcons name="key" size={20} color={colores.acento} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.accionCodigoTexto, { color: colores.texto }]}>
+                {form.editar.tieneCodigoRecuperacion
+                  ? 'Regenerar código de recuperación'
+                  : 'Generar código de recuperación'}
+              </Text>
+              <Text style={[styles.accionCodigoSub, { color: colores.textoSuave }]}>
+                {form.editar.tieneCodigoRecuperacion
+                  ? 'El código actual dejará de funcionar.'
+                  : 'Para que pueda recuperar su PIN si lo olvida.'}
+              </Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={20} color={colores.textoSuave} />
+          </Pressable>
         ) : null}
         <View style={styles.switchFila}>
           <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Usuario activo</Text>
@@ -953,6 +1309,21 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
             trackColor={{ true: colores.acento, false: colores.borde }}
           />
         </View>
+      </Hoja>
+
+      <Hoja
+        visible={!!codigoNuevo}
+        onCerrar={() => setCodigoNuevo(null)}
+        titulo="Código de recuperación"
+        subtitulo="Guárdalo antes de cerrar esta ventana"
+        pie={<Boton titulo="Listo" icono="check" tamanio="lg" onPress={() => setCodigoNuevo(null)} />}
+      >
+        {codigoNuevo ? (
+          <ContenidoCodigoRecuperacion
+            nombre={codigoNuevo.nombre}
+            codigo={codigoNuevo.codigo}
+          />
+        ) : null}
       </Hoja>
 
       <ConfirmarModal
@@ -1047,6 +1418,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
   const { colores } = useTema();
   const mostrarAviso = useAvisos((s) => s.mostrar);
   const sync = useSync();
+  const esAdmin = useSesion((s) => s.usuario?.rol === 'admin');
 
   const [url, setUrl] = useState('');
   const [codigo, setCodigo] = useState('');
@@ -1055,6 +1427,15 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
   const [activando, setActivando] = useState(false);
   const [reintentando, setReintentando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dispositivos, setDispositivos] = useState<InfoDispositivo[] | null>(null);
+  const [cargandoDispositivos, setCargandoDispositivos] = useState(false);
+  const [hojaInvitacion, setHojaInvitacion] = useState(false);
+  const [rolInvitacion, setRolInvitacion] = useState<'dependiente' | 'admin'>('dependiente');
+  const [creandoInvitacion, setCreandoInvitacion] = useState(false);
+  const [codigoInvitacion, setCodigoInvitacion] = useState<string | null>(null);
+  const [pedidoDesvincular, setPedidoDesvincular] = useState<InfoDispositivo | null>(null);
+  const [codigoDesvincular, setCodigoDesvincular] = useState('');
+  const [desvinculando, setDesvinculando] = useState(false);
 
   useEffect(() => {
     Promise.all([leerUrlServidor(db), leerTokenDispositivo(db)])
@@ -1065,6 +1446,94 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
       .catch(() => setActivado(false));
     void refrescarEstadoSync(db);
   }, [db]);
+
+  async function cargarDispositivos() {
+    if (!esAdmin) return;
+    setCargandoDispositivos(true);
+    try {
+      const respuesta = await listarDispositivosRemotos(db);
+      setDispositivos(respuesta.dispositivos);
+      setError(null);
+    } catch (fallo) {
+      setError(
+        fallo instanceof Error ? fallo.message : 'No se pudo consultar los dispositivos.'
+      );
+    } finally {
+      setCargandoDispositivos(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activado && esAdmin) void cargarDispositivos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activado, esAdmin]);
+
+  async function desvincular() {
+    if (!pedidoDesvincular || desvinculando) return;
+    setDesvinculando(true);
+    setError(null);
+    try {
+      const esOtro = !pedidoDesvincular.esEste;
+      const codigoLimpio = codigoDesvincular.trim().toUpperCase();
+      if (esOtro && !codigoLimpio) {
+        setError('Escribe el código de activación para desvincular otro dispositivo.');
+        return;
+      }
+      await desvincularDispositivo(db, {
+        dispositivoId: pedidoDesvincular.id,
+        ...(esOtro ? { codigo: codigoLimpio } : {}),
+      });
+      if (pedidoDesvincular.esEste) {
+        // Este teléfono deja de estar activado: se pide un código nuevo para
+        // volver a operar. Los datos locales se conservan.
+        await olvidarActivacionLocal(db);
+        setActivado(false);
+        setDispositivos(null);
+        await refrescarEstadoSync(db);
+        mostrarAviso(
+          'Dispositivo desvinculado',
+          'Para volver a vender, activa este dispositivo con un código de activación.'
+        );
+      } else {
+        mostrarAviso(
+          'Dispositivo desvinculado',
+          `${pedidoDesvincular.nombre} ya no ocupa una plaza del plan.`
+        );
+        await cargarDispositivos();
+      }
+      setPedidoDesvincular(null);
+      setCodigoDesvincular('');
+    } catch (fallo) {
+      setError(
+        fallo instanceof Error ? fallo.message : 'No se pudo desvincular el dispositivo.'
+      );
+    } finally {
+      setDesvinculando(false);
+    }
+  }
+
+  async function generarInvitacion() {
+    if (creandoInvitacion) return;
+    setCreandoInvitacion(true);
+    setError(null);
+    try {
+      const respuesta = await crearInvitacion(db, { rol: rolInvitacion });
+      setCodigoInvitacion(respuesta.codigo);
+      setError(null);
+    } catch (fallo) {
+      setError(
+        fallo instanceof Error ? fallo.message : 'No se pudo crear la invitación.'
+      );
+    } finally {
+      setCreandoInvitacion(false);
+    }
+  }
+
+  function cerrarHojaInvitacion() {
+    setHojaInvitacion(false);
+    setCodigoInvitacion(null);
+    setRolInvitacion('dependiente');
+  }
 
   async function guardarUrl() {
     const limpia = normalizarUrlServidor(url);
@@ -1145,7 +1614,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
           ? 'Licencia vencida'
           : licencia?.estado === 'invalida'
             ? 'Licencia inválida'
-            : 'Modo local sin licencia';
+            : 'Dispositivo sin activar';
   const colorLicencia =
     licencia?.estado === 'activa'
       ? colores.exito
@@ -1153,7 +1622,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
         ? colores.advertencia
         : licencia?.estado === 'vencida' || licencia?.estado === 'invalida'
           ? colores.peligro
-          : colores.info;
+          : colores.advertencia;
 
   return (
     <Pantalla>
@@ -1273,13 +1742,202 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
                 </Text>
               ) : (
                 <Text style={{ color: colores.textoSuave, fontFamily: fuentes.regular, fontSize: typography.cuerpoChico, marginTop: spacing.sm }}>
-                  Sin licencia verificada. La caja funciona en modo local.
+                  Sin licencia activada. Conecta a Internet y activa este dispositivo con un
+                  código para poder vender.
                 </Text>
               )}
             </Tarjeta>
+
+            {esAdmin ? (
+              <>
+                <Text style={[styles.seccion, { color: colores.textoSuave }]}>Dispositivos</Text>
+                <Tarjeta>
+                  {dispositivos === null ? (
+                    <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
+                      {cargandoDispositivos ? 'Consultando dispositivos…' : 'Sin consultar todavía.'}
+                    </Text>
+                  ) : dispositivos.length === 0 ? (
+                    <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
+                      No hay dispositivos registrados.
+                    </Text>
+                  ) : (
+                    <View style={{ gap: spacing.sm }}>
+                      {dispositivos.map((dispositivo) => (
+                        <Pressable
+                          key={dispositivo.id}
+                          onPress={() => {
+                            setPedidoDesvincular(dispositivo);
+                            setCodigoDesvincular('');
+                            setError(null);
+                          }}
+                          style={({ pressed }) => [
+                            styles.filaDispositivo,
+                            { borderColor: colores.borde },
+                            pressed && { opacity: 0.7 },
+                          ]}
+                        >
+                          <MaterialIcons
+                            name={dispositivo.esEste ? 'smartphone' : 'devices-other'}
+                            size={20}
+                            color={
+                              dispositivo.estado === 'activo'
+                                ? colores.exito
+                                : colores.textoSuave
+                            }
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.filaTitulo, { color: colores.texto }]}>
+                              {dispositivo.nombre}
+                              {dispositivo.esEste ? ' (este)' : ''}
+                            </Text>
+                            <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
+                              {dispositivo.plataforma}
+                              {dispositivo.lastSeenAt
+                                ? ` · visto ${new Date(dispositivo.lastSeenAt).toLocaleDateString()}`
+                                : ''}
+                            </Text>
+                          </View>
+                          <Badge
+                            texto={dispositivo.estado === 'activo' ? 'Activo' : 'Retirado'}
+                            color={
+                              dispositivo.estado === 'activo'
+                                ? colores.exitoSuave
+                                : colores.vidrioSuave
+                            }
+                            colorTexto={
+                              dispositivo.estado === 'activo' ? colores.exito : colores.textoSuave
+                            }
+                          />
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+                  <Boton
+                    titulo="Actualizar lista"
+                    icono="refresh"
+                    variante="secundario"
+                    tamanio="sm"
+                    cargando={cargandoDispositivos}
+                    onPress={cargarDispositivos}
+                  />
+                  <Boton
+                    titulo="Invitar trabajador"
+                    icono="person-add"
+                    tamanio="md"
+                    onPress={() => {
+                      setCodigoInvitacion(null);
+                      setRolInvitacion('dependiente');
+                      setHojaInvitacion(true);
+                    }}
+                    estilo={{ marginTop: spacing.sm }}
+                  />
+                  <Text style={[styles.filaSub, { color: colores.textoSuave, marginTop: spacing.sm }]}>
+                    Toca un dispositivo para desvincularlo y liberar su plaza del plan.
+                  </Text>
+                </Tarjeta>
+              </>
+            ) : null}
           </>
         )}
       </ScrollView>
+
+      <Hoja
+        visible={hojaInvitacion}
+        onCerrar={cerrarHojaInvitacion}
+        titulo="Invitar trabajador"
+        subtitulo="Genera un código para que el trabajador active su propio dispositivo"
+      >
+        {codigoInvitacion ? (
+          <>
+            <View
+              style={[
+                styles.invitacionCodigo,
+                { backgroundColor: colores.exitoSuave, borderColor: colores.exito },
+              ]}
+            >
+              <Text style={[styles.invitacionCodigoTexto, { color: colores.exito }]}>
+                {codigoInvitacion}
+              </Text>
+              <Text style={[styles.filaSub, { color: colores.textoSuave, marginTop: spacing.xs }]}>
+                Se muestra una sola vez. El trabajador lo introduce en su instalación de
+                MiCaja para unirse al negocio.
+              </Text>
+            </View>
+            <Boton titulo="Listo" tamanio="lg" onPress={cerrarHojaInvitacion} />
+          </>
+        ) : (
+          <>
+            <Text style={[styles.formEtiqueta, { color: colores.textoSuave }]}>Rol del trabajador</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <Chip
+                etiqueta="Dependiente"
+                icono="storefront"
+                activo={rolInvitacion === 'dependiente'}
+                onPress={() => setRolInvitacion('dependiente')}
+              />
+              <Chip
+                etiqueta="Administrador"
+                icono="manage-accounts"
+                activo={rolInvitacion === 'admin'}
+                onPress={() => setRolInvitacion('admin')}
+              />
+            </View>
+            <Boton
+              titulo="Generar código"
+              icono="vpn-key"
+              tamanio="lg"
+              cargando={creandoInvitacion}
+              onPress={generarInvitacion}
+              estilo={{ marginTop: spacing.lg }}
+            />
+          </>
+        )}
+      </Hoja>
+
+      <Hoja
+        visible={pedidoDesvincular !== null}
+        onCerrar={() => {
+          setPedidoDesvincular(null);
+          setCodigoDesvincular('');
+        }}
+        titulo={
+          pedidoDesvincular?.esEste ? 'Desvincular este dispositivo' : 'Desvincular dispositivo'
+        }
+        subtitulo={pedidoDesvincular?.nombre}
+      >
+        {pedidoDesvincular ? (
+          <>
+            <View style={[styles.backupInfo, { backgroundColor: colores.advertenciaSuave, borderColor: colores.advertencia }]}>
+              <MaterialIcons name="warning-amber" size={20} color={colores.advertencia} />
+              <Text style={[styles.backupInfoTexto, { color: colores.texto }]}>
+                {pedidoDesvincular.esEste
+                  ? 'Este dispositivo dejará de sincronizar y liberará su plaza. Podrás activarlo de nuevo con un código.'
+                  : 'Para retirar otro dispositivo escribe el código de activación vigente del plan.'}
+              </Text>
+            </View>
+            {!pedidoDesvincular.esEste ? (
+              <Campo
+                etiqueta="Código de activación"
+                valor={codigoDesvincular}
+                onChange={(texto) => setCodigoDesvincular(texto.toUpperCase())}
+                placeholder="MICAJA-XXXX-XXXX-XXXX"
+                icono="vpn-key"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={23}
+              />
+            ) : null}
+            <Boton
+              titulo={pedidoDesvincular.esEste ? 'Desvincular este dispositivo' : 'Retirar dispositivo'}
+              icono="link-off"
+              variante="peligro"
+              tamanio="lg"
+              cargando={desvinculando}
+              onPress={desvincular}
+            />
+          </>
+        ) : null}
+      </Hoja>
     </Pantalla>
   );
 }
@@ -1496,6 +2154,14 @@ const styles = StyleSheet.create({
   },
   filaTitulo: { fontSize: typography.cuerpo, fontFamily: fuentes.bold },
   filaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
+  filaDispositivo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
   fab: {
     width: 44,
     height: 44,
@@ -1541,6 +2207,39 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: spacing.sm,
+  },
+  seguridadError: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  seguridadErrorTexto: {
+    flex: 1,
+    fontFamily: fuentes.semibold,
+    fontSize: typography.cuerpoChico,
+    lineHeight: 18,
+  },
+  accionCodigo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  accionCodigoTexto: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.semibold,
+  },
+  accionCodigoSub: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.regular,
+    marginTop: 2,
+    lineHeight: 16,
   },
   vistaPrevia: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -1606,5 +2305,18 @@ const styles = StyleSheet.create({
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.medium,
     lineHeight: 20,
+  },
+  invitacionCodigo: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  invitacionCodigoTexto: {
+    fontSize: typography.subtitulo,
+    fontFamily: fuentes.bold,
+    letterSpacing: 1,
+    fontVariant: ['tabular-nums'],
   },
 });

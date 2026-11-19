@@ -1,6 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Categoria, Producto, Rol, Usuario } from '../../types';
+import { pedirSyncAhora } from '../../sync/disparador';
 import { crearPinHash } from '../../utils/pin';
+import {
+  crearHashCodigoRecuperacion,
+  generarCodigoRecuperacion,
+} from '../../utils/recuperacion';
 import { normalizarUsuario } from '../../utils/usuario';
 import { ahoraIso, nuevoUuid, obtenerContextoLocal } from '../contexto';
 import {
@@ -320,7 +325,11 @@ interface FilaUsuario {
   nombre: string;
   usuario: string | null;
   rol: string;
+  pin: string;
+  codigo_recuperacion: string | null;
   activo: number;
+  intentos_fallidos: number;
+  bloqueado_hasta: string | null;
   version: number;
   deleted_at: string | null;
 }
@@ -334,6 +343,10 @@ const A_USUARIO = (f: FilaUsuario): Usuario => ({
   activo: f.activo === 1,
   version: f.version,
   deletedAt: f.deleted_at,
+  tienePin: (f.pin ?? '').length > 0,
+  tieneCodigoRecuperacion: !!f.codigo_recuperacion,
+  bloqueado: f.bloqueado_hasta ? Date.parse(f.bloqueado_hasta) > Date.now() : false,
+  bloqueadoHasta: f.bloqueado_hasta ?? null,
 });
 
 export interface NuevoUsuario {
@@ -374,8 +387,12 @@ export async function obtenerUsuario(
 export async function crearUsuario(
   db: SQLiteDatabase,
   u: NuevoUsuario
-): Promise<number> {
-  const pinHash = await crearPinHash(u.pin);
+): Promise<{ id: number; codigoRecuperacion: string }> {
+  const codigoRecuperacion = generarCodigoRecuperacion();
+  const [pinHash, codigoHash] = await Promise.all([
+    crearPinHash(u.pin),
+    crearHashCodigoRecuperacion(codigoRecuperacion),
+  ]);
   let usuarioId = 0;
 
   await db.withTransactionAsync(async () => {
@@ -383,15 +400,16 @@ export async function crearUsuario(
     const ahora = ahoraIso();
     const res = await db.runAsync(
       `INSERT INTO usuarios
-         (uuid, empresa_id, nombre, usuario, rol, pin, activo,
+         (uuid, empresa_id, nombre, usuario, rol, pin, codigo_recuperacion, activo,
           intentos_fallidos, bloqueado_hasta, updated_at, deleted_at, version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, NULL, 1)`,
       nuevoUuid(),
       contexto.empresaId,
       u.nombre,
       normalizarUsuario(u.usuario),
       u.rol,
       pinHash,
+      codigoHash,
       u.activo ? 1 : 0,
       ahora
     );
@@ -399,7 +417,8 @@ export async function crearUsuario(
     await encolarUsuarioUpsert(db, usuarioId);
   });
 
-  return usuarioId;
+  pedirSyncAhora();
+  return { id: usuarioId, codigoRecuperacion };
 }
 
 /** Comprueba si un nombre de usuario ya está tomado (sin distinguir mayúsculas). */
@@ -474,6 +493,8 @@ export async function actualizarUsuario(
 
     await encolarUsuarioUpsert(db, u.id);
   });
+
+  pedirSyncAhora();
 }
 
 export async function eliminarUsuario(db: SQLiteDatabase, id: number): Promise<void> {
@@ -496,4 +517,6 @@ export async function eliminarUsuario(db: SQLiteDatabase, id: number): Promise<v
     );
     await encolarUsuarioUpsert(db, id);
   });
+
+  pedirSyncAhora();
 }

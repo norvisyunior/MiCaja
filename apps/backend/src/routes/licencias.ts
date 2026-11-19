@@ -9,6 +9,7 @@ import { registrarAuditoria } from '../services/auditoria';
 import {
   generarCodigoActivacion,
   hashCodigoActivacion,
+  refirmarLicenciasEmpresa,
 } from '../services/licencias';
 
 const actualizarLicenciaSchema = z.object({
@@ -126,7 +127,9 @@ licenciasRouter.patch(
       if (data.estado === 'suspendida') tipoEvento = 'suspendida';
       else if (data.estado === 'activa' && licencia.estado === 'suspendida') {
         tipoEvento = 'reactivada';
-      } else if (data.venceEn) tipoEvento = 'renovada';
+      } else if (data.venceEn || data.planCodigo || data.graceDias !== undefined) {
+        tipoEvento = 'renovada';
+      }
 
       if (tipoEvento) {
         await client.query(
@@ -142,6 +145,27 @@ licenciasRouter.patch(
             }),
           ]
         );
+      }
+
+      // Ciclo de vida de los tokens guardados:
+      // - Suspensión: se borra el token de todos los dispositivos; el pull
+      //   dejará de entregar licencia y el teléfono la invalidará.
+      // - Reactivación o cambios de plan/vigencia/gracia: se re-firma el
+      //   token con los datos actuales para que el pull entregue licencias
+      //   frescas (exp, features y gracia actualizados).
+      if (data.estado === 'suspendida') {
+        await client.query(
+          `update dispositivos set licencia_firmada = null, licencia_emitida_en = null
+           where empresa_id = $1 and licencia_firmada is not null`,
+          [licencia.empresa_id]
+        );
+      } else if (
+        data.estado === 'activa' ||
+        data.planCodigo ||
+        data.venceEn ||
+        data.graceDias !== undefined
+      ) {
+        await refirmarLicenciasEmpresa(client, licencia.empresa_id);
       }
 
       await registrarAuditoria(client, {

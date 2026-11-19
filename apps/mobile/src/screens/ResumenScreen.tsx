@@ -19,6 +19,7 @@ import {
 import { obtenerSettings } from '../db/repos/settings';
 import { useTema } from '../store/tema';
 import { useSesion } from '../store/sesion';
+import { useSync } from '../store/sync';
 import { Boton, Chip, Encabezado, EstadoCarga, Pantalla, Tarjeta } from '../components/UI';
 import { Barras, BarraApilada, FilasProgreso } from '../components/Graficos';
 import { fuentes, radius, spacing, typography } from '../theme';
@@ -47,6 +48,7 @@ const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 export default function ResumenScreen() {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario)!;
+  const ultimaSync = useSync((s) => s.ultimaSync);
   const { colores } = useTema();
   const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
 
@@ -87,7 +89,7 @@ export default function ResumenScreen() {
       return () => {
         activo = false;
       };
-    }, [db, rango])
+    }, [db, rango, ultimaSync])
   );
 
   if (cargando || !resumen) {

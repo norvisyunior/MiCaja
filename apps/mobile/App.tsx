@@ -22,9 +22,10 @@ import SetupScreen from './src/screens/SetupScreen';
 import BienvenidaScreen from './src/screens/BienvenidaScreen';
 import RegistroScreen from './src/screens/RegistroScreen';
 import ActivacionScreen from './src/screens/ActivacionScreen';
+import TrabajadorSetupScreen from './src/screens/TrabajadorSetupScreen';
 import { NavegadorRaiz } from './src/navigation';
-import { leerTokenDispositivo } from './src/api/config';
-import { refrescarEstadoSync, sincronizarSilencioso } from './src/sync/motor';
+import { CLAVE_ROL_ACTIVACION, leerSetting } from './src/api/config';
+import { useSyncAutomatico } from './src/sync/automatico';
 import { AvisoGlobal } from './src/components/AvisoGlobal';
 import { Gradiente } from './src/components/UI';
 
@@ -119,8 +120,10 @@ function Contenido() {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario);
   const [estado, setEstado] = useState<
-    'cargando' | 'bienvenida' | 'setup' | 'login' | 'registro' | 'activacion'
+    'cargando' | 'bienvenida' | 'setup' | 'trabajador' | 'login' | 'registro' | 'activacion'
   >('cargando');
+
+  useSyncAutomatico(db, Boolean(usuario));
 
   useEffect(() => {
     if (usuario) {
@@ -141,36 +144,16 @@ function Contenido() {
     };
   }, [db, usuario]);
 
-  useEffect(() => {
-    if (!usuario) return;
-
-    let vigente = true;
-    async function sincronizarPeriodico(inmediato: boolean) {
-      if (!vigente) return;
-      if (inmediato) await refrescarEstadoSync(db);
-      try {
-        if (await leerTokenDispositivo(db)) {
-          await sincronizarSilencioso(db);
-        }
-      } catch {
-        // La caja sigue funcionando sin conexión.
-      }
-    }
-
-    void sincronizarPeriodico(true);
-    const intervalo = setInterval(() => {
-      void sincronizarPeriodico(false);
-    }, 60_000);
-
-    return () => {
-      vigente = false;
-      clearInterval(intervalo);
-    };
-  }, [db, usuario]);
-
   async function trasActivacion() {
+    // La activación por invitación (admin o dependiente) configura la cuenta
+    // del trabajador; el código del negocio configura la cuenta inicial.
+    const rol = await leerSetting(db, CLAVE_ROL_ACTIVACION);
     const usuarios = await listarUsuarios(db);
-    setEstado(usuarios.length > 0 ? 'login' : 'setup');
+    if (usuarios.length > 0) {
+      setEstado('login');
+      return;
+    }
+    setEstado(rol && rol !== 'propietario' ? 'trabajador' : 'setup');
   }
 
   if (usuario) return <NavegadorRaiz />;
@@ -187,6 +170,9 @@ function Contenido() {
   }
   if (estado === 'setup') {
     return <SetupScreen onCancelar={() => setEstado('bienvenida')} />;
+  }
+  if (estado === 'trabajador') {
+    return <TrabajadorSetupScreen />;
   }
   if (estado === 'registro') {
     return (
@@ -206,7 +192,7 @@ function Contenido() {
       />
     );
   }
-  return <LoginScreen />;
+  return <LoginScreen onActivar={() => setEstado('activacion')} />;
 }
 
 export default function App() {

@@ -10,6 +10,8 @@ erDiagram
   PLANES ||--o{ LICENCIAS : define
   EMPRESAS ||--|| LICENCIAS : posee
   EMPRESAS ||--o{ DISPOSITIVOS : registra
+  EMPRESAS ||--o{ INVITACIONES : emite
+  DISPOSITIVOS ||--o{ INVITACIONES : usa
   EMPRESAS ||--o{ USUARIOS : tiene
   EMPRESAS ||--o{ CATEGORIAS : agrupa
   EMPRESAS ||--o{ PRODUCTOS : cataloga
@@ -39,7 +41,7 @@ erDiagram
 - **Dinero:** `numeric(14,2)`; nunca `float`.
 - **Stock:** `numeric(14,3)`; se modifica solo junto a un registro en `movimientos_inventario`.
 - **Aislamiento reforzado:** claves foráneas compuestas `(empresa_id, id)` para impedir referencias cruzadas entre empresas.
-- **Idempotencia:** `ventas.local_id`, `sync_operations.operation_id` y `licencias.codigo_activacion_hash` tienen restricciones únicas.
+- **Idempotencia:** `ventas.local_id`, `sync_operations.operation_id`, `licencias.codigo_activacion_hash` e `invitaciones.codigo_hash` tienen restricciones únicas.
 
 ## 3. Tablas globales
 
@@ -72,12 +74,26 @@ Una por empresa (`empresa_id UNIQUE`).
 Historial inmutable: `id`, `licencia_id`, `empresa_id`, `tipo` (`creada|activada|renovada|suspendida|reactivada|vencida`), `payload`, `created_at`.
 
 ### `dispositivos`
-`id`, `empresa_id`, `nombre`, `plataforma`, `app_version`, `fingerprint`, `estado` (`activo|inactivo|bloqueado`), `licencia_firmada`, `licencia_emitida_en`, `last_seen_at`, `last_sync_at`, `created_at`, `updated_at`. Único `(empresa_id, fingerprint)`.
+`id`, `empresa_id`, `nombre`, `plataforma`, `app_version`, `fingerprint`, `estado` (`activo|inactivo|bloqueado`), `rol` (`propietario|admin|dependiente`), `licencia_firmada`, `licencia_emitida_en`, `last_seen_at`, `last_sync_at`, `created_at`, `updated_at`. Único `(empresa_id, fingerprint)`.
+
+El rol se fija al activar el dispositivo: el código del negocio concede `propietario` y una invitación concede el rol invitado (`admin` o `dependiente`). El servidor lo lee de esta columna (no del token) para autorizar invitaciones, desvinculaciones y cambios de usuarios. Cualquier rol activo puede sincronizar ventas, movimientos, turnos y settings de su terminal.
+
+El plan limita cuántos dispositivos `activo` puede tener la empresa (`planes.max_dispositivos`). Al llegar al límite, la activación admite `reemplazarA` con el id del dispositivo que se retira; el retirado queda `inactivo` y sin licencia firmada.
+
+El login global reutiliza el dispositivo por `fingerprint`: si ya existe, actualiza `plataforma`, `app_version` y `last_seen_at` sin cambiar su nombre ni reactivar un estado `inactivo`/`bloqueado`. Si la huella es nueva, aplica las mismas reglas de plazas, invitación y reemplazo que la activación por código.
+
+### `invitaciones`
+Códigos de un solo uso para que un trabajador una su propio dispositivo al negocio.
+
+`id`, `empresa_id`, `rol` (`admin|dependiente`), `codigo_hash` UNIQUE, `expira_en`, `usado_en`, `dispositivo_id`, `created_at`, `updated_at`.
+
+El código en claro solo se devuelve al crearlo; se guarda su hash. Al activar con una invitación se registra el dispositivo, se marca `usado_en` y ese dispositivo entra con el rol invitado. Las invitaciones no se pueden usar para reemplazar dispositivos existentes (cada plaza nueva la autoriza el propietario).
 
 ### `usuarios`
-Usuarios locales del negocio. `id`, `empresa_id`, `nombre`, `usuario`, `rol` (`propietario|admin|dependiente`), `password_hash` (solo si se usa login central), `activo`, `created_at`, `updated_at`, `deleted_at`. Único `(empresa_id, usuario)`.
+Usuarios locales del negocio. `id`, `empresa_id`, `nombre`, `usuario`, `rol` (`propietario|admin|dependiente`), `password_hash` (hash del PIN para el login global), `activo`, `created_at`, `updated_at`, `deleted_at`.
 
-> El PIN de 4 dígitos sigue siendo local del dispositivo. El servidor no almacena PINs.
+- `usuario` es único a nivel global entre usuarios vivos: índice `ux_usuarios_usuario_global` sobre `lower(usuario) WHERE deleted_at IS NULL`. La migración `202611160001_usuarios_globales.sql` renombra duplicados históricos agregándoles empresa e id.
+- `password_hash` guarda `sha256it$<rondas>$<sal>$<hash>` (o `sha256$…` legado). El PIN en claro no se almacena; el `pull` nunca devuelve este campo.
 
 ## 5. Catálogo
 

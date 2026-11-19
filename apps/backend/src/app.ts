@@ -6,6 +6,7 @@ import { corsOrigins, env } from './config';
 import { errorHandler, notFound } from './middleware/errors';
 import { healthRouter } from './routes/health';
 import { authRouter } from './routes/auth';
+import { authUsuarioRouter } from './routes/auth-usuario';
 import { empresasRouter } from './routes/empresas';
 import { licenciasRouter } from './routes/licencias';
 import { activacionRouter } from './routes/activacion';
@@ -41,6 +42,7 @@ export function createApp(): express.Express {
   app.use('/api/admin/auth', authRouter);
   app.use('/api/admin/empresas', empresasRouter);
   app.use('/api/admin/licencias', licenciasRouter);
+  app.use('/api/auth', authUsuarioRouter);
   app.use('/api', activacionRouter);
   app.use('/api', registroRouter);
   app.use('/api/sync', syncRouter);

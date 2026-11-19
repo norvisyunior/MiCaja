@@ -27,6 +27,7 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
   let adminId = '';
   let empresaId = '';
   let empresaRegistroId = '';
+  let empresaCruzadaId = '';
   let deviceId = '';
   let deviceToken = '';
   let codigoActivacion = '';
@@ -57,6 +58,11 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     if (empresaRegistroId) {
       await withAdmin((client) =>
         client.query(`delete from empresas where id = $1`, [empresaRegistroId])
+      );
+    }
+    if (empresaCruzadaId) {
+      await withAdmin((client) =>
+        client.query(`delete from empresas where id = $1`, [empresaCruzadaId])
       );
     }
     if (adminId) {
@@ -274,6 +280,32 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     expect(setting.data.valor).toBe('CUP');
     expect(pull.body.licencia.estado).toBe('activa');
 
+    // El pull también entrega el historial de operación: sin turnos ni ventas,
+    // un dispositivo nuevo o que cambió de negocio vería la caja vacía.
+    const turno = pull.body.cambios.find(
+      (cambio: { tipo: string; id: string }) =>
+        cambio.tipo === 'turno' && cambio.id === ids.turno
+    );
+    expect(turno).toBeTruthy();
+    expect(turno.data.estado).toBe('cerrado');
+    expect(turno.data.ventasCount).toBe(1);
+    expect(turno.data.totalEsperado).toBe(20);
+    expect(turno.data.diferencia).toBe(0);
+
+    const venta = pull.body.cambios.find(
+      (cambio: { tipo: string; id: string }) =>
+        cambio.tipo === 'venta' && cambio.data.localId === ids.ventaLocal
+    );
+    expect(venta).toBeTruthy();
+    expect(venta.data.numero).toBe(1);
+    expect(venta.data.total).toBe(20);
+    expect(venta.data.anulada).toBe(false);
+    expect(venta.data.turnoId).toBe(ids.turno);
+    expect(venta.data.items).toHaveLength(1);
+    expect(venta.data.items[0].nombre).toBe('Café E2E');
+    expect(venta.data.items[0].cantidad).toBe(2);
+    expect(venta.data.items[0].subtotal).toBe(20);
+
     const repetida = await request(app)
       .post('/api/sync/push')
       .set('Authorization', `Bearer ${deviceToken}`)
@@ -369,6 +401,58 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     );
     expect(movimientosAnulacion.rows[0].total).toBe(3);
 
+    // La anulación también viaja en el pull: el historial de otro dispositivo
+    // debe mostrar la venta como anulada, no como ingreso vigente.
+    const pullAnulada = await request(app)
+      .get('/api/sync/pull')
+      .query({ deviceId, since: new Date(0).toISOString() })
+      .set('Authorization', `Bearer ${deviceToken}`);
+    expect(pullAnulada.status).toBe(200);
+    const ventaAnulada = pullAnulada.body.cambios.find(
+      (cambio: { tipo: string; id: string }) =>
+        cambio.tipo === 'venta' && cambio.data.localId === ids.ventaLocal
+    );
+    expect(ventaAnulada).toBeTruthy();
+    expect(ventaAnulada.data.anulada).toBe(true);
+    expect(ventaAnulada.data.motivoAnulacion).toBe('Prueba E2E');
+
+    // Paginación sin pérdidas: muchas filas pueden compartir `updated_at`
+    // (un seed las inserta con el mismo `now()`). El cursor compuesto
+    // `(updated_at, id)` debe entregarlas todas al recorrer las páginas.
+    const idsLote = Array.from({ length: 7 }, () => crypto.randomUUID());
+    const instanteLote = new Date().toISOString();
+    await withAdmin((client) =>
+      client.query(
+        `insert into productos
+           (id, empresa_id, nombre, precio, stock_actual, updated_at)
+         select id, $2, 'Lote', 1, 0, $3::timestamptz
+         from unnest($1::uuid[]) as id`,
+        [idsLote, empresaId, instanteLote]
+      )
+    );
+
+    const vistos = new Set<string>();
+    let cursor: string | undefined;
+    let paginas = 0;
+    let quedan = true;
+    while (quedan && paginas < 50) {
+      const pagina = await request(app)
+        .get('/api/sync/pull')
+        .query({ deviceId, cursor, limit: 3 })
+        .set('Authorization', `Bearer ${deviceToken}`);
+      expect(pagina.status).toBe(200);
+      for (const cambio of pagina.body.cambios) {
+        if (cambio.tipo === 'producto') vistos.add(cambio.id);
+      }
+      quedan = pagina.body.hayMas === true;
+      cursor = pagina.body.cursor ?? cursor;
+      paginas += 1;
+    }
+    expect(quedan).toBe(false);
+    for (const id of idsLote) {
+      expect(vistos.has(id)).toBe(true);
+    }
+
     // El upsert de producto lleva stock absoluto (ya compensado en el cliente)
     // y debe pisar el stock del servidor. Protege el contrato: si el schema
     // pierde el campo `stock`, zod lo descartaría en silencio y este test falla.
@@ -447,5 +531,257 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     });
     expect(activar.status).toBe(201);
     expect(activar.body.empresa.id).toBe(empresaRegistroId);
+  });
+
+  async function entrarComoAdmin(): Promise<string> {
+    const login = await request(app)
+      .post('/api/admin/auth/login')
+      .send({ email, password });
+    expect(login.status).toBe(200);
+    return login.body.token as string;
+  }
+
+  async function licenciaDeEmpresa(adminToken: string, empresaBuscada: string): Promise<string> {
+    const listado = await request(app)
+      .get('/api/admin/licencias')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(listado.status).toBe(200);
+    const licencia = listado.body.licencias.find(
+      (fila: { empresa_id: string }) => fila.empresa_id === empresaBuscada
+    );
+    expect(licencia).toBeDefined();
+    return licencia.id as string;
+  }
+
+  it('gestiona dispositivos: límite, reemplazo y desvinculación', async () => {
+    const adminToken = await entrarComoAdmin();
+    const licenciaId = await licenciaDeEmpresa(adminToken, empresaId);
+
+    async function nuevoCodigo(): Promise<string> {
+      const generado = await request(app)
+        .post(`/api/admin/licencias/${licenciaId}/codigo`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(generado.status).toBe(201);
+      return generado.body.codigo as string;
+    }
+
+    async function activar(fingerprint: string, codigo: string, reemplazarA?: string) {
+      return request(app).post('/api/activar').send({
+        codigo,
+        fingerprint,
+        nombre: `Caja ${fingerprint}`,
+        plataforma: 'android',
+        appVersion: '1.0.0',
+        ...(reemplazarA ? { reemplazarA } : {}),
+      });
+    }
+
+    // El plan pro permite 5 dispositivos; uno ya está activo. Ocupar el resto.
+    const segundo = await activar(`fingerprint-d2-${sufijo}`, await nuevoCodigo());
+    expect(segundo.status).toBe(201);
+    const tercero = await activar(`fingerprint-d3-${sufijo}`, await nuevoCodigo());
+    expect(tercero.status).toBe(201);
+    const cuarto = await activar(`fingerprint-d4-${sufijo}`, await nuevoCodigo());
+    expect(cuarto.status).toBe(201);
+    const quinto = await activar(`fingerprint-d5-${sufijo}`, await nuevoCodigo());
+    expect(quinto.status).toBe(201);
+
+    // Sexto dispositivo: el límite se rechaza y el servidor informa qué
+    // dispositivos ocupan las plazas.
+    const sexto = await activar(`fingerprint-d6-${sufijo}`, await nuevoCodigo());
+    expect(sexto.status).toBe(409);
+    expect(sexto.body.error).toBe('LIMITE_DISPOSITIVOS');
+    expect(sexto.body.details.dispositivos).toHaveLength(5);
+
+    // Reemplazo: se retira el segundo dispositivo y entra el nuevo en su
+    // lugar, sin superar el límite y sin borrar nada del negocio.
+    const reemplazo = await activar(
+      `fingerprint-d6-${sufijo}`,
+      await nuevoCodigo(),
+      segundo.body.dispositivo.id
+    );
+    expect(reemplazo.status).toBe(201);
+    expect(reemplazo.body.dispositivo.id).not.toBe(segundo.body.dispositivo.id);
+
+    const lista = await request(app)
+      .get('/api/device/dispositivos')
+      .set('Authorization', `Bearer ${deviceToken}`);
+    expect(lista.status).toBe(200);
+    const activos = lista.body.dispositivos.filter(
+      (d: { estado: string }) => d.estado === 'activo'
+    );
+    expect(activos).toHaveLength(5);
+    const reemplazado = lista.body.dispositivos.find(
+      (d: { id: string }) => d.id === segundo.body.dispositivo.id
+    );
+    expect(reemplazado.estado).toBe('inactivo');
+    expect(reemplazado.emitidaEn).toBeNull();
+
+    // Desvincular otro dispositivo exige el código de activación.
+    const codigoVigente = await nuevoCodigo();
+    const sinCodigo = await request(app)
+      .post('/api/device/desvincular')
+      .set('Authorization', `Bearer ${deviceToken}`)
+      .send({ dispositivoId: tercero.body.dispositivo.id });
+    expect(sinCodigo.status).toBe(403);
+    expect(sinCodigo.body.error).toBe('CODIGO_REQUERIDO');
+
+    const conCodigo = await request(app)
+      .post('/api/device/desvincular')
+      .set('Authorization', `Bearer ${deviceToken}`)
+      .send({
+        dispositivoId: tercero.body.dispositivo.id,
+        codigo: codigoVigente,
+      });
+    expect(conCodigo.status).toBe(200);
+    expect(conCodigo.body.dispositivo.id).toBe(tercero.body.dispositivo.id);
+
+    const conCodigoInvalido = await request(app)
+      .post('/api/device/desvincular')
+      .set('Authorization', `Bearer ${deviceToken}`)
+      .send({
+        dispositivoId: tercero.body.dispositivo.id,
+        codigo: 'MICAJA-AAAA-AAAA-AAAA',
+      });
+    expect(conCodigoInvalido.status).toBe(403);
+    expect(conCodigoInvalido.body.error).toBe('CODIGO_INVALIDO');
+  });
+
+  it('invita un trabajador y activa su dispositivo con rol limitado', async () => {
+    // Asegura una plaza libre tras la prueba anterior.
+    const adminToken = await entrarComoAdmin();
+    const licenciaId = await licenciaDeEmpresa(adminToken, empresaId);
+    const codigo = (
+      await request(app)
+        .post(`/api/admin/licencias/${licenciaId}/codigo`)
+        .set('Authorization', `Bearer ${adminToken}`)
+    ).body.codigo as string;
+    await request(app)
+      .post('/api/device/desvincular')
+      .set('Authorization', `Bearer ${deviceToken}`)
+      .send({ dispositivoId: (await request(app)
+        .get('/api/device/dispositivos')
+        .set('Authorization', `Bearer ${deviceToken}`)).body.dispositivos.find(
+        (d: { estado: string; esEste: boolean }) => d.estado === 'inactivo' && !d.esEste
+      )?.id, codigo });
+
+    const invitacion = await request(app)
+      .post('/api/device/invitaciones')
+      .set('Authorization', `Bearer ${deviceToken}`)
+      .send({ rol: 'dependiente', expiraHoras: 24 });
+    expect(invitacion.status).toBe(201);
+    expect(invitacion.body.codigo).toMatch(/^MICAJA-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+
+    const activar = await request(app).post('/api/activar').send({
+      codigo: invitacion.body.codigo,
+      fingerprint: `fingerprint-inv-${sufijo}`,
+      nombre: 'Caja Trabajador',
+      plataforma: 'android',
+      appVersion: '1.0.0',
+    });
+    expect(activar.status).toBe(201);
+    expect(activar.body.via).toBe('invitacion');
+    expect(activar.body.rol).toBe('dependiente');
+
+    // La invitación es de un solo uso.
+    const reuso = await request(app).post('/api/activar').send({
+      codigo: invitacion.body.codigo,
+      fingerprint: `fingerprint-inv2-${sufijo}`,
+      nombre: 'Caja Trabajador 2',
+      plataforma: 'android',
+      appVersion: '1.0.0',
+    });
+    expect(reuso.status).toBe(409);
+    expect(reuso.body.error).toBe('INVITACION_USADA');
+
+    // El dispositivo del trabajador queda sincronizando con su empresa.
+    const pullTrabajador = await request(app)
+      .get('/api/sync/pull')
+      .query({ deviceId: activar.body.dispositivo.id, since: new Date(0).toISOString() })
+      .set('Authorization', `Bearer ${activar.body.token}`);
+    expect(pullTrabajador.status).toBe(200);
+    expect(pullTrabajador.body.licencia.estado).toBe('activa');
+  });
+
+  it('impide activar un dispositivo que ya pertenece a otro negocio', async () => {
+    const adminToken = await entrarComoAdmin();
+
+    const creada = await request(app)
+      .post('/api/admin/empresas')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        nombre: `Empresa Cruzada ${sufijo}`,
+        propietario: 'Otro Dueno',
+        planCodigo: 'basico',
+      });
+    expect(creada.status).toBe(201);
+    empresaCruzadaId = creada.body.empresa.id;
+
+    // `fingerprint-<sufijo>` ya está registrada en la empresa principal.
+    const intento = await request(app).post('/api/activar').send({
+      codigo: creada.body.codigoActivacion,
+      fingerprint: `fingerprint-${sufijo}`,
+      nombre: 'Caja Cruzada',
+      plataforma: 'android',
+      appVersion: '1.0.0',
+    });
+    expect(intento.status).toBe(409);
+    expect(intento.body.error).toBe('DISPOSITIVO_OTRA_EMPRESA');
+  });
+
+  it('suspende la licencia y el servidor corta la sincronización', async () => {
+    const adminToken = await entrarComoAdmin();
+    const licenciaId = await licenciaDeEmpresa(adminToken, empresaId);
+
+    const suspender = await request(app)
+      .patch(`/api/admin/licencias/${licenciaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ estado: 'suspendida' });
+    expect(suspender.status).toBe(200);
+
+    const pushSuspendido = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${deviceToken}`)
+      .send({
+        deviceId,
+        operations: [
+          {
+            operationId: crypto.randomUUID(),
+            tipo: 'settings_upsert',
+            timestamp: Date.now(),
+            payload: { clave: 'moneda', valor: 'CUP', version: 2 },
+          },
+        ],
+      });
+    expect(pushSuspendido.status).toBe(403);
+    expect(pushSuspendido.body.error).toBe('LICENCIA_SUSPENDIDA');
+
+    const licenciaSuspendida = await request(app)
+      .get('/api/device/licencia')
+      .set('Authorization', `Bearer ${deviceToken}`);
+    expect(licenciaSuspendida.status).toBe(200);
+    expect(licenciaSuspendida.body.estado).toBe('suspendida');
+    expect(licenciaSuspendida.body.token).toBeNull();
+
+    const reactivar = await request(app)
+      .patch(`/api/admin/licencias/${licenciaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ estado: 'activa' });
+    expect(reactivar.status).toBe(200);
+
+    const licenciaReactivada = await request(app)
+      .get('/api/device/licencia')
+      .set('Authorization', `Bearer ${deviceToken}`);
+    expect(licenciaReactivada.status).toBe(200);
+    expect(licenciaReactivada.body.estado).toBe('activa');
+    // La reactivación re-firma y vuelve a entregar el token.
+    expect(licenciaReactivada.body.token).not.toBeNull();
+
+    const pullRecuperado = await request(app)
+      .get('/api/sync/pull')
+      .query({ deviceId, since: new Date(0).toISOString() })
+      .set('Authorization', `Bearer ${deviceToken}`);
+    expect(pullRecuperado.status).toBe(200);
+    expect(pullRecuperado.body.licencia.token).toBe(licenciaReactivada.body.token);
   });
 });

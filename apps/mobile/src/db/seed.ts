@@ -2,28 +2,28 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { claveDiaLocal } from '../utils/fechas';
 import { ahoraIso, nuevoUuid, obtenerContextoLocal } from './contexto';
 import { registrarMovimientoLocal } from './repos/inventario';
-import {
-  encolarCategoriaUpsert,
-  encolarProductoUpsert,
-  encolarSettingUpsert,
-} from './sync/encolar';
 
+/**
+ * Datos de demostración de una instalación nueva.
+ *
+ * Se guardan solo en local: no se encolan para sincronizar. Un dispositivo
+ * recién instalado aún no sabe si será el negocio (propietario) o una
+ * terminal invitada; enviar el catálogo demo antes de activar contaminaría
+ * el negocio real. Al activarse como propietario, `encolarSnapshotInicial`
+ * sube la foto completa una sola vez.
+ */
 async function insertarSetting(
   db: SQLiteDatabase,
   clave: string,
-  valor: string,
-  sincronizar: boolean
+  valor: string
 ): Promise<void> {
-  const res = await db.runAsync(
+  await db.runAsync(
     `INSERT OR IGNORE INTO settings (clave, valor, version, updated_at)
      VALUES (?, ?, 1, ?)`,
     clave,
     valor,
     ahoraIso()
   );
-  if (sincronizar && res.changes > 0) {
-    await encolarSettingUpsert(db, clave, valor, 1);
-  }
 }
 
 export async function sembrarDatosIniciales(db: SQLiteDatabase): Promise<void> {
@@ -52,12 +52,12 @@ export async function sembrarDatosIniciales(db: SQLiteDatabase): Promise<void> {
     const contexto = await obtenerContextoLocal(db);
     const ahora = ahoraIso();
 
-    await insertarSetting(db, 'nombre_negocio', 'Mi Negocio', true);
-    await insertarSetting(db, 'simbolo_moneda', '$', true);
-    await insertarSetting(db, 'moneda', 'CUP', true);
-    await insertarSetting(db, 'dia_venta', claveDiaLocal(), false);
-    await insertarSetting(db, 'numero_venta_dia', '0', false);
-    await insertarSetting(db, 'tema', 'claro', false);
+    await insertarSetting(db, 'nombre_negocio', 'Mi Negocio');
+    await insertarSetting(db, 'simbolo_moneda', '$');
+    await insertarSetting(db, 'moneda', 'CUP');
+    await insertarSetting(db, 'dia_venta', claveDiaLocal());
+    await insertarSetting(db, 'numero_venta_dia', '0');
+    await insertarSetting(db, 'tema', 'claro');
 
     // No se crean usuarios por defecto: el primer arranque obliga a configurar
     // un administrador con su propio PIN.
@@ -82,7 +82,6 @@ export async function sembrarDatosIniciales(db: SQLiteDatabase): Promise<void> {
         ahora
       );
       idsCategorias.push(res.lastInsertRowId);
-      await encolarCategoriaUpsert(db, res.lastInsertRowId);
     }
 
     const productos: Array<{
@@ -135,7 +134,6 @@ export async function sembrarDatosIniciales(db: SQLiteDatabase): Promise<void> {
           sincronizar: false,
         });
       }
-      await encolarProductoUpsert(db, res.lastInsertRowId);
     }
 
     await db.runAsync(

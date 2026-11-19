@@ -11,12 +11,15 @@ import {
 import { useSQLiteContext } from 'expo-sqlite';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { registrarCuenta, type RespuestaActivacion } from '../api/cliente';
+import { CLAVE_CODIGO_PENDIENTE } from '../api/config';
 import { activarConCodigo } from '../sync/activacion';
 import { crearUsuario, existeNombreUsuario } from '../db/repos/catalogo';
 import { guardarSetting } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
 import { useTema } from '../store/tema';
+import type { Usuario } from '../types';
 import { Boton, Campo, Gradiente, Pantalla, Tarjeta } from '../components/UI';
+import { PantallaCodigoRecuperacion } from '../components/CodigoRecuperacion';
 import { fuentes, gradientes, radius, spacing, typography } from '../theme';
 import { esPinValido } from '../utils/pin';
 import {
@@ -51,6 +54,8 @@ export default function RegistroScreen({
   const [guardando, setGuardando] = useState(false);
   const [codigoPendiente, setCodigoPendiente] = useState<string | null>(null);
   const [activacionLista, setActivacionLista] = useState<RespuestaActivacion | null>(null);
+  const [usuarioCreado, setUsuarioCreado] = useState<Usuario | null>(null);
+  const [codigoRecuperacion, setCodigoRecuperacion] = useState<string | null>(null);
 
   const usuarioLimpio = normalizarUsuario(usuario);
   const negocioLimpio = nombreNegocio.trim();
@@ -86,14 +91,21 @@ export default function RegistroScreen({
     }
 
     await guardarSetting(db, 'nombre_negocio', activacion.empresa.nombre || negocioLimpio);
-    const id = await crearUsuario(db, {
+    const { id, codigoRecuperacion: codigo } = await crearUsuario(db, {
       nombre: adminLimpio,
       usuario: usuarioLimpio,
       rol: 'admin',
       activo: true,
       pin,
     });
-    iniciar({ id, nombre: adminLimpio, usuario: usuarioLimpio, rol: 'admin', activo: true });
+    setUsuarioCreado({
+      id,
+      nombre: adminLimpio,
+      usuario: usuarioLimpio,
+      rol: 'admin',
+      activo: true,
+    });
+    setCodigoRecuperacion(codigo);
   }
 
   async function crearCuenta() {
@@ -129,8 +141,11 @@ export default function RegistroScreen({
     try {
       const activacion = await activarConCodigo(db, registro.codigoActivacion, negocioLimpio);
       setActivacionLista(activacion);
+      await guardarSetting(db, CLAVE_CODIGO_PENDIENTE, '');
       await crearAdministrador(activacion);
     } catch (fallo) {
+      // El código queda guardado para reintentar la activación más tarde.
+      await guardarSetting(db, CLAVE_CODIGO_PENDIENTE, registro.codigoActivacion);
       setError(
         `La cuenta se creó, pero no se pudo activar este dispositivo. ${mensajeDeError(fallo)}`
       );
@@ -146,6 +161,7 @@ export default function RegistroScreen({
     try {
       const activacion = await activarConCodigo(db, codigoPendiente, negocioLimpio);
       setActivacionLista(activacion);
+      await guardarSetting(db, CLAVE_CODIGO_PENDIENTE, '');
       await crearAdministrador(activacion);
     } catch (fallo) {
       setError(mensajeDeError(fallo));
@@ -165,6 +181,17 @@ export default function RegistroScreen({
     } finally {
       setGuardando(false);
     }
+  }
+
+  if (codigoRecuperacion && usuarioCreado) {
+    return (
+      <PantallaCodigoRecuperacion
+        nombre={usuarioCreado.nombre}
+        codigo={codigoRecuperacion}
+        textoBoton="Entrar a la caja"
+        onContinuar={() => iniciar(usuarioCreado)}
+      />
+    );
   }
 
   return (

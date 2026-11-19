@@ -9,6 +9,10 @@ export interface Usuario {
   activo: boolean;
   version?: number;
   deletedAt?: string | null;
+  tienePin?: boolean;
+  tieneCodigoRecuperacion?: boolean;
+  bloqueado?: boolean;
+  bloqueadoHasta?: string | null;
 }
 
 export interface Categoria {

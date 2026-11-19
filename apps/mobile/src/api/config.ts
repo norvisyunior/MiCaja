@@ -10,6 +10,9 @@ export const CLAVE_LICENCIA_VERIFICADA = 'licencia_verificada_en';
 export const CLAVE_NOMBRE_DISPOSITIVO = 'nombre_dispositivo';
 export const CLAVE_ULTIMO_SYNC = 'ultimo_sync_en';
 export const CLAVE_CLAVE_PUBLICA_LICENCIA = 'licencia_clave_publica';
+export const CLAVE_ROL_ACTIVACION = 'activacion_rol';
+export const CLAVE_CODIGO_PENDIENTE = 'codigo_activacion_pendiente';
+export const CLAVE_FINGERPRINT_DISPOSITIVO = 'fingerprint_dispositivo';
 
 export function urlServidorPorDefecto(): string {
   return Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://localhost:4000';

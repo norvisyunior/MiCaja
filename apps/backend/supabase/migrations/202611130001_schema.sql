@@ -411,7 +411,7 @@ $$;
 -- ---------------------------------------------------------------------------
 insert into planes (codigo, nombre, max_dispositivos, features, precio_mensual)
 values
-  ('basico', 'Básico', 1, '["ventas","inventario"]'::jsonb, 0),
-  ('pro', 'Pro', 3, '["ventas","inventario","reportes","backup"]'::jsonb, 0),
+  ('basico', 'Básico', 3, '["ventas","inventario"]'::jsonb, 0),
+  ('pro', 'Pro', 5, '["ventas","inventario","reportes","backup"]'::jsonb, 0),
   ('empresa', 'Empresa', null, '["ventas","inventario","reportes","backup","multiusuario"]'::jsonb, 0)
 on conflict (codigo) do nothing;

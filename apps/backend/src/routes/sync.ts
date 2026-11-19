@@ -10,6 +10,7 @@ import { requireDevice } from '../middleware/auth';
 import { ApiError } from '../middleware/errors';
 import { asyncHandler } from '../middleware/async-handler';
 import { aplicarOperacion } from '../services/sync';
+import { estadoLicenciaEfectiva } from '../services/licencias';
 
 interface DispositivoEstadoRow {
   estado: string;
@@ -32,6 +33,38 @@ async function verificarDispositivo(
   }
 }
 
+/**
+ * Comprueba que la licencia del negocio permita sincronizar: debe existir,
+ * no estar suspendida (ni la empresa) y no haberse vencido más allá del
+ * período de gracia. El servidor es la autoridad; el cliente refuerza.
+ */
+async function exigirLicenciaVigente(
+  client: PoolClient,
+  empresaId: string
+): Promise<void> {
+  const licencia = await client.query<{
+    estado: string;
+    vence_en: Date;
+    grace_dias: number;
+  }>(
+    `select l.estado, l.vence_en, l.grace_dias
+     from licencias l
+     join empresas e on e.id = l.empresa_id
+     where l.empresa_id = $1 and e.estado not in ('suspendida', 'cancelada')`,
+    [empresaId]
+  );
+  if (!licencia.rowCount) {
+    throw new ApiError(404, 'LICENCIA_NO_ENCONTRADA');
+  }
+  const estado = estadoLicenciaEfectiva(licencia.rows[0]);
+  if (estado === 'suspendida') {
+    throw new ApiError(403, 'LICENCIA_SUSPENDIDA');
+  }
+  if (estado === 'vencida') {
+    throw new ApiError(403, 'LICENCIA_VENCIDA');
+  }
+}
+
 export const syncRouter = Router();
 
 syncRouter.use(requireDevice);
@@ -50,6 +83,7 @@ syncRouter.post(
     for (const operacion of data.operations) {
       const resultado = await withTenant(dispositivo.empresaId, async (client) => {
         await verificarDispositivo(client, dispositivo.empresaId, dispositivo.deviceId);
+        await exigirLicenciaVigente(client, dispositivo.empresaId);
 
         const insertada = await client.query(
           `insert into sync_operations
@@ -71,12 +105,23 @@ syncRouter.post(
             estado: string;
             resultado: unknown;
             error: string | null;
+            dispositivo_id: string;
           }>(
-            `select estado, resultado, error from sync_operations
+            `select estado, resultado, error, dispositivo_id from sync_operations
              where empresa_id = $1 and operation_id = $2`,
             [dispositivo.empresaId, operacion.operationId]
           );
           const fila = previa.rows[0];
+          // Un `operation_id` es de la terminal que lo creó. Si otra terminal
+          // del mismo negocio lo reutiliza, no debe recibir el resultado ajeno
+          // ni reaplicarlo con otro payload.
+          if (fila && fila.dispositivo_id !== dispositivo.deviceId) {
+            return {
+              operationId: operacion.operationId,
+              estado: 'rechazada' as const,
+              error: 'OPERACION_DE_OTRO_DISPOSITIVO',
+            };
+          }
           return {
             operationId: operacion.operationId,
             estado: (fila?.estado ?? 'aplicada') as SyncOperationResult['estado'],
@@ -143,6 +188,116 @@ syncRouter.post(
   })
 );
 
+interface FilaVentaPull {
+  id: string;
+  dispositivo_id: string;
+  usuario_id: string;
+  turno_id: string | null;
+  local_id: string;
+  numero: string;
+  fecha_cliente: Date;
+  subtotal: string;
+  descuento_pct: string;
+  total: string;
+  forma_pago: string;
+  monto_efectivo: string;
+  monto_digital: string;
+  anulada: boolean;
+  motivo_anulacion: string | null;
+  anulada_por: string | null;
+  anulada_en: Date | null;
+  updated_at: Date;
+  updated_at_exact: string;
+}
+
+interface FilaVentaItemPull {
+  id: string;
+  venta_id: string;
+  producto_id: string | null;
+  nombre: string;
+  precio_unitario: string;
+  cantidad: string;
+  subtotal: string;
+}
+
+interface FilaTurnoPull {
+  id: string;
+  dispositivo_id: string;
+  usuario_id: string;
+  apertura: Date;
+  cierre: Date | null;
+  estado: string;
+  ventas_count: number;
+  total_esperado: string;
+  desglose: Record<string, number>;
+  dinero_real: string | null;
+  diferencia: string | null;
+  updated_at: Date;
+  updated_at_exact: string;
+}
+
+interface CursorTabla {
+  /** `updated_at` exacto tal como lo devuelve Postgres (con microsegundos). */
+  s: string;
+  /** Último identificador entregado de esa tabla dentro de ese instante. */
+  id: string;
+}
+
+type CursorPull = Record<string, CursorTabla>;
+
+/**
+ * El `updated_at` de Postgres tiene microsegundos, pero `Date` de JavaScript
+ * solo conserva milisegundos: al convertir `now()` a ISO la parte sobrante se
+ * trunca y la consulta `updated_at > since` vuelve a devolver las mismas
+ * filas, repitiendo la página sin fin. Por eso el instante del cursor viaja
+ * como texto generado por el propio motor (`to_char` con `US`) y se usa tal
+ * cual en la comparación.
+ */
+const INSTANTE_INICIAL = new Date(0).toISOString();
+const EXPRESION_UPDATED_EXACTO = `to_char(updated_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+
+/**
+ * El cursor es opaco para el cliente: un JSON `{ tabla: { s, id } }`. Un
+ * cursor corrupto se descarta y la tabla se relee desde el principio, que es
+ * inocuo (reenviar filas ya vistas) a diferencia de saltarse cambios.
+ */
+function leerCursorPull(crudo?: string): CursorPull {
+  const cursor: CursorPull = {};
+  if (!crudo) return cursor;
+  let datos: unknown;
+  try {
+    datos = JSON.parse(crudo);
+  } catch {
+    return cursor;
+  }
+  if (!datos || typeof datos !== 'object' || Array.isArray(datos)) return cursor;
+
+  for (const [tabla, valor] of Object.entries(datos as Record<string, unknown>)) {
+    if (!valor || typeof valor !== 'object') continue;
+    const { s, id } = valor as { s?: unknown; id?: unknown };
+    if (
+      typeof s === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/.test(s) &&
+      typeof id === 'string' &&
+      id.length <= 200
+    ) {
+      cursor[tabla] = { s, id };
+    }
+  }
+  return cursor;
+}
+
+/**
+ * El pull entrega catálogo, settings, usuarios y también el historial de
+ * operación (turnos, ventas y sus líneas). Sin esto, un dispositivo que
+ * recupera su cuenta en la nube (instalación nueva o cambio de negocio)
+ * veía el negocio vacío: productos y ventas existían en el servidor pero
+ * nunca llegaban a la SQLite local.
+ *
+ * Cada tabla se pagina con `limit` y avanza con su propio cursor
+ * `(updated_at exacto, id)`, así que una página nunca se repite aunque
+ * muchas filas compartan el mismo instante.
+ */
 syncRouter.get(
   '/pull',
   asyncHandler(async (req, res) => {
@@ -152,47 +307,126 @@ syncRouter.get(
       throw new ApiError(403, 'DISPOSITIVO_NO_COINCIDE');
     }
 
-    const since = query.since ?? new Date(0).toISOString();
+    const cursorEntrada = leerCursorPull(query.cursor);
+    const desdeTabla = (tabla: string): CursorTabla =>
+      cursorEntrada[tabla] ?? { s: INSTANTE_INICIAL, id: '' };
     const limite = query.limit;
 
     const resultado = await withTenant(dispositivo.empresaId, async (client) => {
       await verificarDispositivo(client, dispositivo.empresaId, dispositivo.deviceId);
+      await exigirLicenciaVigente(client, dispositivo.empresaId);
 
+      // Las consultas van en serie: `pg` no permite varias consultas
+      // simultáneas sobre el mismo cliente de una transacción.
       const productos = await client.query(
         `select id, categoria_id, nombre, precio, emoji, color, imagen, orden,
-                activo, stock_actual, stock_minimo, version, updated_at, deleted_at
+                activo, stock_actual, stock_minimo, version, updated_at, deleted_at,
+                ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
          from productos
-         where empresa_id = $1 and updated_at > $2::timestamptz
-         order by updated_at asc
-         limit $3`,
-        [dispositivo.empresaId, since, limite]
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('productos').s,
+          desdeTabla('productos').id,
+          limite + 1,
+        ]
       );
 
       const categorias = await client.query(
-        `select id, nombre, color, orden, activo, version, updated_at, deleted_at
+        `select id, nombre, color, orden, activo, version, updated_at, deleted_at,
+                ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
          from categorias
-         where empresa_id = $1 and updated_at > $2::timestamptz
-         order by updated_at asc
-         limit $3`,
-        [dispositivo.empresaId, since, limite]
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('categorias').s,
+          desdeTabla('categorias').id,
+          limite + 1,
+        ]
       );
 
       const usuarios = await client.query(
-        `select id, nombre, usuario, rol, activo, version, updated_at, deleted_at
+        `select id, nombre, usuario, rol, activo, version, updated_at, deleted_at,
+                ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
          from usuarios
-         where empresa_id = $1 and updated_at > $2::timestamptz
-         order by updated_at asc
-         limit $3`,
-        [dispositivo.empresaId, since, limite]
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('usuarios').s,
+          desdeTabla('usuarios').id,
+          limite + 1,
+        ]
       );
 
+      // Solo se entregan claves de negocio. Claves internas (licencias,
+      // tokens, ids de servidor) nunca deben viajar por la nube ni poder
+      // colarse en instalaciones antiguas.
       const settings = await client.query(
-        `select clave, valor, version, updated_at
+        `select clave, valor, version, updated_at,
+                ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
          from settings
-         where empresa_id = $1 and updated_at > $2::timestamptz
-         order by updated_at asc
-         limit $3`,
-        [dispositivo.empresaId, since, limite]
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and clave > $3))
+           and clave in ('nombre_negocio', 'moneda', 'simbolo_moneda')
+         order by updated_at asc, clave asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('settings').s,
+          desdeTabla('settings').id,
+          limite + 1,
+        ]
+      );
+
+      const turnos = await client.query<FilaTurnoPull>(
+        `select id, dispositivo_id, usuario_id, apertura, cierre, estado,
+                ventas_count, total_esperado, desglose, dinero_real, diferencia,
+                updated_at, ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
+         from turnos_caja
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('turnos').s,
+          desdeTabla('turnos').id,
+          limite + 1,
+        ]
+      );
+
+      const ventas = await client.query<FilaVentaPull>(
+        `select id, dispositivo_id, usuario_id, turno_id, local_id, numero,
+                fecha_cliente, subtotal, descuento_pct, total, forma_pago,
+                monto_efectivo, monto_digital, anulada, motivo_anulacion,
+                anulada_por, anulada_en, updated_at,
+                ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
+         from ventas
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('ventas').s,
+          desdeTabla('ventas').id,
+          limite + 1,
+        ]
       );
 
       const licencia = await client.query(
@@ -210,8 +444,55 @@ syncRouter.get(
         [dispositivo.deviceId]
       );
 
+      // `limit + 1` permite saber si quedan más filas sin una consulta extra.
+      // `ultimo` es el cursor compuesto `(updated_at exacto, id)` de la última
+      // fila entregada de esa tabla.
+      function paginar<T extends { updated_at_exact: string }>(
+        filas: T[],
+        idDe: (fila: T) => string
+      ): {
+        visibles: T[];
+        hayMas: boolean;
+        ultimo: CursorTabla | null;
+      } {
+        const visibles = filas.slice(0, limite);
+        const ultima = visibles[visibles.length - 1];
+        return {
+          visibles,
+          hayMas: filas.length > limite,
+          ultimo: ultima
+            ? { s: ultima.updated_at_exact, id: idDe(ultima) }
+            : null,
+        };
+      }
+
+      const pagProductos = paginar(productos.rows, (fila) => fila.id);
+      const pagCategorias = paginar(categorias.rows, (fila) => fila.id);
+      const pagUsuarios = paginar(usuarios.rows, (fila) => fila.id);
+      const pagSettings = paginar(settings.rows, (fila) => fila.clave);
+      const pagTurnos = paginar(turnos.rows, (fila) => fila.id);
+      const pagVentas = paginar(ventas.rows, (fila) => fila.id);
+
+      const ventasVisibles = pagVentas.visibles as FilaVentaPull[];
+      const items = ventasVisibles.length
+        ? await client.query<FilaVentaItemPull>(
+            `select id, venta_id, producto_id, nombre, precio_unitario, cantidad, subtotal
+             from venta_items
+             where empresa_id = $1 and venta_id = any($2::uuid[])
+             order by created_at asc, id asc`,
+            [dispositivo.empresaId, ventasVisibles.map((fila) => fila.id)]
+          )
+        : { rows: [] as FilaVentaItemPull[] };
+
+      const itemsPorVenta = new Map<string, FilaVentaItemPull[]>();
+      for (const item of items.rows) {
+        const lista = itemsPorVenta.get(item.venta_id) ?? [];
+        lista.push(item);
+        itemsPorVenta.set(item.venta_id, lista);
+      }
+
       const cambios = [
-        ...productos.rows.map((fila) => ({
+        ...pagProductos.visibles.map((fila) => ({
           tipo: 'producto',
           id: fila.id,
           version: fila.version,
@@ -232,7 +513,7 @@ syncRouter.get(
             deletedAt: fila.deleted_at?.toISOString() ?? null,
           },
         })),
-        ...categorias.rows.map((fila) => ({
+        ...pagCategorias.visibles.map((fila) => ({
           tipo: 'categoria',
           id: fila.id,
           version: fila.version,
@@ -247,7 +528,7 @@ syncRouter.get(
             deletedAt: fila.deleted_at?.toISOString() ?? null,
           },
         })),
-        ...usuarios.rows.map((fila) => ({
+        ...pagUsuarios.visibles.map((fila) => ({
           tipo: 'usuario',
           id: fila.id,
           version: fila.version,
@@ -262,7 +543,7 @@ syncRouter.get(
             deletedAt: fila.deleted_at?.toISOString() ?? null,
           },
         })),
-        ...settings.rows.map((fila) => ({
+        ...pagSettings.visibles.map((fila) => ({
           tipo: 'setting',
           id: fila.clave,
           version: fila.version,
@@ -273,15 +554,88 @@ syncRouter.get(
             version: fila.version,
           },
         })),
+        ...pagTurnos.visibles.map((fila) => ({
+          tipo: 'turno',
+          id: fila.id,
+          updatedAt: fila.updated_at.toISOString(),
+          data: {
+            id: fila.id,
+            dispositivoId: fila.dispositivo_id,
+            usuarioId: fila.usuario_id,
+            apertura: fila.apertura.toISOString(),
+            cierre: fila.cierre?.toISOString() ?? null,
+            estado: fila.estado,
+            ventasCount: fila.ventas_count,
+            totalEsperado: Number(fila.total_esperado),
+            desglose: fila.desglose ?? {},
+            dineroReal: fila.dinero_real === null ? null : Number(fila.dinero_real),
+            diferencia: fila.diferencia === null ? null : Number(fila.diferencia),
+          },
+        })),
+        ...ventasVisibles.map((fila) => ({
+          tipo: 'venta',
+          id: fila.id,
+          updatedAt: fila.updated_at.toISOString(),
+          data: {
+            id: fila.id,
+            localId: fila.local_id,
+            dispositivoId: fila.dispositivo_id,
+            usuarioId: fila.usuario_id,
+            turnoId: fila.turno_id,
+            numero: Number(fila.numero),
+            fechaCliente: fila.fecha_cliente.toISOString(),
+            subtotal: Number(fila.subtotal),
+            descuentoPct: Number(fila.descuento_pct),
+            total: Number(fila.total),
+            formaPago: fila.forma_pago,
+            montoEfectivo: Number(fila.monto_efectivo),
+            montoDigital: Number(fila.monto_digital),
+            anulada: fila.anulada,
+            motivoAnulacion: fila.motivo_anulacion,
+            anuladaPor: fila.anulada_por,
+            anuladaEn: fila.anulada_en?.toISOString() ?? null,
+            items: (itemsPorVenta.get(fila.id) ?? []).map((item) => ({
+              id: item.id,
+              productoId: item.producto_id,
+              nombre: item.nombre,
+              precioUnitario: Number(item.precio_unitario),
+              cantidad: Number(item.cantidad),
+              subtotal: Number(item.subtotal),
+            })),
+          },
+        })),
       ];
+
+      const paginas: Array<[string, typeof pagProductos]> = [
+        ['productos', pagProductos],
+        ['categorias', pagCategorias],
+        ['usuarios', pagUsuarios],
+        ['settings', pagSettings],
+        ['turnos', pagTurnos],
+        ['ventas', pagVentas],
+      ];
+      const hayMas = paginas.some(([, pagina]) => pagina.hayMas);
+
+      // Cada tabla conserva su propio cursor: las que ya se agotaron no
+      // vuelven a entregar filas y las que quedaron pendientes continúan
+      // justo después de la última fila enviada. Así ninguna página se repite.
+      const siguiente: CursorPull = { ...cursorEntrada };
+      for (const [nombre, pagina] of paginas) {
+        if (pagina.ultimo) siguiente[nombre] = pagina.ultimo;
+      }
+      const cursor = Object.keys(siguiente).length > 0 ? JSON.stringify(siguiente) : null;
 
       const licenciaFila = licencia.rows[0];
 
       return {
         cambios,
+        hayMas,
+        cursor,
         licencia: licenciaFila
           ? {
-              estado: licenciaFila.estado,
+              // Si `exigirLicenciaVigente` pasó, la licencia está vigente:
+              // se informa el estado efectivo y el token firmado guardado.
+              estado: estadoLicenciaEfectiva(licenciaFila),
               venceEn: licenciaFila.vence_en.toISOString(),
               graceDias: licenciaFila.grace_dias,
               token: licenciaFila.licencia_firmada,

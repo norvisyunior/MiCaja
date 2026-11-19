@@ -5,7 +5,7 @@ import { imagenArchivoADataUri } from '../utils/imagenes';
 import { crearPinHash, esPinHasheado } from '../utils/pin';
 import { generarUsuarioDesdeNombre, normalizarUsuario } from '../utils/usuario';
 
-export const DATABASE_VERSION = 7;
+export const DATABASE_VERSION = 8;
 
 async function existeTabla(db: SQLiteDatabase, tabla: string): Promise<boolean> {
   const fila = await db.getFirstAsync<{ n: number }>(
@@ -307,6 +307,14 @@ export async function asegurarEstructuraV7(db: SQLiteDatabase): Promise<void> {
 }
 
 /**
+ * Estructura v8: código de recuperación local de cada cuenta.
+ * Solo se guarda su hash, igual que el PIN.
+ */
+export async function asegurarEstructuraV8(db: SQLiteDatabase): Promise<void> {
+  await agregarColumnas(db, 'usuarios', [['codigo_recuperacion', 'TEXT']]);
+}
+
+/**
  * Garantiza que todas las cuentas tengan un nombre de usuario único.
  * Se ejecuta al migrar bases antiguas y al restaurar un backup, de modo que
  * nadie se quede sin poder iniciar sesión.
@@ -386,6 +394,9 @@ export async function migrarBase(db: SQLiteDatabase) {
     if (!nombres.has('usuario')) {
       alteraciones.push(`ALTER TABLE usuarios ADD COLUMN usuario TEXT NOT NULL DEFAULT ''`);
     }
+    if (!nombres.has('codigo_recuperacion')) {
+      alteraciones.push('ALTER TABLE usuarios ADD COLUMN codigo_recuperacion TEXT');
+    }
     if (alteraciones.length > 0) {
       await db.execAsync(alteraciones.join(';'));
     }
@@ -406,6 +417,7 @@ export async function migrarBase(db: SQLiteDatabase) {
 
   if (versionActual >= DATABASE_VERSION) {
     await asegurarEstructuraV7(db);
+    await asegurarEstructuraV8(db);
     return;
   }
 
@@ -420,6 +432,7 @@ export async function migrarBase(db: SQLiteDatabase) {
         usuario TEXT NOT NULL DEFAULT '',
         rol TEXT NOT NULL DEFAULT 'dependiente' CHECK (rol IN ('admin','dependiente')),
         pin TEXT NOT NULL DEFAULT '',
+        codigo_recuperacion TEXT,
         activo INTEGER NOT NULL DEFAULT 1,
         intentos_fallidos INTEGER NOT NULL DEFAULT 0,
         bloqueado_hasta TEXT
@@ -526,6 +539,7 @@ export async function migrarBase(db: SQLiteDatabase) {
     }
 
     await asegurarEstructuraV7(db);
+    await asegurarEstructuraV8(db);
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
   }
 }

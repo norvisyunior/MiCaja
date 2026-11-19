@@ -1,4 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { CLAVE_ROL_ACTIVACION, leerSetting } from '../../api/config';
+import { crearPinHash, esPinHasheado } from '../../utils/pin';
 import { ahoraIso } from '../contexto';
 import { encolarOperacion } from '../outbox';
 
@@ -11,6 +13,42 @@ export const SETTINGS_SINCRONIZABLES = new Set([
 
 /** Marca local: el snapshot inicial (instalación adoptada) ya se encoló. */
 const CLAVE_SNAPSHOT_INICIAL = 'sync_snapshot_hecho';
+
+/** Marca local: última pasada que subió los hashes de PIN de las cuentas. */
+const CLAVE_PIN_HASHES = 'sync_pin_hashes_hecho';
+
+/** Las cuentas antiguas se re-revisan a diario por si el PIN se fijó después. */
+const INTERVALO_PIN_HASHES_MS = 24 * 60 * 60_000;
+
+/**
+ * Solo el dispositivo propietario sube la foto inicial. Antes de activar no
+ * hay rol guardado: se asume propietario para que una instalación local
+ * adoptada pueda subir sus datos al activarse. Las terminales invitadas
+ * reciben todo desde la nube.
+ */
+async function esDispositivoPropietario(db: SQLiteDatabase): Promise<boolean> {
+  const rol = await leerSetting(db, CLAVE_ROL_ACTIVACION);
+  return !rol || rol === 'propietario';
+}
+
+async function marcarMarca(db: SQLiteDatabase, clave: string): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO settings (clave, valor, version, updated_at)
+     VALUES (?, '1', 1, ?)
+     ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at`,
+    clave,
+    ahoraIso()
+  );
+}
+
+async function marcarSnapshotHecho(db: SQLiteDatabase): Promise<void> {
+  await marcarMarca(db, CLAVE_SNAPSHOT_INICIAL);
+}
+
+/** El login global ya descargó la foto inicial: no hay que empujar datos locales. */
+export async function marcarSnapshotInicialHecho(db: SQLiteDatabase): Promise<void> {
+  await marcarSnapshotHecho(db);
+}
 
 interface FilaProductoOutbox {
   id: number;
@@ -46,6 +84,7 @@ interface FilaUsuarioOutbox {
   nombre: string;
   usuario: string;
   rol: string;
+  pin: string;
   activo: number;
   version: number;
   deleted_at: string | null;
@@ -235,16 +274,35 @@ export async function encolarCategoriaUpsert(
   });
 }
 
+/**
+ * El servidor necesita el hash del PIN para permitir login global. Si una
+ * instalación antigua todavía guarda el PIN en texto plano, se migra aquí
+ * antes de enviarlo y nunca se sube el valor original.
+ */
+async function pinHashParaServidor(
+  db: SQLiteDatabase,
+  fila: FilaUsuarioOutbox
+): Promise<string | null> {
+  if (!fila.pin) return null;
+  if (esPinHasheado(fila.pin)) return fila.pin;
+
+  const hash = await crearPinHash(fila.pin);
+  await db.runAsync(`UPDATE usuarios SET pin = ? WHERE id = ?`, hash, fila.id);
+  return hash;
+}
+
 export async function encolarUsuarioUpsert(
   db: SQLiteDatabase,
   usuarioId: number
 ): Promise<void> {
   const fila = await db.getFirstAsync<FilaUsuarioOutbox>(
-    `SELECT id, uuid, nombre, usuario, rol, activo, version, deleted_at
+    `SELECT id, uuid, nombre, usuario, rol, pin, activo, version, deleted_at
      FROM usuarios WHERE id = ?`,
     usuarioId
   );
   if (!fila?.uuid) return;
+
+  const pinHash = await pinHashParaServidor(db, fila);
 
   await encolarOperacion(db, {
     tipo: 'usuario_upsert',
@@ -257,6 +315,7 @@ export async function encolarUsuarioUpsert(
       usuario: fila.usuario,
       rol: fila.rol === 'admin' ? 'admin' : 'dependiente',
       activo: fila.activo === 1,
+      ...(pinHash ? { pinHash } : {}),
       version: fila.version,
       deletedAt: fila.deleted_at,
     },
@@ -297,7 +356,8 @@ export async function encolarTurnoApertura(
     tipo: 'turno_apertura',
     entidad: 'turnos_caja',
     entidadUuid: fila.uuid,
-    prioridad: 3,
+    // La apertura debe llegar antes que las ventas de ese turno (prioridad 3).
+    prioridad: 2,
     payload: {
       turnoId: fila.uuid,
       usuarioId: fila.usuario_uuid,
@@ -391,6 +451,14 @@ export async function encolarSnapshotInicial(db: SQLiteDatabase): Promise<number
   );
   if (marca) return 0;
 
+  // Un dispositivo invitado no sube la foto de su instalación local: sus
+  // datos de negocio llegan desde la nube. Su cuenta de trabajador ya se
+  // encoló al crearse con `crearUsuario`.
+  if (!(await esDispositivoPropietario(db))) {
+    await marcarSnapshotHecho(db);
+    return 0;
+  }
+
   let encoladas = 0;
 
   const usuarios = await db.getAllAsync<{ id: number; uuid: string | null }>(
@@ -434,13 +502,56 @@ export async function encolarSnapshotInicial(db: SQLiteDatabase): Promise<number
     encoladas += 1;
   }
 
+  await marcarSnapshotHecho(db);
+
+  return encoladas;
+}
+
+/**
+ * Instalaciones anteriores al login global ya habían subido sus usuarios sin
+ * `pinHash`. Esta pasada reenvía las cuentas que tienen PIN local para que
+ * puedan iniciar sesión desde otro dispositivo. Se repite cada 24 horas por si
+ * una cuenta antigua recibe su PIN después de la primera pasada. Solo la hace
+ * el propietario: un admin no puede modificar la cuenta del propietario.
+ */
+export async function encolarPinHashesPendientes(db: SQLiteDatabase): Promise<number> {
+  const marca = await db.getFirstAsync<{ valor: string }>(
+    `SELECT valor FROM settings WHERE clave = ?`,
+    CLAVE_PIN_HASHES
+  );
+  if (marca?.valor) {
+    const ultima = Number(marca.valor);
+    if (
+      Number.isFinite(ultima) &&
+      Date.now() - ultima < INTERVALO_PIN_HASHES_MS
+    ) {
+      return 0;
+    }
+  }
+
+  if (!(await esDispositivoPropietario(db))) {
+    await marcarMarca(db, CLAVE_PIN_HASHES);
+    return 0;
+  }
+
+  let encoladas = 0;
+  const usuarios = await db.getAllAsync<{ id: number; uuid: string | null }>(
+    `SELECT id, uuid FROM usuarios
+     WHERE uuid IS NOT NULL AND pin IS NOT NULL AND pin <> ''`
+  );
+  for (const usuario of usuarios) {
+    if (await tieneOpViva(db, 'usuario_upsert', usuario.uuid!)) continue;
+    await encolarUsuarioUpsert(db, usuario.id);
+    encoladas += 1;
+  }
+
   await db.runAsync(
     `INSERT INTO settings (clave, valor, version, updated_at)
-     VALUES (?, '1', 1, ?)
+     VALUES (?, ?, 1, ?)
      ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at`,
-    CLAVE_SNAPSHOT_INICIAL,
+    CLAVE_PIN_HASHES,
+    String(Date.now()),
     ahoraIso()
   );
-
   return encoladas;
 }

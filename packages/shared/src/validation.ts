@@ -12,6 +12,15 @@ import { licensePayloadSchema } from './license';
 
 export const uuidSchema = z.string().uuid();
 
+/**
+ * Límites de negocio/DB compartidos por el cliente y el servidor.
+ * Evitan que un payload absurdo (o malicioso) desborde las columnas
+ * `numeric(14,2)` / `numeric(14,3)` y termine en un error 500.
+ */
+export const MAX_MONTO = 100_000_000_000;
+export const MAX_CANTIDAD = 1_000_000;
+export const MAX_STOCK = 100_000_000;
+
 export const activacionSchema = z.object({
   codigo: z
     .string()
@@ -22,9 +31,19 @@ export const activacionSchema = z.object({
   nombre: z.string().trim().min(1).max(80),
   plataforma: z.enum(PLATAFORMAS),
   appVersion: z.string().max(50).default(''),
+  // Reemplazo de dispositivo: id del dispositivo que se retira porque se
+  // perdió o se averió. Solo tiene efecto cuando no quedan plazas libres.
+  reemplazarA: uuidSchema.optional(),
 });
 
 export type ActivacionInput = z.infer<typeof activacionSchema>;
+
+export const invitacionSchema = z.object({
+  rol: z.enum(['admin', 'dependiente']).default('dependiente'),
+  expiraHoras: z.coerce.number().int().min(1).max(720).default(72),
+});
+
+export type InvitacionInput = z.infer<typeof invitacionSchema>;
 
 export const adminLoginSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
@@ -32,6 +51,29 @@ export const adminLoginSchema = z.object({
 });
 
 export type AdminLoginInput = z.infer<typeof adminLoginSchema>;
+
+/**
+ * Login de una cuenta de negocio (propietario/admin/dependiente) con su
+ * usuario global y PIN. La huella identifica la instalación que intenta
+ * entrar: el servidor la usa para reutilizar o aprovisionar su dispositivo.
+ */
+export const usuarioLoginSchema = z.object({
+  usuario: z
+    .string()
+    .trim()
+    .min(3)
+    .max(40)
+    .transform((valor) => valor.toLowerCase()),
+  pin: z.string().regex(/^\d{4}$/, 'PIN_INVALIDO'),
+  fingerprint: z.string().min(8).max(200),
+  nombre: z.string().trim().min(1).max(80),
+  plataforma: z.enum(PLATAFORMAS),
+  appVersion: z.string().max(50).default(''),
+  reemplazarA: uuidSchema.optional(),
+  cambiarEmpresa: z.boolean().default(false),
+});
+
+export type UsuarioLoginInput = z.infer<typeof usuarioLoginSchema>;
 
 export const empresaInputSchema = z.object({
   nombre: z.string().trim().min(1).max(120),
@@ -85,13 +127,13 @@ export type CategoriaInput = z.infer<typeof categoriaInputSchema>;
 export const productoInputSchema = z.object({
   categoriaId: uuidSchema.nullable().optional(),
   nombre: z.string().trim().min(1).max(120),
-  precio: z.number().min(0),
+  precio: z.number().finite().min(0).max(MAX_MONTO),
   emoji: z.string().max(16).default('🍽️'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#0EA5E9'),
   imagen: z.string().max(2_000_000).nullable().optional(),
-  orden: z.number().int().default(0),
+  orden: z.number().int().min(-1_000_000).max(1_000_000).default(0),
   activo: z.boolean().default(true),
-  stockMinimo: z.number().min(0).default(0),
+  stockMinimo: z.number().finite().min(0).max(MAX_STOCK).default(0),
 });
 
 export type ProductoInput = z.infer<typeof productoInputSchema>;
@@ -99,9 +141,9 @@ export type ProductoInput = z.infer<typeof productoInputSchema>;
 export const ventaItemInputSchema = z.object({
   productoId: uuidSchema.nullable().optional(),
   nombre: z.string().trim().min(1).max(120),
-  precioUnitario: z.number().min(0),
-  cantidad: z.number().positive(),
-  subtotal: z.number().min(0),
+  precioUnitario: z.number().finite().min(0).max(MAX_MONTO),
+  cantidad: z.number().finite().positive().max(MAX_CANTIDAD),
+  subtotal: z.number().finite().min(0).max(MAX_MONTO),
 });
 
 export const ventaInputSchema = z.object({
@@ -109,13 +151,13 @@ export const ventaInputSchema = z.object({
   usuarioId: uuidSchema,
   turnoId: uuidSchema.nullable().optional(),
   fechaCliente: z.string().datetime(),
-  subtotal: z.number().min(0),
-  descuentoPct: z.number().min(0).max(100).default(0),
-  total: z.number().min(0),
+  subtotal: z.number().finite().min(0).max(MAX_MONTO),
+  descuentoPct: z.number().finite().min(0).max(100).default(0),
+  total: z.number().finite().min(0).max(MAX_MONTO),
   formaPago: z.enum(FORMAS_PAGO),
-  montoEfectivo: z.number().min(0).default(0),
-  montoDigital: z.number().min(0).default(0),
-  items: z.array(ventaItemInputSchema).min(1),
+  montoEfectivo: z.number().finite().min(0).max(MAX_MONTO).default(0),
+  montoDigital: z.number().finite().min(0).max(MAX_MONTO).default(0),
+  items: z.array(ventaItemInputSchema).min(1).max(200),
 });
 
 export type VentaInput = z.infer<typeof ventaInputSchema>;
@@ -136,7 +178,11 @@ export type SyncPushInput = z.infer<typeof syncPushSchema>;
 
 export const syncPullQuerySchema = z.object({
   deviceId: uuidSchema,
-  since: z.string().datetime().optional(),
+  // Cursor opaco de paginación. Es un JSON con `{ tabla: { s, id } }` donde
+  // `s` es el `updated_at` exacto de Postgres (con microsegundos) y `id` el
+  // último identificador entregado de esa tabla. JS Date solo conserva
+  // milisegundos, por eso el instante viaja como texto del propio motor.
+  cursor: z.string().max(4000).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
 });
 

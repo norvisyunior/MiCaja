@@ -40,17 +40,26 @@ registroRouter.post(
   asyncHandler(async (req, res) => {
     const data = registroSchema.parse(req.body);
 
+    // El autoservicio público solo entrega el plan básico (3 dispositivos).
+    // Los planes superiores los asigna el panel de administración.
+    if (data.planCodigo !== 'basico') {
+      throw new ApiError(
+        403,
+        'PLAN_NO_DISPONIBLE',
+        'El registro público solo admite el plan basico. Los demás planes se asignan por el panel.'
+      );
+    }
+
     const creado = await withAdmin(async (client) => {
       const plan = await client.query<PlanRow>(
-        `select id, codigo, features from planes where codigo = $1 and activo`,
-        [data.planCodigo]
+        `select id, codigo, features from planes where codigo = 'basico' and activo`
       );
       const planRow = plan.rows[0];
       if (!planRow) {
-        throw new ApiError(400, 'PLAN_INVALIDO', `No existe el plan ${data.planCodigo}`);
+        throw new ApiError(400, 'PLAN_INVALIDO', 'No existe el plan basico');
       }
 
-      const venceEn = new Date(Date.now() + 3650 * 86_400_000);
+      const venceEn = new Date(Date.now() + env.REGISTRO_VIGENCIA_DIAS * 86_400_000);
       const codigoActivacion = generarCodigoActivacion();
       const codigoExpiraEn = new Date(Date.now() + 7 * 86_400_000);
 

@@ -50,6 +50,7 @@ Copiar `apps/backend/.env.example` a `apps/backend/.env` y completar:
 | `LICENSE_PRIVATE_KEY` | Clave privada Ed25519 en base64 (PKCS8) |
 | `LICENSE_KEY_ID` | Identificador de clave, ej. `v1` |
 | `CORS_ORIGINS` | Orígenes permitidos, separados por coma |
+| `REGISTRO_VIGENCIA_DIAS` | Días de vigencia para licencias del registro público (por defecto 3650) |
 | `NODE_ENV` | `development` o `production` |
 
 ## 4. Generar claves de licencia
@@ -107,6 +108,13 @@ Las migraciones SQL están en `apps/backend/supabase/migrations/`:
 |---|---|
 | `202611130001_schema.sql` | Tablas, enums, claves, índices y triggers |
 | `202611130002_rls.sql` | RLS, políticas y grants |
+| `202611150001_dispositivos_invitaciones.sql` | Política de actualización de dispositivos en contexto tenant y tabla `invitaciones` |
+| `202611150002_auditoria_tenant.sql` | Permite que los dispositivos registren auditoría de su empresa |
+| `202611150003_roles_dispositivos.sql` | Rol del dispositivo, PK compuesta de `movimientos_inventario` y vínculo de invitaciones |
+| `202611150004_turnos_pk_empresa.sql` | PK compuesta `(empresa_id, id)` en `turnos_caja` |
+| `202611160001_usuarios_globales.sql` | Renombra usuarios duplicados y crea el índice único global de `usuario` para el login por PIN |
+| `202611180001_propietario_inicial.sql` | Garantiza un propietario inicial por empresa |
+| `202611180002_planes_dispositivos.sql` | Límite de dispositivos: Básico 3 y Pro 5 |
 
 Aplicarlas con Supabase CLI:
 
@@ -114,7 +122,7 @@ Aplicarlas con Supabase CLI:
 supabase db push
 ```
 
-o manualmente con `psql "$DIRECT_URL" -f apps/backend/supabase/migrations/202611130001_schema.sql` y el segundo archivo.
+o manualmente con `psql "$DIRECT_URL" -f apps/backend/supabase/migrations/<archivo>.sql`, en orden.
 
 ## 8. Pruebas
 

@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { CLAVE_DISPOSITIVO_SERVIDOR, leerSetting } from '../../api/config';
 import type { FormaPago, TurnoCaja } from '../../types';
 import { ahoraIso, nuevoUuid, obtenerContextoLocal } from '../contexto';
 import { encolarTurnoApertura, encolarTurnoCierre } from '../sync/encolar';
@@ -31,6 +32,19 @@ const A_TURNO = (f: FilaTurno): TurnoCaja => ({
   estado: f.estado === 'abierto' ? 'abierto' : 'cerrado',
 });
 
+/**
+ * Identificadores con los que la SQLite local puede haber marcado un turno
+ * propio: el id del dispositivo local (turnos abiertos en esta instalación) y
+ * el id del dispositivo en el servidor (turnos que llegaron por el pull).
+ * Un turno abierto en otra terminal nunca debe usarse para vender aquí: el
+ * servidor lo rechaza y el cierre de esa caja descuadraría.
+ */
+async function dispositivosPropios(db: SQLiteDatabase): Promise<[string, string]> {
+  const contexto = await obtenerContextoLocal(db);
+  const servidor = (await leerSetting(db, CLAVE_DISPOSITIVO_SERVIDOR)) ?? '';
+  return [contexto.deviceId, servidor];
+}
+
 export async function turnoAbiertoOCrear(
   db: SQLiteDatabase,
   usuarioId: number,
@@ -39,11 +53,15 @@ export async function turnoAbiertoOCrear(
   let turnoId: number | null = null;
 
   await db.withTransactionAsync(async () => {
+    const [dispositivoLocal, dispositivoServidor] = await dispositivosPropios(db);
     const fila = await db.getFirstAsync<FilaTurno>(
       `SELECT * FROM turnos_caja
        WHERE estado = 'abierto' AND usuario_id = ?
+         AND device_id IN (?, ?)
        ORDER BY id DESC LIMIT 1`,
-      usuarioId
+      usuarioId,
+      dispositivoLocal,
+      dispositivoServidor
     );
     if (fila) {
       turnoId = fila.id;
@@ -73,9 +91,15 @@ export async function turnoAbierto(
   db: SQLiteDatabase,
   usuarioId: number
 ): Promise<TurnoCaja | null> {
+  const [dispositivoLocal, dispositivoServidor] = await dispositivosPropios(db);
   const fila = await db.getFirstAsync<FilaTurno>(
-    `SELECT * FROM turnos_caja WHERE estado = 'abierto' AND usuario_id = ? ORDER BY id DESC LIMIT 1`,
-    usuarioId
+    `SELECT * FROM turnos_caja
+     WHERE estado = 'abierto' AND usuario_id = ?
+       AND device_id IN (?, ?)
+     ORDER BY id DESC LIMIT 1`,
+    usuarioId,
+    dispositivoLocal,
+    dispositivoServidor
   );
   return fila ? A_TURNO(fila) : null;
 }

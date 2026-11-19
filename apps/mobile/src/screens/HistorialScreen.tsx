@@ -7,6 +7,7 @@ import type { FormaPago, Venta } from '../types';
 import { listarVentas, anularVenta, puedeAnularVenta } from '../db/repos/ventas';
 import { obtenerSettings } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
+import { useSync } from '../store/sync';
 import { useAvisos } from '../store/avisos';
 import { useTema } from '../store/tema';
 import { NOMBRES_FORMA_PAGO } from '../utils/calculos';
@@ -59,6 +60,7 @@ function rango(filtro: Filtro): [string, string] {
 export default function HistorialScreen() {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario)!;
+  const ultimaSync = useSync((s) => s.ultimaSync);
   const { colores } = useTema();
   const mostrarAviso = useAvisos((s) => s.mostrar);
 
@@ -100,7 +102,7 @@ export default function HistorialScreen() {
       return () => {
         activo = false;
       };
-    }, [db, filtro])
+    }, [db, filtro, ultimaSync])
   );
 
   const coinciden = (v: Venta) => {

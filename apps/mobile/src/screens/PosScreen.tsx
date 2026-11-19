@@ -163,8 +163,17 @@ export default function PosScreen() {
     aumentar(i);
   }
 
-  function cobrar() {
+  async function cobrar() {
     if (lineas.length === 0) return;
+
+    // Sin licencia activada no se llega ni al cobro: se avisa antes de abrir
+    // el pago para no hacer elegir forma de pago en vano.
+    const bloqueo = await evaluarBloqueoOperativo(db);
+    if (bloqueo) {
+      mostrarAviso(bloqueo.titulo, bloqueo.mensaje);
+      return;
+    }
+
     if (!turno) {
       mostrarAviso('Caja cerrada', 'Debes abrir la caja antes de cobrar.', [
         { texto: 'Cancelar', estilo: 'cancel' },

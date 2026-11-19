@@ -190,7 +190,13 @@ describe('bloqueoPorEstado', () => {
   it('no bloquea los estados operativos', () => {
     expect(bloqueoPorEstado('activa')).toBeNull();
     expect(bloqueoPorEstado('gracia')).toBeNull();
-    expect(bloqueoPorEstado('sin_licencia')).toBeNull();
+  });
+
+  it('bloquea sin licencia activada hasta que el dispositivo se active', () => {
+    const bloqueo = bloqueoPorEstado('sin_licencia');
+    expect(bloqueo).not.toBeNull();
+    expect(bloqueo?.titulo).toContain('sin activar');
+    expect(bloqueo?.mensaje).toContain('ventas');
   });
 });
 

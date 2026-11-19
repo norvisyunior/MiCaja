@@ -6,26 +6,34 @@ import { fuentes, radius, spacing, typography } from '../theme';
 
 /**
  * Banda de estado de la licencia para las pantallas operativas.
- * Solo aparece cuando hay algo que comunicar: vencida, inválida o en
- * periodo de gracia. El modo local sin licencia no muestra nada.
+ * Aparece cuando hay algo que comunicar: sin activar, vencida, inválida o en
+ * periodo de gracia.
  */
 export function AvisoLicencia() {
   const { colores } = useTema();
   const estado = useSync((s) => s.licencia?.estado);
 
-  if (estado !== 'vencida' && estado !== 'invalida' && estado !== 'gracia') {
+  if (
+    estado !== 'sin_licencia' &&
+    estado !== 'vencida' &&
+    estado !== 'invalida' &&
+    estado !== 'gracia'
+  ) {
     return null;
   }
 
-  const bloqueado = estado === 'vencida' || estado === 'invalida';
+  const bloqueado =
+    estado === 'sin_licencia' || estado === 'vencida' || estado === 'invalida';
   const color = bloqueado ? colores.peligro : colores.advertencia;
   const fondo = bloqueado ? colores.peligroSuave : colores.advertenciaSuave;
   const texto =
-    estado === 'vencida'
-      ? 'Licencia vencida · no se pueden registrar ventas ni cerrar turnos'
-      : estado === 'invalida'
-        ? 'Licencia no válida · verifica la activación en Ajustes'
-        : 'Licencia en periodo de gracia · renuévala pronto';
+    estado === 'sin_licencia'
+      ? 'Dispositivo sin activar · conecta a Internet y activa la licencia para vender'
+      : estado === 'vencida'
+        ? 'Licencia vencida · no se pueden registrar ventas ni cerrar turnos'
+        : estado === 'invalida'
+          ? 'Licencia no válida · verifica la activación en Ajustes'
+          : 'Licencia en periodo de gracia · renuévala pronto';
 
   return (
     <View style={[styles.banner, { backgroundColor: fondo }]}>

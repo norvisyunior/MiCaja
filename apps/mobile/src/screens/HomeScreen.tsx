@@ -9,6 +9,7 @@ import { resumenDia, type ResumenDia } from '../db/repos/estadisticas';
 import { turnoAbierto } from '../db/repos/turnos';
 import { obtenerSettings } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
+import { useSync } from '../store/sync';
 import { useTema } from '../store/tema';
 import {
   Boton,
@@ -40,6 +41,7 @@ interface Acceso {
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario)!;
+  const ultimaSync = useSync((s) => s.ultimaSync);
   const { colores } = useTema();
   const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
 
@@ -77,7 +79,10 @@ export default function HomeScreen() {
         entrada.setValue(0);
         Animated.timing(entrada, { toValue: 1, duration: 400, useNativeDriver: true }).start();
       })().catch(() => setCargando(false));
-    }, [db, usuario.id, entrada])
+      // `ultimaSync` cambia al terminar cada sincronización: al volver a leer
+      // los datos locales, la pantalla refleja las ventas que lleguen de otros
+      // dispositivos sin tener que salir y entrar.
+    }, [db, usuario.id, ultimaSync, entrada])
   );
 
   const simbolo = settings?.simboloMoneda ?? '$';
