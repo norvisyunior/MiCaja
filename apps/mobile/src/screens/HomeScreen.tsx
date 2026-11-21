@@ -1,5 +1,5 @@
-﻿import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+﻿import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -11,37 +11,45 @@ import { obtenerSettings } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
 import { useSync } from '../store/sync';
 import { useTema } from '../store/tema';
+import { sincronizarSilencioso } from '../sync/motor';
 import {
+  AccionRapida,
   Boton,
+  Exito,
   Gradiente,
+  Hoja,
   Pantalla,
+  Sello,
+  Superficie,
   Tarjeta,
   type NombreIcono,
 } from '../components/UI';
+import { AvisoLicencia as AvisoLicenciaTarjeta } from '../components/AvisoLicencia';
 import {
   fuentes,
   gradientes,
-  paletaProductos,
   radius,
-  sombraFlotante,
   spacing,
   typography,
 } from '../theme';
-import { formatearDinero, formatoFechaLarga, formatoHora, inicioDiaISO, finDiaISO } from '../utils/fechas';
+import { formatearDinero, formatoFechaLarga, formatoFechaHora, formatoHora, inicioDiaISO, finDiaISO } from '../utils/fechas';
 import type { ParamListRaiz, ParamListTabs } from '../navigation';
 
 interface Acceso {
   icono: NombreIcono;
   etiqueta: string;
-  color: string;
-  fondo: string;
-  destino: 'Productos' | 'Historial' | 'Resumen';
+  destino: 'Vender' | 'Productos' | 'Resumen' | 'Configuracion' | 'Sincronizar';
+  soloAdmin?: boolean;
 }
 
 export default function HomeScreen() {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario)!;
   const ultimaSync = useSync((s) => s.ultimaSync);
+  const sincronizando = useSync((s) => s.sincronizando);
+  const pendientes = useSync((s) => s.pendientes);
+  const fallidas = useSync((s) => s.fallidas);
+  const errorSync = useSync((s) => s.error);
   const { colores } = useTema();
   const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
 
@@ -49,20 +57,10 @@ export default function HomeScreen() {
   const [turno, setTurno] = useState<TurnoCaja | null>(null);
   const [resumen, setResumen] = useState<ResumenDia | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [syncAbierto, setSyncAbierto] = useState(false);
+  const [syncCompletado, setSyncCompletado] = useState(false);
 
   const entrada = useRef(new Animated.Value(0)).current;
-  const pulso = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulso, { toValue: 1, duration: 1400, useNativeDriver: true }),
-        Animated.timing(pulso, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ])
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [pulso]);
 
   useFocusEffect(
     useCallback(() => {
@@ -79,16 +77,12 @@ export default function HomeScreen() {
         entrada.setValue(0);
         Animated.timing(entrada, { toValue: 1, duration: 400, useNativeDriver: true }).start();
       })().catch(() => setCargando(false));
-      // `ultimaSync` cambia al terminar cada sincronización: al volver a leer
-      // los datos locales, la pantalla refleja las ventas que lleguen de otros
-      // dispositivos sin tener que salir y entrar.
     }, [db, usuario.id, ultimaSync, entrada])
   );
 
   const simbolo = settings?.simboloMoneda ?? '$';
   const hora = new Date();
   const saludo = hora.getHours() < 12 ? 'Buenos días' : hora.getHours() < 19 ? 'Buenas tardes' : 'Buenas noches';
-  const colorAvatar = paletaProductos[usuario.id % paletaProductos.length];
 
   const ingresos = resumen?.ingresos ?? 0;
   const ventas = resumen?.ventas ?? 0;
@@ -98,579 +92,580 @@ export default function HomeScreen() {
   const cobrado = efectivo + digital;
   const proporcionEfectivo = cobrado > 0 ? (efectivo / cobrado) * 100 : 0;
 
-  const accesos: Acceso[] = [
-    ...(usuario.rol === 'admin'
-      ? [
-          {
-            icono: 'inventory-2' as NombreIcono,
-            etiqueta: 'Productos',
-            color: colores.info,
-            fondo: colores.infoSuave,
-            destino: 'Productos' as const,
-          },
-        ]
-      : []),
-    {
-      icono: 'receipt-long',
-      etiqueta: 'Historial',
-      color: colores.acento,
-      fondo: colores.acentoSuave,
-      destino: 'Historial',
-    },
-    {
-      icono: 'bar-chart',
-      etiqueta: 'Resumen',
-      color: colores.advertencia,
-      fondo: colores.advertenciaSuave,
-      destino: 'Resumen',
-    },
-  ];
+  const accesos = ([
+    { icono: 'point-of-sale', etiqueta: 'Ventas', destino: 'Vender' },
+    { icono: 'warehouse', etiqueta: 'Inventario', destino: 'Productos' },
+    { icono: 'sync', etiqueta: 'Sincronización', destino: 'Sincronizar' },
+  ] as Acceso[]);
+
+  async function sincronizarAhora() {
+    setSyncCompletado(false);
+    try {
+      await sincronizarSilencioso(db);
+      const [conf, t, r] = await Promise.all([
+        obtenerSettings(db),
+        turnoAbierto(db, usuario.id),
+        resumenDia(db, inicioDiaISO(), finDiaISO()),
+      ]);
+      setSettings(conf);
+      setTurno(t);
+      setResumen(r);
+      setSyncCompletado(true);
+    } catch {
+      // El estado del store ya refleja el error de sincronización.
+    }
+  }
 
   return (
     <Pantalla>
-      <ScrollView
-        contentContainerStyle={[styles.contenido, { paddingBottom: 110 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View
-          style={{
-            opacity: entrada,
-            transform: [
-              {
-                translateY: entrada.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
-              },
-            ],
-          }}
+      <Superficie>
+        <ScrollView
+          contentContainerStyle={styles.contenido}
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.cabecera}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.saludo, { color: colores.texto }]}>
-                {saludo}, {usuario.nombre.split(' ')[0]}
-              </Text>
-              <Text style={[styles.fecha, { color: colores.textoSuave }]}>
-                {formatoFechaLarga(hora.toISOString())}
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.avatar,
+          <Animated.View
+            style={{
+              opacity: entrada,
+              transform: [
                 {
-                  backgroundColor: colorAvatar,
-                  shadowColor: colores.sombra,
+                  translateY: entrada.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
                 },
-              ]}
-            >
-              <Text style={styles.avatarTexto}>
-                {usuario.nombre.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          </View>
-
-          <View
-            style={[
-              styles.heroSombra,
-              { backgroundColor: colores.acento, borderRadius: radius.lg, ...sombraFlotante(colores) },
-            ]}
+              ],
+              gap: spacing.md,
+            }}
           >
-            <Pressable
-              onPress={() => navigation.navigate('Vender')}
-              style={({ pressed }) => [styles.hero, pressed && { opacity: 0.94 }]}
-            >
-              <Gradiente colores={gradientes.cta} estilo={StyleSheet.absoluteFill} />
-              <View style={styles.heroIcono}>
-                <Animated.View
-                  style={[
-                    styles.pulso,
-                    {
-                      borderColor: 'rgba(255,255,255,0.9)',
-                      opacity: pulso.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
-                      transform: [
-                        {
-                          scale: pulso.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }),
-                        },
-                      ],
-                    },
-                  ]}
-                />
-                <MaterialIcons name="point-of-sale" size={27} color={colores.acento} />
-                <View style={styles.plusBadge}>
-                  <Gradiente colores={gradientes.exito} estilo={StyleSheet.absoluteFill} />
-                  <MaterialIcons name="add" size={12} color="#FFFFFF" />
-                </View>
-              </View>
+            <View style={styles.saludoFila}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.heroTitulo}>Nueva venta</Text>
-                <Text style={styles.heroSub}>Registra un cobro en segundos</Text>
-              </View>
-              <View style={styles.heroFlecha}>
-                <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" />
-              </View>
-            </Pressable>
-          </View>
-
-          <Tarjeta estilo={styles.tarjetaHoy}>
-            <View style={styles.hoyCabecera}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.hoyEtiqueta, { color: colores.textoSuave }]}>
-                  Ventas de hoy
+                <Text style={[styles.saludo, { color: colores.texto }]}>
+                  {saludo}, {usuario.nombre.split(' ')[0]}
                 </Text>
-                <Text style={[styles.hoyFecha, { color: colores.textoSuave }]}>
-                  {ventas === 1 ? '1 venta registrada' : `${ventas} ventas registradas`}
+                <Text style={[styles.fecha, { color: colores.textoSuave }]}>
+                  {formatoFechaLarga(hora.toISOString())}
                 </Text>
               </View>
-              <View style={[styles.hoyIcono, { backgroundColor: colores.acentoSuave }]}>
-                <MaterialIcons name="insights" size={22} color={colores.acento} />
-              </View>
-            </View>
-
-            <Text
-              style={[styles.hoyValor, { color: colores.texto }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {cargando ? '—' : formatearDinero(ingresos, simbolo)}
-            </Text>
-            <Text style={[styles.hoySub, { color: colores.textoSuave }]}>ingresos de hoy</Text>
-
-            <View style={[styles.hoyMetricas, { borderTopColor: colores.borde }]}>
-              <View style={styles.hoyMetrica}>
-                <Text style={[styles.hoyMetricaValor, { color: colores.texto }]} numberOfLines={1} adjustsFontSizeToFit>
-                  {String(ventas)}
-                </Text>
-                <Text style={[styles.hoyMetricaLabel, { color: colores.textoSuave }]}>ventas</Text>
-              </View>
-              <View style={[styles.hoyDivisor, { backgroundColor: colores.borde }]} />
-              <View style={styles.hoyMetrica}>
-                <Text style={[styles.hoyMetricaValor, { color: colores.texto }]} numberOfLines={1} adjustsFontSizeToFit>
-                  {formatearDinero(ticket, simbolo)}
-                </Text>
-                <Text style={[styles.hoyMetricaLabel, { color: colores.textoSuave }]}>ticket promedio</Text>
-              </View>
-              <View style={[styles.hoyDivisor, { backgroundColor: colores.borde }]} />
-              <View style={styles.hoyMetrica}>
-                <Text style={[styles.hoyMetricaValor, { color: colores.texto }]} numberOfLines={1} adjustsFontSizeToFit>
-                  {formatearDinero(efectivo, simbolo)}
-                </Text>
-                <Text style={[styles.hoyMetricaLabel, { color: colores.textoSuave }]}>efectivo</Text>
-              </View>
-            </View>
-
-            <View style={styles.hoyBarraFila}>
-              <View style={[styles.hoyBarra, { backgroundColor: colores.superficieSuave }]}>
-                <View
-                  style={{
-                    width: `${cobrado > 0 ? Math.max(4, proporcionEfectivo) : 0}%`,
-                    height: '100%',
-                    backgroundColor: colores.exito,
-                  }}
-                />
-              </View>
-              <View style={styles.hoyLeyenda}>
-                <View style={[styles.hoyPunto, { backgroundColor: colores.exito }]} />
-                <Text style={[styles.hoyLeyendaTexto, { color: colores.textoSuave }]}>
-                  {formatearDinero(efectivo, simbolo)}
-                </Text>
-                <View style={[styles.hoyPunto, { backgroundColor: colores.info, marginLeft: spacing.sm }]} />
-                <Text style={[styles.hoyLeyendaTexto, { color: colores.textoSuave }]}>
-                  {formatearDinero(digital, simbolo)} digital
-                </Text>
-              </View>
-            </View>
-          </Tarjeta>
-
-          <Tarjeta estilo={styles.tarjetaTurno}>
-            <View style={styles.turnoEstado}>
+              <Pressable
+                onPress={() => setSyncAbierto(true)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Estado de sincronización"
+                style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1, padding: 4 }]}
+              >
+                <MaterialIcons name="notifications-none" size={23} color={colores.texto} />
+                {pendientes > 0 ? (
+                  <View
+                    style={[
+                      styles.puntoAviso,
+                      { backgroundColor: colores.advertencia, borderColor: colores.fondo },
+                    ]}
+                  />
+                ) : null}
+              </Pressable>
               <View
                 style={[
-                  styles.turnoPunto,
-                  { backgroundColor: turno ? colores.exito : colores.advertencia },
-                ]}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.turnoTitulo, { color: colores.texto }]}>
-                  {turno ? 'Caja abierta' : 'Caja cerrada'}
-                </Text>
-                <Text style={[styles.turnoSub, { color: colores.textoSuave }]} numberOfLines={2}>
-                  {turno
-                    ? `Turno iniciado a las ${formatoHora(turno.apertura)}`
-                    : 'Abre la caja para controlar los ingresos del día'}
-                </Text>
-              </View>
-            </View>
-            <Boton
-              titulo={turno ? 'Cerrar' : 'Abrir'}
-              variante={turno ? 'suave' : 'primario'}
-              tamanio="sm"
-              onPress={() => navigation.navigate('Turno')}
-            />
-          </Tarjeta>
-
-          {resumen?.topProducto ? (
-            <Tarjeta estilo={styles.tarjetaTop}>
-              <View
-                style={[
-                  styles.topIcono,
-                  {
-                    backgroundColor: resumen.topProducto.imagen
-                      ? colores.superficieSuave
-                      : colores.advertenciaSuave,
-                  },
+                  styles.avatar,
+                  { backgroundColor: colores.primarioSuave },
                 ]}
               >
-                {resumen.topProducto.imagen ? (
-                  <Image
-                    source={{ uri: resumen.topProducto.imagen }}
-                    style={styles.topImagen}
-                    resizeMode="cover"
+                <Text style={[styles.avatarTexto, { color: colores.primario }]}>
+                  {usuario.nombre.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            </View>
+
+            <AvisoLicenciaTarjeta />
+
+            <View style={styles.acciones}>
+              {accesos.map((acceso) => (
+                <AccionRapida
+                  key={acceso.etiqueta}
+                  icono={acceso.icono}
+                  etiqueta={acceso.etiqueta}
+                  onPress={() => {
+                    if (acceso.destino === 'Sincronizar') setSyncAbierto(true);
+                    else navigation.navigate(acceso.destino);
+                  }}
+                />
+              ))}
+            </View>
+
+            <Gradiente colores={gradientes.cta} estilo={styles.hero}>
+              <View style={styles.heroCabecera}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.heroEtiqueta}>Ventas de hoy</Text>
+                  <Text
+                    style={styles.heroValor}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
+                    {cargando ? '—' : formatearDinero(ingresos, simbolo)}
+                  </Text>
+                </View>
+                <View style={styles.heroIcono}>
+                  <MaterialIcons name="insights" size={23} color="#FFFFFF" />
+                </View>
+              </View>
+
+              <View style={styles.heroMetricas}>
+                <View style={styles.heroMetrica}>
+                  <Text style={styles.heroMetricaValor}>{String(ventas)}</Text>
+                  <Text style={styles.heroMetricaLabel}>ventas</Text>
+                </View>
+                <View style={styles.heroDivisor} />
+                <View style={styles.heroMetrica}>
+                  <Text style={styles.heroMetricaValor} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatearDinero(ticket, simbolo)}
+                  </Text>
+                  <Text style={styles.heroMetricaLabel}>ticket medio</Text>
+                </View>
+                <View style={styles.heroDivisor} />
+                <View style={styles.heroMetrica}>
+                  <Text style={styles.heroMetricaValor} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatearDinero(efectivo, simbolo)}
+                  </Text>
+                  <Text style={styles.heroMetricaLabel}>efectivo</Text>
+                </View>
+              </View>
+
+              <View style={styles.heroBarraFila}>
+                <View style={styles.heroBarra}>
+                  <View
+                    style={{
+                      width: `${cobrado > 0 ? Math.max(4, proporcionEfectivo) : 0}%`,
+                      height: '100%',
+                      backgroundColor: '#FFFFFF',
+                    }}
                   />
-                ) : (
-                  <Text style={{ fontSize: 24 }}>{resumen.topProducto.emoji}</Text>
-                )}
+                </View>
+                <View style={styles.heroLeyenda}>
+                  <Text style={styles.heroLeyendaTexto}>
+                    {formatearDinero(efectivo, simbolo)} efectivo
+                  </Text>
+                  <Text style={styles.heroLeyendaTexto}>
+                    {formatearDinero(digital, simbolo)} digital
+                  </Text>
+                </View>
+              </View>
+            </Gradiente>
+
+            <View style={styles.filaTarjetas}>
+              <Tarjeta estilo={styles.tarjetaMini}>
+                <View style={styles.miniCabecera}>
+                  <View
+                    style={[
+                      styles.miniIcono,
+                      { backgroundColor: turno ? colores.exitoSuave : colores.advertenciaSuave },
+                    ]}
+                  >
+                    <MaterialIcons
+                      name={turno ? 'lock-open' : 'lock'}
+                      size={18}
+                      color={turno ? colores.exito : colores.advertencia}
+                    />
+                  </View>
+                  <Sello
+                    texto={turno ? 'Abierta' : 'Cerrada'}
+                    color={turno ? colores.exito : colores.advertencia}
+                  />
+                </View>
+                <Text style={[styles.miniTitulo, { color: colores.texto }]}>
+                  Caja {turno ? 'abierta' : 'cerrada'}
+                </Text>
+                <Text style={[styles.miniSub, { color: colores.textoSuave }]} numberOfLines={2}>
+                  {turno
+                    ? `Desde las ${formatoHora(turno.apertura)}`
+                    : 'Abre la caja para empezar a vender'}
+                </Text>
+                <Boton
+                  titulo={turno ? 'Cerrar' : 'Abrir'}
+                  variante={turno ? 'suave' : 'primario'}
+                  tamanio="sm"
+                  onPress={() => navigation.navigate('Turno')}
+                  estilo={styles.miniBoton}
+                />
+              </Tarjeta>
+
+              <Tarjeta estilo={styles.tarjetaMini}>
+                <View style={styles.miniCabecera}>
+                  <View
+                    style={[
+                      styles.miniIcono,
+                      { backgroundColor: colores.primarioSuave },
+                    ]}
+                  >
+                    {resumen?.topProducto ? resumen.topProducto.imagen ? (
+                      <Image
+                        source={{ uri: resumen.topProducto.imagen }}
+                        style={styles.miniImagen}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text style={{ fontSize: 20 }}>{resumen.topProducto.emoji}</Text>
+                    ) : (
+                      <MaterialIcons name="emoji-events" size={18} color={colores.textoSuave} />
+                    )}
+                  </View>
+                  {resumen?.topProducto ? (
+                    <MaterialIcons name="trending-up" size={17} color={colores.primario} />
+                  ) : null}
+                </View>
+                <Text style={[styles.miniTitulo, { color: colores.texto }]}>
+                  {resumen?.topProducto ? 'Más vendido' : 'Sin datos'}
+                </Text>
+                <Text style={[styles.miniSub, { color: colores.textoSuave }]} numberOfLines={2}>
+                  {resumen?.topProducto?.nombre ?? 'Aún no hay ventas hoy'}
+                </Text>
+                <Text style={[styles.miniTotal, { color: colores.primario }]}>
+                  {resumen?.topProducto
+                    ? `${formatearDinero(resumen.topProducto.total, simbolo)} · ${resumen.topProducto.cantidad} uds.`
+                    : '—'}
+                </Text>
+              </Tarjeta>
+            </View>
+
+            <View style={styles.pie}>
+              <View
+                style={[
+                  styles.piePunto,
+                  { backgroundColor: errorSync ? colores.peligro : colores.exito },
+                ]}
+              />
+              <Text style={[styles.pieTexto, { color: colores.textoSuave }]}>
+                {settings?.nombreNegocio ?? 'Mi Negocio'} · {settings?.moneda ?? 'CUP'} ·{' '}
+                {errorSync ? 'Sin conexión' : 'En línea'}
+              </Text>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </Superficie>
+
+      <Hoja
+        visible={syncAbierto}
+        onCerrar={() => {
+          setSyncAbierto(false);
+          setSyncCompletado(false);
+        }}
+        titulo="Sincronización"
+        subtitulo={sincronizando ? 'Por favor espera' : 'Estado de este dispositivo'}
+        pie={
+          sincronizando ? null : syncCompletado ? (
+            <Boton
+              titulo="Aceptar"
+              tamanio="lg"
+              onPress={() => {
+                setSyncAbierto(false);
+                setSyncCompletado(false);
+              }}
+            />
+          ) : (
+            <Boton
+              titulo="Sincronizar ahora"
+              tamanio="lg"
+              onPress={() => void sincronizarAhora()}
+            />
+          )
+        }
+      >
+        {sincronizando ? (
+          <View style={styles.syncProceso}>
+            <View style={[styles.syncSpinner, { backgroundColor: colores.primarioSuave }]}>
+              <ActivityIndicator size="large" color={colores.primario} />
+            </View>
+            <Text style={[styles.syncTituloProceso, { color: colores.texto }]}>
+              Sincronizando datos...
+            </Text>
+            <Text style={[styles.syncSub, { color: colores.textoSuave }]}>Por favor espera</Text>
+            <View style={[styles.syncBarra, { backgroundColor: colores.superficieSuave }]}>
+              <View style={[styles.syncBarraAvance, { backgroundColor: colores.primario, width: '70%' }]} />
+            </View>
+            <Text style={[styles.syncPorcentaje, { color: colores.primario }]}>70%</Text>
+          </View>
+        ) : syncCompletado ? (
+          <Exito
+            titulo="¡Todo actualizado!"
+            mensaje="Tus datos están sincronizados con el servidor."
+          />
+        ) : (
+          <>
+            <View style={[styles.syncEstado, { backgroundColor: colores.primarioSuave }]}>
+              <View
+                style={[
+                  styles.syncIcono,
+                  { backgroundColor: errorSync ? colores.peligroSuave : colores.superficie },
+                ]}
+              >
+                <MaterialIcons
+                  name={errorSync ? 'cloud-off' : 'cloud-done'}
+                  size={26}
+                  color={errorSync ? colores.peligro : colores.primario}
+                />
               </View>
               <View style={{ flex: 1 }}>
-                <View style={styles.topTituloFila}>
-                  <Text style={[styles.topTitulo, { color: colores.textoSuave }]}>
-                    Más vendido hoy
-                  </Text>
-                  <View style={[styles.topSello, { backgroundColor: colores.advertenciaSuave }]}>
-                    <MaterialIcons name="emoji-events" size={11} color={colores.advertencia} />
-                    <Text style={[styles.topSelloTexto, { color: colores.advertencia }]}>TOP</Text>
-                  </View>
-                </View>
-                <Text style={[styles.topNombre, { color: colores.texto }]} numberOfLines={1}>
-                  {resumen.topProducto.nombre}
+                <Text style={[styles.syncTitulo, { color: colores.texto }]}>
+                  {errorSync ? 'Sin conexión' : 'Todo actualizado'}
                 </Text>
-                <Text style={[styles.topDetalle, { color: colores.textoSuave }]}>
-                  {resumen.topProducto.cantidad} unidad(es)
+                <Text style={[styles.syncSub, { color: colores.textoSuave }]}>
+                  {ultimaSync
+                    ? `Última sincronización: ${formatoFechaHora(ultimaSync)}`
+                    : 'Aún no se ha sincronizado este dispositivo'}
                 </Text>
               </View>
-              <Text style={[styles.topTotal, { color: colores.texto }]}>
-                {formatearDinero(resumen.topProducto.total, simbolo)}
-              </Text>
-            </Tarjeta>
-          ) : null}
+            </View>
 
-          <Text style={[styles.seccionTitulo, { color: colores.textoSuave }]}>Accesos rápidos</Text>
-          <Tarjeta padding={0} estilo={styles.acciones}>
-            {accesos.map((acceso, indice) => (
-              <Fragment key={acceso.etiqueta}>
-                {indice > 0 ? (
-                  <View style={[styles.accionDivisor, { backgroundColor: colores.borde }]} />
-                ) : null}
-                <Pressable
-                  onPress={() => navigation.navigate(acceso.destino)}
-                  style={({ pressed }) => [styles.accion, pressed && { opacity: 0.7 }]}
-                >
-                  <View style={[styles.accionIcono, { backgroundColor: acceso.fondo }]}>
-                    <MaterialIcons name={acceso.icono} size={22} color={acceso.color} />
-                  </View>
-                  <Text style={[styles.accionEtiqueta, { color: colores.texto }]}>
-                    {acceso.etiqueta}
-                  </Text>
-                </Pressable>
-              </Fragment>
-            ))}
-          </Tarjeta>
-
-          <Text style={[styles.pie, { color: colores.textoSuave }]}>
-            {settings?.nombreNegocio ?? 'Mi Negocio'} · {settings?.moneda ?? 'CUP'}
-          </Text>
-        </Animated.View>
-      </ScrollView>
+            <View style={styles.syncFilas}>
+              <View style={[styles.syncFila, { borderBottomColor: colores.borde }]}>
+                <Text style={[styles.syncFilaLabel, { color: colores.textoSuave }]}>Cambios pendientes</Text>
+                <Text style={[styles.syncFilaValor, { color: colores.texto }]}>{pendientes}</Text>
+              </View>
+              <View style={[styles.syncFila, { borderBottomColor: colores.borde }]}>
+                <Text style={[styles.syncFilaLabel, { color: colores.textoSuave }]}>Cambios rechazados</Text>
+                <Text style={[styles.syncFilaValor, { color: fallidas > 0 ? colores.peligro : colores.texto }]}>
+                  {fallidas}
+                </Text>
+              </View>
+              <View style={styles.syncFila}>
+                <Text style={[styles.syncFilaLabel, { color: colores.textoSuave }]}>Modo</Text>
+                <Text style={[styles.syncFilaValor, { color: colores.texto }]}>
+                  {errorSync ? 'Sin conexión' : 'En línea'}
+                </Text>
+              </View>
+            </View>
+            {errorSync ? (
+              <Text style={[styles.syncError, { color: colores.peligro }]}>{errorSync}</Text>
+            ) : null}
+          </>
+        )}
+      </Hoja>
     </Pantalla>
   );
 }
 
 const styles = StyleSheet.create({
-  contenido: { paddingHorizontal: spacing.lg },
-  cabecera: {
+  contenido: { padding: spacing.md, paddingBottom: 32 },
+  puntoAviso: {
+    position: 'absolute',
+    top: 4,
+    right: 3,
+    width: 9,
+    height: 9,
+    borderRadius: radius.full,
+    borderWidth: 2,
+  },
+  saludoFila: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.xl,
+    marginTop: spacing.xs,
   },
   saludo: {
-    fontSize: typography.titulo,
-    fontFamily: fuentes.bold,
-    letterSpacing: -0.4,
+    fontSize: 21,
+    fontFamily: fuentes.display,
+    letterSpacing: -0.5,
   },
   fecha: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  avatarTexto: { fontSize: 20, fontFamily: fuentes.bold, color: '#FFFFFF' },
-  heroSombra: {
-    width: '100%',
-  },
-  hero: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    overflow: 'hidden',
-  },
-  heroIcono: {
-    width: 54,
-    height: 54,
-    borderRadius: radius.full,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pulso: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: radius.full,
-    borderWidth: 2,
-  },
-  plusBadge: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 20,
-    height: 20,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-    overflow: 'hidden',
-  },
-  heroTitulo: {
-    fontSize: typography.destacado,
-    fontFamily: fuentes.bold,
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
-  heroSub: {
-    fontSize: typography.cuerpoChico,
-    color: 'rgba(255,255,255,0.78)',
-    fontFamily: fuentes.medium,
-    marginTop: 2,
-  },
-  heroFlecha: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tarjetaHoy: {
-    marginTop: spacing.md,
-  },
-  hoyCabecera: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-  },
-  hoyEtiqueta: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.semibold,
-  },
-  hoyFecha: {
-    fontSize: typography.micro,
-    fontFamily: fuentes.regular,
-    marginTop: 2,
-  },
-  hoyIcono: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  hoyValor: {
-    fontSize: typography.display,
-    fontFamily: fuentes.bold,
-    letterSpacing: -1,
-    fontVariant: ['tabular-nums'],
-    marginTop: spacing.md,
-  },
-  hoySub: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.regular,
-    marginTop: 2,
-  },
-  hoyMetricas: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.lg,
-    paddingTop: spacing.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  hoyMetrica: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 4,
-  },
-  hoyMetricaValor: {
-    fontSize: typography.cuerpo,
-    fontFamily: fuentes.bold,
-    fontVariant: ['tabular-nums'],
-  },
-  hoyMetricaLabel: {
-    fontSize: 10,
-    fontFamily: fuentes.medium,
-    textAlign: 'center',
-  },
-  hoyDivisor: {
-    width: StyleSheet.hairlineWidth,
-    height: 28,
-  },
-  hoyBarraFila: {
-    marginTop: spacing.md,
-    gap: 6,
-  },
-  hoyBarra: {
-    height: 7,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-    flexDirection: 'row',
-  },
-  hoyLeyenda: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    flexWrap: 'wrap',
-  },
-  hoyPunto: {
-    width: 7,
-    height: 7,
-    borderRadius: radius.full,
-  },
-  hoyLeyendaTexto: {
-    fontSize: 10,
-    fontFamily: fuentes.medium,
-  },
-  tarjetaTurno: {
-    marginTop: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  turnoEstado: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  turnoPunto: {
-    width: 10,
-    height: 10,
-    borderRadius: radius.full,
-  },
-  turnoTitulo: {
-    fontSize: typography.cuerpo,
-    fontFamily: fuentes.bold,
-  },
-  turnoSub: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.regular,
-    marginTop: 2,
-  },
-  tarjetaTop: {
-    marginTop: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  topIcono: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  topImagen: { width: '100%', height: '100%' },
-  topTituloFila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  topTitulo: {
-    fontSize: typography.micro,
-    fontFamily: fuentes.semibold,
-  },
-  topSello: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-  },
-  topSelloTexto: {
-    fontSize: 9,
-    fontFamily: fuentes.bold,
-    letterSpacing: 0.4,
-  },
-  topNombre: {
-    fontSize: typography.cuerpo,
-    fontFamily: fuentes.semibold,
-    marginTop: 2,
-  },
-  topDetalle: {
-    fontSize: typography.micro,
-    fontFamily: fuentes.regular,
-    marginTop: 1,
-  },
-  topTotal: {
-    fontSize: typography.destacado,
-    fontFamily: fuentes.bold,
-    fontVariant: ['tabular-nums'],
-  },
-  seccionTitulo: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.semibold,
-    marginTop: spacing.xl,
-    marginBottom: spacing.sm,
-  },
-  acciones: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  accion: {
-    flex: 1,
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.xs,
-  },
-  accionDivisor: {
-    width: StyleSheet.hairlineWidth,
-    marginVertical: spacing.md,
-  },
-  accionIcono: {
     width: 44,
     height: 44,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  accionEtiqueta: {
+  avatarTexto: { fontSize: 18, fontFamily: fuentes.display },
+  acciones: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  hero: {
+    borderRadius: radius.tarjeta,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  heroCabecera: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  heroEtiqueta: {
     fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.medium,
+    color: 'rgba(255, 255, 255, 0.82)',
+  },
+  heroValor: {
+    fontSize: 38,
+    fontFamily: fuentes.display,
+    letterSpacing: -1.2,
+    fontVariant: ['tabular-nums'],
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  heroIcono: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroMetricas: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  heroMetrica: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 4,
+  },
+  heroMetricaValor: {
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.bold,
+    fontVariant: ['tabular-nums'],
+    color: '#FFFFFF',
+  },
+  heroMetricaLabel: {
+    fontSize: 10,
+    fontFamily: fuentes.medium,
+    textAlign: 'center',
+    color: 'rgba(255, 255, 255, 0.76)',
+  },
+  heroDivisor: {
+    width: StyleSheet.hairlineWidth,
+    height: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  heroBarraFila: { gap: 8 },
+  heroBarra: {
+    height: 7,
+    borderRadius: radius.full,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  heroLeyenda: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  heroLeyendaTexto: {
+    fontSize: 10,
+    fontFamily: fuentes.medium,
+    color: 'rgba(255, 255, 255, 0.88)',
+  },
+  filaTarjetas: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  tarjetaMini: {
+    flex: 1,
+    padding: spacing.md,
+    gap: 4,
+    minHeight: 158,
+  },
+  miniCabecera: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  miniIcono: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  miniImagen: { width: '100%', height: '100%' },
+  miniTitulo: {
+    fontSize: typography.cuerpo,
     fontFamily: fuentes.semibold,
   },
+  miniSub: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.regular,
+    lineHeight: 15,
+    minHeight: 30,
+  },
+  miniTotal: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.bold,
+    fontVariant: ['tabular-nums'],
+    marginTop: 'auto',
+  },
+  miniBoton: { alignSelf: 'stretch', marginTop: spacing.sm },
   pie: {
-    textAlign: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: spacing.sm,
+  },
+  piePunto: { width: 6, height: 6, borderRadius: radius.full },
+  pieTexto: {
     fontSize: typography.micro,
     fontFamily: fuentes.medium,
-    marginTop: spacing.xl,
+  },
+  syncProceso: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
+  },
+  syncSpinner: {
+    width: 84,
+    height: 84,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  syncTituloProceso: {
+    fontSize: typography.subtitulo,
+    fontFamily: fuentes.display,
+    textAlign: 'center',
+  },
+  syncBarra: {
+    width: '100%',
+    height: 8,
+    borderRadius: radius.full,
+    overflow: 'hidden',
+    marginTop: spacing.md,
+  },
+  syncBarraAvance: { height: '100%', borderRadius: radius.full },
+  syncPorcentaje: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.bold,
+    alignSelf: 'flex-end',
+  },
+  syncEstado: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.tarjeta,
+    padding: spacing.md,
+  },
+  syncIcono: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncTitulo: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
+  syncSub: { fontSize: typography.micro, fontFamily: fuentes.regular, marginTop: 2 },
+  syncFilas: { marginTop: spacing.md },
+  syncFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  syncFilaLabel: { fontSize: typography.cuerpo, fontFamily: fuentes.regular },
+  syncFilaValor: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
+  syncError: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.medium,
+    marginTop: spacing.md,
   },
 });

@@ -94,11 +94,11 @@ export async function sembrarDatosIniciales(db: SQLiteDatabase): Promise<void> {
       stock: number;
       stockMinimo: number;
     }> = [
-      { categoria: idsCategorias[0], nombre: 'Refresco', precio: 50, emoji: '🥤', color: '#0EA5E9', orden: 1, stock: 30, stockMinimo: 10 },
-      { categoria: idsCategorias[0], nombre: 'Café', precio: 40, emoji: '☕', color: '#8B5CF6', orden: 2, stock: 40, stockMinimo: 10 },
-      { categoria: idsCategorias[1], nombre: 'Pizza', precio: 250, emoji: '🍕', color: '#F59E0B', orden: 3, stock: 12, stockMinimo: 5 },
-      { categoria: idsCategorias[1], nombre: 'Hamburguesa', precio: 200, emoji: '🍔', color: '#EF4444', orden: 4, stock: 15, stockMinimo: 5 },
-      { categoria: idsCategorias[1], nombre: 'Papas', precio: 100, emoji: '🍟', color: '#F97316', orden: 5, stock: 3, stockMinimo: 5 },
+      { categoria: idsCategorias[1], nombre: 'Hamburguesa', precio: 200, emoji: '🍔', color: '#EF4444', orden: 1, stock: 50, stockMinimo: 5 },
+      { categoria: idsCategorias[0], nombre: 'Refresco', precio: 50, emoji: '🥤', color: '#0EA5E9', orden: 2, stock: 80, stockMinimo: 10 },
+      { categoria: idsCategorias[1], nombre: 'Papas Fritas', precio: 100, emoji: '🍟', color: '#F97316', orden: 3, stock: 60, stockMinimo: 5 },
+      { categoria: idsCategorias[0], nombre: 'Café', precio: 40, emoji: '☕', color: '#8B5CF6', orden: 4, stock: 40, stockMinimo: 10 },
+      { categoria: idsCategorias[1], nombre: 'Pizza', precio: 250, emoji: '🍕', color: '#F59E0B', orden: 5, stock: 12, stockMinimo: 5 },
       { categoria: idsCategorias[2], nombre: 'Helado', precio: 60, emoji: '🍦', color: '#EC4899', orden: 6, stock: 0, stockMinimo: 5 },
     ];
 

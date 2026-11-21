@@ -23,16 +23,14 @@ import {
   Chip,
   ConfirmarModal,
   Encabezado,
-  EstadoStock,
-  Gradiente,
   Hoja,
   ListaVacia,
   PaletaColores,
   Pantalla,
+  Superficie,
   parsearMonto,
-  Tarjeta,
 } from '../components/UI';
-import { fuentes, gradientes, radius, sombraFlotante, spacing, typography } from '../theme';
+import { fuentes, radius, spacing, typography } from '../theme';
 
 export default function ProductosScreen() {
   const db = useSQLiteContext();
@@ -67,7 +65,7 @@ export default function ProductosScreen() {
     nombre: '',
     precio: '',
     emoji: '🛍️',
-    color: '#A855F7',
+    color: '#3F3FB0',
     imagen: null,
     imagenCambiada: false,
     categoriaId: null,
@@ -104,7 +102,7 @@ export default function ProductosScreen() {
       nombre: p?.nombre ?? '',
       precio: p ? String(p.precio) : '',
       emoji: p?.emoji ?? '🛍️',
-      color: p?.color ?? '#A855F7',
+      color: p?.color ?? '#3F3FB0',
       imagen: p?.imagen ?? null,
       imagenCambiada: false,
       categoriaId: p?.categoriaId ?? null,
@@ -196,8 +194,10 @@ export default function ProductosScreen() {
   if (cargando) {
     return (
       <Pantalla>
-        <Encabezado titulo="Productos" />
-        <ListaVacia emoji="⏳" titulo="Cargando…" />
+        <Encabezado titulo="Inventario" onAtras={() => navigation.goBack()} />
+        <Superficie>
+          <ListaVacia emoji="⏳" titulo="Cargando…" />
+        </Superficie>
       </Pantalla>
     );
   }
@@ -205,12 +205,14 @@ export default function ProductosScreen() {
   if (usuario.rol !== 'admin') {
     return (
       <Pantalla>
-        <Encabezado titulo="Productos" onAtras={() => navigation.goBack()} />
-        <ListaVacia
-          emoji="🔒"
-          titulo="Acceso restringido"
-          subtitulo="Solo el administrador puede administrar el inventario"
-        />
+        <Encabezado titulo="Inventario" onAtras={() => navigation.goBack()} />
+        <Superficie>
+          <ListaVacia
+            emoji="🔒"
+            titulo="Acceso restringido"
+            subtitulo="Solo el administrador puede administrar el inventario"
+          />
+        </Superficie>
       </Pantalla>
     );
   }
@@ -218,30 +220,20 @@ export default function ProductosScreen() {
   return (
     <Pantalla>
       <Encabezado
-        titulo="Productos"
-        subtitulo={`${productos.length} en el catálogo`}
+        titulo="Inventario"
+        subtitulo={`${productos.length} ${productos.length === 1 ? 'producto' : 'productos'}`}
         onAtras={() => navigation.goBack()}
-          derecha={
-          <Pressable
-            onPress={() => abrirForm(null)}
-            style={({ pressed }) => [
-              styles.fab,
-              { ...sombraFlotante(colores) },
-              pressed && { transform: [{ scale: 0.92 }] },
-            ]}
-          >
-            <Gradiente colores={gradientes.primario} estilo={StyleSheet.absoluteFill} />
-            <MaterialIcons name="add" size={26} color="#FFFFFF" />
-          </Pressable>
-          }
       />
-      <View style={{ paddingHorizontal: spacing.lg, gap: spacing.sm, marginBottom: spacing.md }}>
-        <Campo valor={busqueda} onChange={setBusqueda} placeholder="Buscar producto…" icono="search" />
+      <Superficie>
+        <View style={{ paddingHorizontal: spacing.md, paddingTop: spacing.md }}>
+          <Campo valor={busqueda} onChange={setBusqueda} placeholder="Buscar producto…" icono="search" />
+        </View>
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={{ flexGrow: 0 }}
-          contentContainerStyle={{ gap: spacing.sm }}
+          contentContainerStyle={styles.chips}
         >
           <Chip etiqueta="Todas" activo={categoriaSel === 'todas'} onPress={() => setCategoriaSel('todas')} />
           {categorias.map((c) => (
@@ -254,67 +246,42 @@ export default function ProductosScreen() {
             />
           ))}
         </ScrollView>
-      </View>
-      <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 60 }]}>
-        {filtrados.length === 0 ? (
-          <ListaVacia emoji="🧾" titulo="Sin productos" subtitulo="Toca + para agregar el primero" />
-        ) : (
-          filtrados.map((p) => {
-            const cat = categorias.find((c) => c.id === p.categoriaId);
-            return (
-              <Tarjeta key={p.id} padding={spacing.md} estilo={styles.filaProducto}>
-                <View style={[styles.emojiMini, { backgroundColor: `${p.color}14` }]}>
-                  {p.imagen ? (
-                    <Image source={{ uri: p.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                  ) : (
-                    <Text style={{ fontSize: 22 }}>{p.emoji}</Text>
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.filaTitulo, { color: colores.texto }]} numberOfLines={1}>
-                    {p.nombre}
-                  </Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 3 }}>
-                    <Text style={[styles.precioTexto, { color: p.color }]}>
-                      {p.precio.toFixed(2)}
-                    </Text>
-                    {cat ? (
-                      <Text style={[styles.filaSub, { color: colores.textoSuave }]} numberOfLines={1}>
-                        · {cat.nombre}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <View style={{ marginTop: 6, flexDirection: 'row' }}>
-                    <EstadoStock stock={p.stock} stockMinimo={p.stockMinimo} />
-                  </View>
-                </View>
 
-                <View style={styles.accionesProducto}>
-                  <Switch
-                    value={p.activo}
-                    onValueChange={async (v) => {
-                      await actualizarProducto(db, { ...p, activo: v });
-                      await cargar();
-                    }}
-                    trackColor={{ true: colores.acento, false: colores.borde }}
-                  />
-                  <View style={styles.accionesIconos}>
-                    <Pressable
-                      onPress={() => abrirForm(p)}
-                      hitSlop={6}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Editar ${p.nombre}`}
-                      style={({ pressed }) => [
-                        styles.accionIcono,
-                        { backgroundColor: colores.superficieSuave },
-                        pressed && { opacity: 0.6 },
-                      ]}
-                    >
-                      <MaterialIcons name="edit" size={18} color={colores.textoSuave} />
-                    </Pressable>
+        <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 96 }]}>
+          {filtrados.length === 0 ? (
+            <ListaVacia emoji="🧾" titulo="Sin productos" subtitulo="Toca + para agregar el primero" />
+          ) : (
+            filtrados.map((p, i) => {
+              return (
+                <Pressable
+                  key={p.id}
+                  onPress={() => abrirForm(p)}
+                  style={({ pressed }) => [
+                    styles.filaProducto,
+                    { borderTopColor: colores.borde },
+                    i === 0 && { borderTopWidth: 0 },
+                    pressed && { backgroundColor: colores.superficieSuave },
+                  ]}
+                >
+                  <View style={[styles.emojiMini, { backgroundColor: colores.superficieSuave }]}>
+                    {p.imagen ? (
+                      <Image source={{ uri: p.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    ) : (
+                      <Text style={{ fontSize: 24 }}>{p.emoji}</Text>
+                    )}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.filaTitulo, { color: colores.texto }]} numberOfLines={1}>
+                      {p.nombre}
+                    </Text>
+                    <Text style={[styles.filaSub, { color: colores.textoSuave }]} numberOfLines={1}>
+                      Stock: {p.stock}
+                    </Text>
+                  </View>
+                  <View style={styles.accionesProducto}>
                     <Pressable
                       onPress={() => setBorrando(p)}
-                      hitSlop={6}
+                      hitSlop={8}
                       accessibilityRole="button"
                       accessibilityLabel={`Eliminar ${p.nombre}`}
                       style={({ pressed }) => [
@@ -323,15 +290,24 @@ export default function ProductosScreen() {
                         pressed && { opacity: 0.6 },
                       ]}
                     >
-                      <MaterialIcons name="delete-outline" size={18} color={colores.peligro} />
+                      <MaterialIcons name="delete-outline" size={17} color={colores.peligro} />
                     </Pressable>
                   </View>
-                </View>
-              </Tarjeta>
-            );
-          })
-        )}
-      </ScrollView>
+                </Pressable>
+              );
+            })
+          )}
+        </ScrollView>
+
+        <View style={[styles.barraInferior, { backgroundColor: colores.superficie, borderTopColor: colores.borde }]}>
+          <Boton
+            titulo="Actualizar stock"
+            icono="add"
+            tamanio="lg"
+            onPress={() => abrirForm(null)}
+          />
+        </View>
+      </Superficie>
 
       <Hoja
         visible={form.abierto}
@@ -340,7 +316,6 @@ export default function ProductosScreen() {
         pie={
           <Boton
             titulo={form.editar ? 'Guardar cambios' : 'Agregar producto'}
-            icono="save"
             tamanio="lg"
             onPress={guardar}
           />
@@ -351,6 +326,7 @@ export default function ProductosScreen() {
           valor={form.nombre}
           onChange={(t) => setForm((f) => ({ ...f, nombre: t }))}
           placeholder="Ej.: Café con leche"
+          icono="inventory-2"
         />
         <Campo
           etiqueta="Precio"
@@ -358,8 +334,9 @@ export default function ProductosScreen() {
           onChange={(t) => setForm((f) => ({ ...f, precio: t }))}
           teclado="numeric"
           placeholder="0.00"
+          icono="payments"
         />
-        <View style={{ flexDirection: 'row', gap: spacing.md, alignItems: 'flex-end' }}>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>
             <Campo
               etiqueta="Stock disponible"
@@ -392,7 +369,7 @@ export default function ProductosScreen() {
             style={({ pressed }) => [
               styles.fotoCaja,
               {
-                backgroundColor: colores.superficie,
+                backgroundColor: colores.superficieSuave,
                 borderColor: colores.borde,
               },
               pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
@@ -450,7 +427,7 @@ export default function ProductosScreen() {
           <Switch
             value={form.activo}
             onValueChange={(v) => setForm((f) => ({ ...f, activo: v }))}
-            trackColor={{ true: colores.acento, false: colores.borde }}
+            trackColor={{ true: colores.primario, false: colores.borde }}
           />
         </View>
       </Hoja>
@@ -469,49 +446,56 @@ export default function ProductosScreen() {
 }
 
 const styles = StyleSheet.create({
-  contenido: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-  fab: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
+  chips: { paddingHorizontal: spacing.md, gap: spacing.sm, paddingTop: spacing.xs, paddingBottom: spacing.sm },
+  contenido: { paddingHorizontal: spacing.md },
   filaProducto: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    paddingVertical: 11,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   emojiMini: {
-    width: 46,
-    height: 46,
+    width: 50,
+    height: 50,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   accionesProducto: {
-    alignItems: 'flex-end',
-    gap: spacing.xs,
-  },
-  accionesIconos: {
-    flexDirection: 'row',
-    gap: 6,
+    alignItems: 'center',
+    gap: 4,
   },
   accionIcono: {
-    width: 32,
-    height: 32,
+    width: 30,
+    height: 30,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  filaTitulo: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
+  filaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 1 },
+  precioTexto: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.bold,
+    fontVariant: ['tabular-nums'],
+  },
+  barraInferior: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
   },
   fotoFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
   fotoCaja: {
     width: 96,
     height: 96,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
+    borderRadius: radius.tarjeta,
+    borderWidth: 1,
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
@@ -539,13 +523,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
   },
   fotoQuitarTexto: { fontSize: typography.cuerpoChico, fontFamily: fuentes.semibold },
-  filaTitulo: { fontSize: typography.cuerpo, fontFamily: fuentes.bold },
-  filaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular },
-  precioTexto: {
-    fontSize: typography.cuerpo,
-    fontFamily: fuentes.bold,
-    fontVariant: ['tabular-nums'],
-  },
   formEtiqueta: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.semibold,

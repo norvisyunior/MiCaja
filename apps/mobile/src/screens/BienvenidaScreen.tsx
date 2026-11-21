@@ -1,7 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Boton, Gradiente, Pantalla, Tarjeta } from '../components/UI';
-import { useTema } from '../store/tema';
+import { Gradiente } from '../components/UI';
 import { fuentes, gradientes, radius, spacing, typography } from '../theme';
 
 export default function BienvenidaScreen({
@@ -15,160 +14,117 @@ export default function BienvenidaScreen({
   onActivar: () => void;
   onConfigurarLocal: () => void;
 }) {
-  const { colores } = useTema();
-
   return (
-    <Pantalla>
+    <View style={styles.raiz}>
+      <Gradiente colores={gradientes.banda} estilo={StyleSheet.absoluteFill} />
       <ScrollView
         contentContainerStyle={styles.contenido}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <Gradiente colores={gradientes.primario} estilo={styles.logo}>
-            <Text style={styles.logoTexto}>$</Text>
-          </Gradiente>
-          <Text style={[styles.titulo, { color: colores.texto }]}>
-            Tu caja, lista en minutos
-          </Text>
-          <Text style={[styles.subtitulo, { color: colores.textoSuave }]}>
-            Vende incluso sin Internet. Cuando vuelvas a conectarte, todo se sincroniza solo.
-          </Text>
+          <View style={styles.icono}>
+            <MaterialIcons name="shopping-cart" size={62} color="#FFFFFF" />
+          </View>
+          <Text style={styles.nombre}>MiCaja</Text>
+          <Text style={styles.lema}>Tu punto de venta{'\n'}siempre contigo</Text>
         </View>
 
-        <Tarjeta estilo={styles.tarjeta}>
-          <Boton
-            titulo="Crear cuenta"
-            icono="person-add"
-            tamanio="lg"
+        <View style={styles.acciones}>
+          <Pressable
             onPress={onCrearCuenta}
-          />
-          <Boton
-            titulo="Ya tengo cuenta"
-            icono="login"
-            variante="secundario"
-            tamanio="lg"
+            style={({ pressed }) => [styles.comenzar, pressed && { opacity: 0.85 }]}
+          >
+            <Text style={styles.comenzarTexto}>Comenzar</Text>
+          </Pressable>
+          <Pressable
             onPress={onIniciarSesion}
-            estilo={{ marginTop: spacing.md }}
-          />
-          <Boton
-            titulo="Activar este dispositivo"
-            icono="phonelink-lock"
-            variante="fantasma"
-            tamanio="lg"
-            onPress={onActivar}
-            estilo={{ marginTop: spacing.sm }}
-          />
-        </Tarjeta>
-
-        <View style={styles.ventajas}>
-          <Ventaja icono="wifi-off" texto="Funciona sin conexión" />
-          <Ventaja icono="sync" texto="Sincroniza ventas y stock" />
-          <Ventaja icono="devices" texto="Varios dispositivos por negocio" />
+            style={({ pressed }) => [styles.accede, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.accedeTexto}>Accede de</Text>
+          </Pressable>
         </View>
 
-        <Pressable
-          onPress={onConfigurarLocal}
-          style={({ pressed }) => [styles.local, pressed && { opacity: 0.6 }]}
-        >
-          <MaterialIcons name="settings" size={16} color={colores.textoSuave} />
-          <Text style={[styles.localTexto, { color: colores.textoSuave }]}>
-            Configurar sin conexión
-          </Text>
-        </Pressable>
+        <View style={styles.secundarias}>
+          <Pressable onPress={onActivar} style={styles.secundaria}>
+            <Text style={styles.secundariaTexto}>Activar este dispositivo</Text>
+          </Pressable>
+          <Pressable onPress={onConfigurarLocal} style={styles.secundaria}>
+            <Text style={styles.secundariaTexto}>Configurar sin conexión</Text>
+          </Pressable>
+        </View>
       </ScrollView>
-    </Pantalla>
-  );
-}
-
-function Ventaja({ icono, texto }: { icono: 'wifi-off' | 'sync' | 'devices'; texto: string }) {
-  const { colores } = useTema();
-  return (
-    <View style={styles.ventaja}>
-      <View
-        style={[
-          styles.ventajaIcono,
-          { backgroundColor: colores.acentoSuave, borderColor: colores.borde },
-        ]}
-      >
-        <MaterialIcons name={icono} size={18} color={colores.acento} />
-      </View>
-      <Text style={[styles.ventajaTexto, { color: colores.textoSuave }]}>{texto}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  raiz: { flex: 1 },
   contenido: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xl,
-  },
-  hero: {
     alignItems: 'center',
-    marginBottom: spacing.xl,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingTop: '18%',
+    paddingBottom: spacing.xl,
   },
-  logo: {
-    width: 82,
-    height: 82,
+  hero: { alignItems: 'center' },
+  icono: {
+    width: 112,
+    height: 112,
     borderRadius: radius.xl,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
   },
-  logoTexto: {
-    fontSize: 42,
-    fontFamily: fuentes.bold,
+  nombre: {
+    fontSize: typography.hero,
+    fontFamily: fuentes.display,
     color: '#FFFFFF',
+    marginTop: spacing.xl,
+    letterSpacing: -1,
   },
-  titulo: {
-    fontSize: typography.tituloGrande,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.lg,
-    textAlign: 'center',
-    letterSpacing: -0.6,
-  },
-  subtitulo: {
+  lema: {
     fontSize: typography.cuerpo,
     fontFamily: fuentes.regular,
-    marginTop: spacing.sm,
+    color: 'rgba(255, 255, 255, 0.88)',
     textAlign: 'center',
     lineHeight: 22,
-    maxWidth: 330,
+    marginTop: spacing.sm,
   },
-  tarjeta: {
-    width: '100%',
-  },
-  ventajas: {
-    marginTop: spacing.xl,
-    gap: spacing.md,
-  },
-  ventaja: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  ventajaIcono: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
+  acciones: { alignItems: 'center', gap: spacing.md },
+  comenzar: {
+    minWidth: 220,
+    height: 50,
+    borderRadius: radius.full,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.xl,
   },
-  ventajaTexto: {
+  comenzarTexto: {
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.semibold,
+    color: '#3F3FB0',
+  },
+  accede: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
+  accedeTexto: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.medium,
+    color: 'rgba(255, 255, 255, 0.9)',
+    textDecorationLine: 'underline',
   },
-  local: {
+  secundarias: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 6,
+    gap: spacing.md,
     marginTop: spacing.xl,
-    padding: spacing.sm,
   },
-  localTexto: {
+  secundaria: { paddingVertical: spacing.xs, paddingHorizontal: spacing.sm },
+  secundariaTexto: {
     fontSize: typography.micro,
     fontFamily: fuentes.medium,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textDecorationLine: 'underline',
   },
 });

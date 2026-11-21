@@ -1,16 +1,14 @@
-import { StyleSheet, Text, View } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { StyleSheet, View } from 'react-native';
 import { useSync } from '../store/sync';
-import { useTema } from '../store/tema';
-import { fuentes, radius, spacing, typography } from '../theme';
+import { spacing } from '../theme';
+import { TarjetaAviso } from './UI';
 
 /**
- * Banda de estado de la licencia para las pantallas operativas.
+ * Tarjeta de estado de la licencia para las pantallas operativas.
  * Aparece cuando hay algo que comunicar: sin activar, vencida, inválida o en
  * periodo de gracia.
  */
 export function AvisoLicencia() {
-  const { colores } = useTema();
   const estado = useSync((s) => s.licencia?.estado);
 
   if (
@@ -24,39 +22,43 @@ export function AvisoLicencia() {
 
   const bloqueado =
     estado === 'sin_licencia' || estado === 'vencida' || estado === 'invalida';
-  const color = bloqueado ? colores.peligro : colores.advertencia;
-  const fondo = bloqueado ? colores.peligroSuave : colores.advertenciaSuave;
-  const texto =
+
+  const contenido =
     estado === 'sin_licencia'
-      ? 'Dispositivo sin activar · conecta a Internet y activa la licencia para vender'
+      ? {
+          destacado: 'Pendiente',
+          mensaje: 'Activa tu licencia para registrar ventas.',
+        }
       : estado === 'vencida'
-        ? 'Licencia vencida · no se pueden registrar ventas ni cerrar turnos'
+        ? {
+            destacado: 'Vencida',
+            mensaje: 'No se pueden registrar ventas ni cerrar turnos.',
+          }
         : estado === 'invalida'
-          ? 'Licencia no válida · verifica la activación en Ajustes'
-          : 'Licencia en periodo de gracia · renuévala pronto';
+          ? {
+              destacado: 'No válida',
+              mensaje: 'Verifica la activación desde Ajustes.',
+            }
+          : {
+              destacado: 'Por vencer',
+              mensaje: 'Renuévala pronto para seguir vendiendo.',
+            };
 
   return (
-    <View style={[styles.banner, { backgroundColor: fondo }]}>
-      <MaterialIcons name={bloqueado ? 'block' : 'schedule'} size={15} color={color} />
-      <Text style={[styles.texto, { color }]} numberOfLines={2}>
-        {texto}
-      </Text>
+    <View style={styles.contenedor}>
+      <TarjetaAviso
+        icono={bloqueado ? 'warning' : 'schedule'}
+        titulo="Licencia"
+        destacado={contenido.destacado}
+        mensaje={contenido.mensaje}
+        tono={bloqueado ? 'advertencia' : 'info'}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm + 2,
-    borderRadius: radius.sm,
-  },
-  texto: {
-    flex: 1,
-    fontFamily: fuentes.medium,
-    fontSize: typography.cuerpoChico,
+  contenedor: {
+    paddingTop: spacing.sm,
   },
 });

@@ -1,6 +1,7 @@
 ﻿import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SQLiteProvider, useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -26,8 +27,10 @@ import TrabajadorSetupScreen from './src/screens/TrabajadorSetupScreen';
 import { NavegadorRaiz } from './src/navigation';
 import { CLAVE_ROL_ACTIVACION, leerSetting } from './src/api/config';
 import { useSyncAutomatico } from './src/sync/automatico';
+import { useSync } from './src/store/sync';
 import { AvisoGlobal } from './src/components/AvisoGlobal';
-import { Gradiente } from './src/components/UI';
+import { Boton, Gradiente } from './src/components/UI';
+import { fuentes, gradientes, typography } from './src/theme';
 
 async function inicializarBase(db: SQLiteDatabase) {
   await migrarBase(db);
@@ -51,19 +54,13 @@ function AplicarTema() {
 }
 
 function Splash() {
-  const { colores } = useTema();
   const entrada = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(entrada, { toValue: 1, duration: 500, useNativeDriver: true }).start();
   }, [entrada]);
   return (
-    <View style={[styles.splash, { backgroundColor: colores.fondo }]}>
-      <Gradiente
-        colores={['rgba(124, 58, 237, 0.18)', 'rgba(8, 10, 36, 0)']}
-        inicio={{ x: 0.5, y: 0 }}
-        fin={{ x: 0.5, y: 1 }}
-        estilo={StyleSheet.absoluteFill}
-      />
+    <View style={styles.splash}>
+      <Gradiente colores={gradientes.banda} estilo={StyleSheet.absoluteFill} />
       <Animated.View
         style={{
           alignItems: 'center',
@@ -74,16 +71,49 @@ function Splash() {
           ],
         }}
       >
-        <Gradiente
-          colores={['#7C3AED', '#A855F7', '#EC4899']}
-          estilo={styles.splashLogo}
-        >
-          <Text style={styles.splashEmoji}>$</Text>
-        </Gradiente>
-        <Text style={[styles.splashNombre, { color: colores.texto }]}>MiCaja</Text>
-        <Text style={[styles.splashSub, { color: colores.textoSuave }]}>Punto de venta simple y veloz</Text>
+        <MaterialIcons name="shopping-cart" size={68} color="#FFFFFF" />
+        <Text style={styles.splashNombre}>MiCaja</Text>
+        <Text style={styles.splashSub}>Tu punto de venta siempre contigo</Text>
       </Animated.View>
     </View>
+  );
+}
+
+function AvisoSinConexion() {
+  const errorSync = useSync((s) => s.error);
+  const { colores } = useTema();
+  const [entendido, setEntendido] = useState(false);
+  const sinConexion = Boolean(errorSync);
+
+  useEffect(() => {
+    if (!sinConexion) setEntendido(false);
+  }, [sinConexion]);
+
+  if (!sinConexion || entendido) return null;
+
+  return (
+    <Modal
+      transparent
+      visible
+      animationType="fade"
+      onRequestClose={() => setEntendido(true)}
+    >
+      <View style={[styles.offlineFondo, { backgroundColor: colores.overlay }]}>
+        <View style={[styles.offlineTarjeta, { backgroundColor: colores.superficie }]}>
+          <MaterialIcons name="wifi-off" size={52} color={colores.texto} />
+          <Text style={[styles.offlineTitulo, { color: colores.texto }]}>Modo sin conexión</Text>
+          <Text style={[styles.offlineTexto, { color: colores.textoSuave }]}>
+            Puedes seguir trabajando. Los cambios se sincronizarán cuando tengas internet.
+          </Text>
+          <Boton
+            titulo="Entendido"
+            tamanio="lg"
+            onPress={() => setEntendido(true)}
+            estilo={styles.offlineBoton}
+          />
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -218,6 +248,7 @@ export default function App() {
             <Contenido />
           </NavigationContainer>
           <AvisoGlobal />
+          <AvisoSinConexion />
         </SQLiteProvider>
       </LimiteErrores>
       <AplicarTema />
@@ -228,36 +259,25 @@ export default function App() {
 const styles = StyleSheet.create({
   splash: {
     flex: 1,
-    backgroundColor: '#080A24',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  splashLogo: {
-    width: 84,
-    height: 84,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  splashEmoji: {
-    fontSize: 42,
-    fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
   },
   splashNombre: {
-    fontSize: 26,
-    fontFamily: 'Poppins_700Bold',
+    fontSize: typography.hero,
+    fontFamily: fuentes.display,
+    color: '#FFFFFF',
     marginTop: 22,
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
   splashSub: {
-    fontSize: 14,
-    fontFamily: 'Inter_400Regular',
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.regular,
+    color: 'rgba(255, 255, 255, 0.88)',
     marginTop: 8,
   },
   errorContenedor: {
     flex: 1,
-    backgroundColor: '#080A24',
+    backgroundColor: '#F7F8FC',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -267,11 +287,11 @@ const styles = StyleSheet.create({
   errorTitulo: {
     fontSize: 22,
     fontFamily: 'Poppins_700Bold',
-    color: '#FFFFFF',
+    color: '#171A33',
   },
   errorDetalle: {
     fontSize: 14,
-    color: '#A5A7C5',
+    color: '#6B6F8D',
     textAlign: 'center',
     marginBottom: 16,
     fontFamily: 'Inter_400Regular',
@@ -280,9 +300,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 14,
     borderRadius: 14,
-    backgroundColor: 'rgba(168, 85, 247, 0.16)',
+    backgroundColor: '#3F3FB0',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(168, 85, 247, 0.45)',
+    borderColor: '#34349C',
   },
   errorBotonTexto: { color: '#FFFFFF', fontFamily: 'Inter_700Bold', fontSize: 15 },
+  offlineFondo: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  offlineTarjeta: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    gap: 12,
+  },
+  offlineTitulo: {
+    fontSize: 20,
+    fontFamily: 'Poppins_700Bold',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  offlineTexto: {
+    fontSize: 14,
+    fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  offlineBoton: { alignSelf: 'stretch' },
 });

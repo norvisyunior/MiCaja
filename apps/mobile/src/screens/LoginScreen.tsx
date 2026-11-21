@@ -38,9 +38,15 @@ import { useAvisos } from '../store/avisos';
 import { useSesion } from '../store/sesion';
 import { useCarrito } from '../store/carrito';
 import { useTema } from '../store/tema';
-import { Boton, Campo, EstadoCarga, Gradiente, Pantalla } from '../components/UI';
+import {
+  Boton,
+  Campo,
+  EstadoCarga,
+  Pantalla,
+  Superficie,
+} from '../components/UI';
 import { PantallaCodigoRecuperacion } from '../components/CodigoRecuperacion';
-import { fuentes, gradientes, radius, sombraTarjeta, spacing, typography } from '../theme';
+import { fuentes, radius, spacing, typography } from '../theme';
 import { normalizarUsuario } from '../utils/usuario';
 import {
   esCodigoRecuperacionValido,
@@ -466,7 +472,9 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
   if (cargando || !settings) {
     return (
       <Pantalla>
-        <EstadoCarga mensaje="Preparando la caja…" />
+        <Superficie>
+          <EstadoCarga mensaje="Preparando la caja…" />
+        </Superficie>
       </Pantalla>
     );
   }
@@ -490,15 +498,16 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
 
   return (
     <Pantalla>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.contenido}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <Superficie>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          <ScrollView
+            contentContainerStyle={styles.contenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           <Animated.View
             style={[
               styles.hero,
@@ -515,30 +524,22 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
               },
             ]}
           >
-            <View style={styles.logoWrap}>
-              <Gradiente colores={gradientes.primario} estilo={styles.logo}>
-                <Text style={styles.logoTexto}>$</Text>
-              </Gradiente>
+            <View style={[styles.logoWrap, { backgroundColor: colores.primarioSuave }]}>
+              <MaterialIcons name="shopping-cart" size={36} color={colores.primario} />
               <View
                 style={[
                   styles.logoInsignia,
                   {
                     backgroundColor: colores.superficie,
                     borderColor: colores.borde,
-                    ...sombraTarjeta(colores),
                   },
                 ]}
               >
-                <MaterialIcons name="lock" size={14} color={colores.acento} />
+                <MaterialIcons name="lock" size={14} color={colores.primario} />
               </View>
             </View>
             <Text style={[styles.nombreNegocio, { color: colores.texto }]} numberOfLines={2}>
               MiCaja
-            </Text>
-            <Text style={[styles.eslogan, { color: colores.textoSuave }]}>
-              {esRecuperacion
-                ? 'Recupera el acceso con tu código de recuperación'
-                : 'Tu cuenta abre el negocio que te corresponde'}
             </Text>
           </Animated.View>
 
@@ -546,9 +547,6 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
             style={[
               styles.tarjeta,
               {
-                backgroundColor: colores.superficie,
-                borderColor: colores.borde,
-                ...sombraTarjeta(colores),
                 opacity: entrada,
                 transform: [
                   {
@@ -561,14 +559,19 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
               },
             ]}
           >
-            <Text style={[styles.bienvenida, { color: colores.texto }]}>
-              {esRecuperacion ? 'Recupera tu cuenta' : 'Bienvenido de vuelta'}
+            <Text
+              style={[
+                styles.bienvenida,
+                { color: colores.texto, marginBottom: esRecuperacion ? 0 : spacing.lg },
+              ]}
+            >
+              {esRecuperacion ? 'Recupera tu cuenta' : 'Iniciar sesión'}
             </Text>
-            <Text style={[styles.instruccion, { color: colores.textoSuave }]}>
-              {esRecuperacion
-                ? 'Escribe tu usuario, el código de recuperación y una nueva contraseña.'
-                : 'Ingresa con tu usuario y contraseña.'}
-            </Text>
+            {esRecuperacion ? (
+              <Text style={[styles.instruccion, { color: colores.textoSuave }]}>
+                Escribe tu usuario, el código de recuperación y una nueva contraseña.
+              </Text>
+            ) : null}
 
             {mensajeError ? (
               <View
@@ -804,7 +807,7 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
                 >
                   <MaterialIcons name="key" size={16} color={colores.textoSuave} />
                   <Text style={[styles.enlaceTexto, { color: colores.textoSuave }]}>
-                    ¿Olvidaste tu PIN?
+                    ¿Olvidaste tu contraseña?
                   </Text>
                 </Pressable>
               </>
@@ -820,8 +823,9 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
           <Text style={[styles.version, { color: colores.textoSuave }]}>
             MiCaja · v{APP_VERSION}
           </Text>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Superficie>
     </Pantalla>
   );
 }
@@ -830,30 +834,20 @@ const styles = StyleSheet.create({
   contenido: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
   },
   hero: {
     alignItems: 'center',
     marginBottom: spacing.xl,
   },
   logoWrap: {
-    width: 96,
-    height: 96,
+    width: 84,
+    height: 84,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  logo: {
-    width: 88,
-    height: 88,
-    borderRadius: radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoTexto: {
-    fontSize: 44,
-    fontFamily: fuentes.bold,
-    color: '#FFFFFF',
   },
   logoInsignia: {
     position: 'absolute',
@@ -862,45 +856,38 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   nombreNegocio: {
     fontSize: typography.tituloGrande,
-    fontFamily: fuentes.bold,
+    fontFamily: fuentes.display,
     marginTop: spacing.lg,
     textAlign: 'center',
     letterSpacing: -0.6,
     paddingHorizontal: spacing.md,
   },
-  eslogan: {
-    fontSize: typography.cuerpo,
-    marginTop: spacing.xs,
-    textAlign: 'center',
-    fontFamily: fuentes.regular,
-  },
   tarjeta: {
-    borderRadius: radius.xl,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.xl,
+    paddingHorizontal: spacing.xs,
   },
   bienvenida: {
     fontSize: typography.titulo,
-    fontFamily: fuentes.bold,
+    fontFamily: fuentes.display,
     letterSpacing: -0.4,
+    textAlign: 'center',
   },
   instruccion: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.regular,
     marginTop: 4,
     marginBottom: spacing.lg,
+    textAlign: 'center',
   },
   error: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
     padding: spacing.sm,
     marginBottom: spacing.md,
@@ -937,7 +924,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderRadius: radius.md,
     padding: spacing.sm,
   },

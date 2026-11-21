@@ -20,29 +20,19 @@ export function Barras({ datos, alto = 120 }: { datos: DatoBarra[]; alto?: numbe
   }, [datos, entrada]);
 
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, height: alto + 26 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, height: alto + 22 }}>
       {datos.map((d, i) => {
-        const altura = Math.max(6, (d.valor / maxValor) * alto);
+        const altura = Math.max(8, (d.valor / maxValor) * alto);
         return (
           <View key={`${d.etiqueta}-${i}`} style={{ flex: 1, alignItems: 'center' }}>
-            <Text
-              style={{
-                fontSize: typography.micro,
-                fontFamily: fuentes.bold,
-                color: d.max ? colores.acento : colores.textoSuave,
-                marginBottom: 4,
-              }}
-            >
-              {d.valor > 0 ? d.valor : ''}
-            </Text>
             <Animated.View
               style={{
                 width: '100%',
-                maxWidth: 34,
+                maxWidth: 26,
                 height: altura,
-                backgroundColor: d.max ? colores.acento : colores.primarioSuave,
-                borderTopLeftRadius: radius.sm,
-                borderTopRightRadius: radius.sm,
+                backgroundColor: d.max ? colores.primario : colores.primarioSuave,
+                borderTopLeftRadius: 6,
+                borderTopRightRadius: 6,
                 opacity: entrada,
                 transform: [
                   {
@@ -54,8 +44,8 @@ export function Barras({ datos, alto = 120 }: { datos: DatoBarra[]; alto?: numbe
             <Text
               style={{
                 fontSize: typography.micro,
-                fontFamily: fuentes.semibold,
-                color: colores.textoSuave,
+                fontFamily: fuentes.medium,
+                color: d.max ? colores.primario : colores.textoSuave,
                 marginTop: 6,
               }}
             >

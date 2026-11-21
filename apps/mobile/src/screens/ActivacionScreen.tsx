@@ -16,8 +16,17 @@ import { CLAVE_CODIGO_PENDIENTE, leerSetting } from '../api/config';
 import { activarConCodigo, nombreDispositivoPorDefecto } from '../sync/activacion';
 import { guardarSetting } from '../db/repos/settings';
 import { useTema } from '../store/tema';
-import { Boton, Campo, Gradiente, Pantalla, Tarjeta } from '../components/UI';
-import { fuentes, gradientes, radius, spacing, typography } from '../theme';
+import {
+  Boton,
+  Campo,
+  Encabezado,
+  Exito,
+  Pantalla,
+  Superficie,
+  Tarjeta,
+  TarjetaAviso,
+} from '../components/UI';
+import { fuentes, radius, spacing, typography } from '../theme';
 
 interface DetalleLimite {
   dispositivos?: InfoDispositivo[];
@@ -121,212 +130,228 @@ export default function ActivacionScreen({
 
   return (
     <Pantalla>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.contenido}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <Encabezado titulo="Activar licencia" onAtras={onAtras} />
+      <Superficie>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Pressable
-            onPress={onAtras}
-            hitSlop={8}
-            style={({ pressed }) => [styles.volver, pressed && { opacity: 0.6 }]}
+          <ScrollView
+            contentContainerStyle={styles.contenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <MaterialIcons name="arrow-back" size={20} color={colores.textoSuave} />
-            <Text style={[styles.volverTexto, { color: colores.textoSuave }]}>Volver</Text>
-          </Pressable>
-
-          <View style={styles.hero}>
-            <Gradiente colores={gradientes.primario} estilo={styles.logo}>
-              <MaterialIcons
-                name={activado ? 'check-circle' : 'phonelink-lock'}
-                size={34}
-                color="#FFFFFF"
-              />
-            </Gradiente>
-            <Text style={[styles.titulo, { color: colores.texto }]}>
-              {activado ? 'Dispositivo activado' : 'Activa este dispositivo'}
-            </Text>
-            <Text style={[styles.subtitulo, { color: colores.textoSuave }]}>
-              {activado
-                ? 'La licencia quedó guardada y la caja ya puede sincronizarse.'
-                : 'Introduce el código que recibiste al crear la cuenta o que te entregó el administrador.'}
-            </Text>
-          </View>
-
-          {activado ? (
-            <Tarjeta estilo={styles.tarjeta}>
-              <View style={styles.resumen}>
-                <Text style={[styles.resumenEtiqueta, { color: colores.textoSuave }]}>
-                  Negocio
-                </Text>
-                <Text style={[styles.resumenValor, { color: colores.texto }]}>
-                  {activado.empresa.nombre}
-                </Text>
-                <Text style={[styles.resumenEtiqueta, { color: colores.textoSuave }]}>
-                  Vence
-                </Text>
-                <Text style={[styles.resumenValor, { color: colores.texto }]}>
-                  {new Date(activado.venceEn).toLocaleDateString()}
+            {!activado ? (
+              <View style={styles.intro}>
+                <View style={[styles.introIcono, { backgroundColor: colores.exitoSuave }]}>
+                  <MaterialIcons name="verified" size={38} color={colores.exito} />
+                </View>
+                <Text style={[styles.introTitulo, { color: colores.texto }]}>Activar licencia</Text>
+                <Text style={[styles.introTexto, { color: colores.textoSuave }]}>
+                  Tu licencia te permite usar MiCaja sin restricciones.
                 </Text>
               </View>
-              <Boton
-                titulo="Continuar"
-                icono="arrow-forward"
-                tamanio="lg"
-                onPress={onActivado}
-              />
-            </Tarjeta>
-          ) : (
-            <Tarjeta estilo={styles.tarjeta}>
-              <Campo
-                etiqueta="Código de activación"
-                valor={codigo}
-                onChange={(texto) => {
-                  setCodigo(texto.toUpperCase());
-                  if (error) setError(null);
-                }}
-                placeholder="MICAJA-XXXX-XXXX-XXXX"
-                icono="vpn-key"
-                autoCapitalize="characters"
-                autoCorrect={false}
-                maxLength={23}
-                autoFocus
-              />
-              <Campo
-                etiqueta="Nombre de este dispositivo"
-                valor={nombre}
-                onChange={setNombre}
-                placeholder="Ej.: Caja mostrador"
-                icono="devices"
-              />
+            ) : null}
 
-              {reemplazo ? (
-                <View style={styles.reemplazo}>
-                  <View style={[styles.reemplazoNota, { backgroundColor: colores.advertenciaSuave }]}>
-                    <MaterialIcons
-                      name="swap-horiz"
-                      size={18}
-                      color={colores.advertencia}
-                    />
-                    <Text style={[styles.errorTexto, { color: colores.advertencia }]}>
-                      El plan alcanza hasta {reemplazo.maxDispositivos} dispositivos y
-                      están todos en uso. Elige cuál se retira para entrar este.
+            {activado ? (
+              <>
+                <Exito
+                  titulo="¡Licencia activada!"
+                  mensaje="Ahora puedes registrar ventas y usar todas las funciones."
+                />
+                <Tarjeta>
+                  <View style={styles.resumen}>
+                    <Text style={[styles.resumenEtiqueta, { color: colores.textoSuave }]}>
+                      Negocio
+                    </Text>
+                    <Text style={[styles.resumenValor, { color: colores.texto }]}>
+                      {activado.empresa.nombre}
+                    </Text>
+                    <Text style={[styles.resumenEtiqueta, { color: colores.textoSuave }]}>
+                      Vence
+                    </Text>
+                    <Text style={[styles.resumenValor, { color: colores.texto }]}>
+                      {new Date(activado.venceEn).toLocaleDateString()}
                     </Text>
                   </View>
-                  {reemplazo.dispositivos.map((dispositivo) => (
-                    <Pressable
-                      key={dispositivo.id}
-                      onPress={() => elegirReemplazo(dispositivo)}
-                      style={({ pressed }) => [
-                        styles.reemplazoFila,
-                        { borderColor: colores.borde },
-                        pressed && { opacity: 0.7 },
-                      ]}
-                    >
-                      <MaterialIcons
-                        name={dispositivo.esEste ? 'smartphone' : 'devices-other'}
-                        size={18}
-                        color={colores.textoSuave}
-                      />
-                      <View style={styles.reemplazoInfo}>
-                        <Text style={[styles.reemplazoNombre, { color: colores.texto }]}>
-                          {dispositivo.nombre}
-                          {dispositivo.esEste ? ' (este)' : ''}
-                        </Text>
-                        <Text style={[styles.reemplazoMeta, { color: colores.textoSuave }]}>
-                          {dispositivo.plataforma}
-                          {dispositivo.lastSeenAt
-                            ? ` · visto ${new Date(dispositivo.lastSeenAt).toLocaleDateString()}`
-                            : ''}
-                        </Text>
-                      </View>
-                      <MaterialIcons
-                        name="chevron-right"
-                        size={18}
-                        color={colores.textoSuave}
-                      />
-                    </Pressable>
-                  ))}
                   <Boton
-                    titulo="Cancelar"
-                    tamanio="md"
-                    variante="secundario"
-                    onPress={() => setReemplazo(null)}
+                    titulo="Continuar"
+                    icono="arrow-forward"
+                    tamanio="lg"
+                    onPress={onActivado}
                   />
-                </View>
-              ) : null}
+                </Tarjeta>
+              </>
+            ) : (
+              <Tarjeta>
+                <Campo
+                  etiqueta="Código de activación"
+                  valor={codigo}
+                  onChange={(texto) => {
+                    setCodigo(texto.toUpperCase());
+                    if (error) setError(null);
+                  }}
+                  placeholder="MICAJA-XXXX-XXXX-XXXX"
+                  icono="vpn-key"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={23}
+                  autoFocus
+                />
+                <Campo
+                  etiqueta="Nombre de este dispositivo"
+                  valor={nombre}
+                  onChange={setNombre}
+                  placeholder="Ej.: Caja mostrador"
+                  icono="devices"
+                />
 
-              {error ? (
-                <View style={[styles.error, { backgroundColor: colores.peligroSuave }]}>
-                  <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
-                  <Text style={[styles.errorTexto, { color: colores.peligro }]}>{error}</Text>
+                <View style={[styles.duracion, { backgroundColor: colores.primarioSuave }]}>
+                  <MaterialIcons
+                    name="check-circle"
+                    size={22}
+                    color={colores.primario}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.duracionTexto, { color: colores.texto }]}>
+                      Duración: 30 días
+                    </Text>
+                    <Text style={[styles.duracionTexto, { color: colores.texto }]}>
+                      Vencimiento:{' '}
+                      {new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                    </Text>
+                  </View>
                 </View>
-              ) : null}
 
-              <Boton
-                titulo="Activar dispositivo"
-                icono="phonelink-lock"
-                tamanio="lg"
-                cargando={guardando}
-                onPress={activar}
-              />
-            </Tarjeta>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+                {reemplazo ? (
+                  <View style={styles.reemplazo}>
+                    <TarjetaAviso
+                      icono="swap-horiz"
+                      titulo="Límite de dispositivos"
+                      mensaje={`El plan alcanza hasta ${reemplazo.maxDispositivos} dispositivos y están todos en uso. Elige cuál se retira para entrar este.`}
+                      tono="advertencia"
+                    />
+                    {reemplazo.dispositivos.map((dispositivo) => (
+                      <Pressable
+                        key={dispositivo.id}
+                        onPress={() => elegirReemplazo(dispositivo)}
+                        style={({ pressed }) => [
+                          styles.reemplazoFila,
+                          { borderColor: colores.borde },
+                          pressed && { opacity: 0.7 },
+                        ]}
+                      >
+                        <MaterialIcons
+                          name={dispositivo.esEste ? 'smartphone' : 'devices-other'}
+                          size={18}
+                          color={colores.textoSuave}
+                        />
+                        <View style={styles.reemplazoInfo}>
+                          <Text style={[styles.reemplazoNombre, { color: colores.texto }]}>
+                            {dispositivo.nombre}
+                            {dispositivo.esEste ? ' (este)' : ''}
+                          </Text>
+                          <Text style={[styles.reemplazoMeta, { color: colores.textoSuave }]}>
+                            {dispositivo.plataforma}
+                            {dispositivo.lastSeenAt
+                              ? ` · visto ${new Date(dispositivo.lastSeenAt).toLocaleDateString()}`
+                              : ''}
+                          </Text>
+                        </View>
+                        <MaterialIcons
+                          name="chevron-right"
+                          size={18}
+                          color={colores.textoSuave}
+                        />
+                      </Pressable>
+                    ))}
+                    <Boton
+                      titulo="Cancelar"
+                      tamanio="md"
+                      variante="secundario"
+                      onPress={() => setReemplazo(null)}
+                    />
+                  </View>
+                ) : null}
+
+                {error ? (
+                  <View style={[styles.error, { backgroundColor: colores.peligroSuave }]}>
+                    <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
+                    <Text style={[styles.errorTexto, { color: colores.peligro }]}>{error}</Text>
+                  </View>
+                ) : null}
+
+                <Boton
+                  titulo="Sincronizar"
+                  icono="sync"
+                  tamanio="lg"
+                  cargando={guardando}
+                  onPress={activar}
+                />
+                <Pressable onPress={onAtras} style={styles.masTarde}>
+                  <Text style={[styles.masTardeTexto, { color: colores.textoSuave }]}>
+                    Más tarde
+                  </Text>
+                </Pressable>
+              </Tarjeta>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Superficie>
     </Pantalla>
   );
 }
 
 const styles = StyleSheet.create({
-  contenido: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xl,
+  intro: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
   },
-  volver: {
+  introIcono: {
+    width: 76,
+    height: 76,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  introTitulo: {
+    fontSize: typography.subtitulo,
+    fontFamily: fuentes.display,
+  },
+  introTexto: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.regular,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  duracion: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    marginBottom: spacing.md,
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    padding: spacing.md,
   },
-  volverTexto: {
+  duracionTexto: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.semibold,
+    lineHeight: 20,
+  },
+  masTarde: {
+    alignSelf: 'center',
+    paddingVertical: spacing.sm,
+  },
+  masTardeTexto: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.medium,
   },
-  hero: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  logo: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titulo: {
-    fontSize: typography.tituloGrande,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.lg,
-    textAlign: 'center',
-    letterSpacing: -0.5,
-  },
-  subtitulo: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.regular,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  tarjeta: {
-    width: '100%',
+  contenido: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
   },
   error: {
     flexDirection: 'row',
@@ -345,13 +370,6 @@ const styles = StyleSheet.create({
   reemplazo: {
     gap: spacing.sm,
     marginBottom: spacing.md,
-  },
-  reemplazoNota: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderRadius: radius.md,
-    padding: spacing.sm,
   },
   reemplazoFila: {
     flexDirection: 'row',

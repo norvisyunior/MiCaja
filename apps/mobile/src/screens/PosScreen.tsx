@@ -3,11 +3,14 @@ import {
   Animated,
   FlatList,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect } from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -31,21 +34,19 @@ import {
   Campo,
   Chip,
   Contador,
-  Gradiente,
+  Encabezado,
+  Exito,
   Hoja,
   ListaVacia,
   Pantalla,
   ReglaPunteada,
-  Sello,
+  Superficie,
   parsearMonto,
 } from '../components/UI';
 import { AvisoLicencia } from '../components/AvisoLicencia';
 import {
   fuentes,
-  gradientes,
   radius,
-  sombraFlotante,
-  sombraTarjeta,
   spacing,
   typography,
 } from '../theme';
@@ -73,20 +74,31 @@ export default function PosScreen() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [turno, setTurno] = useState<TurnoCaja | null>(null);
   const [categoriaSel, setCategoriaSel] = useState<number | 'todas'>('todas');
+  const [busqueda, setBusqueda] = useState('');
   const [hora, setHora] = useState(() => new Date());
 
-  const [hoja, setHoja] = useState<'carrito' | 'pago' | null>(null);
+  const [hoja, setHoja] = useState<'carrito' | 'pago' | 'cliente' | null>(null);
   const [formaPago, setFormaPago] = useState<FormaPago>('efectivo');
   const [montoTexto, setMontoTexto] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const [ventaExitosa, setVentaExitosa] = useState<{ numero: number; total: number; forma: FormaPago; cambio: number } | null>(null);
+  const [cliente, setCliente] = useState('');
+  const [clienteTexto, setClienteTexto] = useState('');
+  const [ventaExitosa, setVentaExitosa] = useState<{
+    numero: number;
+    total: number;
+    forma: FormaPago;
+    cambio: number;
+    items: LineaVenta[];
+    negocio: string;
+    cliente: string;
+  } | null>(null);
 
   const lineas = useCarrito((s) => s.lineas);
   const descuentoPct = useCarrito((s) => s.descuentoPct);
   const { agregar, aumentar, disminuir, quitarLinea, vaciar, setDescuento } = useCarrito();
   const totales = usarTotales();
 
-  const entradaGrilla = useRef(new Animated.Value(0)).current;
+  const entradaLista = useRef(new Animated.Value(0)).current;
   const rebote = useRef(new Animated.Value(1)).current;
   const escalaExito = useRef(new Animated.Value(0)).current;
 
@@ -96,13 +108,13 @@ export default function PosScreen() {
   }, []);
 
   useEffect(() => {
-    entradaGrilla.setValue(0);
-    Animated.timing(entradaGrilla, { toValue: 1, duration: 240, useNativeDriver: true }).start();
-  }, [categoriaSel, productos, entradaGrilla]);
+    entradaLista.setValue(0);
+    Animated.timing(entradaLista, { toValue: 1, duration: 240, useNativeDriver: true }).start();
+  }, [categoriaSel, productos, entradaLista]);
 
   useEffect(() => {
     if (totales.cantidad > 0) {
-      rebote.setValue(1.1);
+      rebote.setValue(1.08);
       Animated.spring(rebote, { toValue: 1, friction: 5, useNativeDriver: true }).start();
     }
   }, [totales.cantidad, rebote]);
@@ -110,7 +122,7 @@ export default function PosScreen() {
   useEffect(() => {
     if (ventaExitosa) {
       escalaExito.setValue(0);
-      Animated.spring(escalaExito, { toValue: 1, friction: 5, tension: 90, useNativeDriver: true }).start();
+      Animated.spring(escalaExito, { toValue: 1, friction: 6, tension: 90, useNativeDriver: true }).start();
     }
   }, [ventaExitosa, escalaExito]);
 
@@ -131,8 +143,17 @@ export default function PosScreen() {
     }, [db, usuario.id])
   );
 
-  const filtrados = categoriaSel === 'todas' ? productos : productos.filter((p) => p.categoriaId === categoriaSel);
+  const q = busqueda.trim().toLowerCase();
+  const filtrados = productos.filter(
+    (p) =>
+      (categoriaSel === 'todas' || p.categoriaId === categoriaSel) &&
+      (q === '' || p.nombre.toLowerCase().includes(q))
+  );
   const simbolo = settings?.simboloMoneda ?? '$';
+
+  function cantidadEnCarrito(productoId: number): number {
+    return lineas.find((l) => l.productoId === productoId)?.cantidad ?? 0;
+  }
 
   function stockDe(linea: LineaVenta): number {
     const p = productos.find((x) => x.id === linea.productoId);
@@ -161,6 +182,14 @@ export default function PosScreen() {
       return;
     }
     aumentar(i);
+  }
+
+  function confirmarVaciar() {
+    if (lineas.length === 0) return;
+    mostrarAviso('Vaciar carrito', 'Se quitarán todos los productos de esta venta.', [
+      { texto: 'Cancelar', estilo: 'cancel' },
+      { texto: 'Vaciar', estilo: 'peligro', onPress: vaciar },
+    ]);
   }
 
   async function cobrar() {
@@ -244,9 +273,18 @@ export default function PosScreen() {
       };
       const res = await registrarVenta(db, venta);
       const cambio = formaPago === 'efectivo' ? Math.max(0, montoEfectivo - total) : 0;
-      setVentaExitosa({ numero: res.numero, total: res.total, forma: res.formaPago, cambio });
+      setVentaExitosa({
+        numero: res.numero,
+        total: res.total,
+        forma: res.formaPago,
+        cambio,
+        items: lineas.map((l) => ({ ...l })),
+        negocio: settings?.nombreNegocio ?? 'MiCaja',
+        cliente,
+      });
       setHoja(null);
       vaciar();
+      setCliente('');
       const t = await turnoAbierto(db, usuario.id);
       setTurno(t);
       const [prods] = await Promise.all([listarProductosActivos(db)]);
@@ -273,174 +311,229 @@ export default function PosScreen() {
   const cambio = formaPago === 'efectivo' ? Math.max(0, montoEfectivo - totales.total) : 0;
   const mixtoDigital = formaPago === 'mixto' ? Math.max(0, totales.total - montoEfectivo) : 0;
 
+  async function compartirTicket() {
+    if (!ventaExitosa) return;
+    const v = ventaExitosa;
+    const simbolo = settings?.simboloMoneda ?? '$';
+    const cuerpo = [
+      v.negocio.toUpperCase(),
+      `Venta #${String(v.numero).padStart(3, '0')}`,
+      new Date().toLocaleString('es-CU'),
+      v.cliente ? `Cliente: ${v.cliente}` : '',
+      '--------------------------------',
+      ...v.items.map(
+        (i) => `${i.cantidad} x ${i.nombre}  ${formatearDinero(i.cantidad * i.precio, simbolo)}`
+      ),
+      '--------------------------------',
+      `TOTAL: ${formatearDinero(v.total, simbolo)}`,
+      `Pago: ${NOMBRES_FORMA_PAGO[v.forma]}`,
+      v.cambio > 0 ? `Cambio: ${formatearDinero(v.cambio, simbolo)}` : '',
+      '¡Gracias por su compra!',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const nombre = `ticket-${String(v.numero).padStart(3, '0')}.txt`;
+    try {
+      if (Platform.OS === 'web') {
+        const blob = new Blob([cuerpo], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement('a');
+        enlace.href = url;
+        enlace.download = nombre;
+        document.body.appendChild(enlace);
+        enlace.click();
+        document.body.removeChild(enlace);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        return;
+      }
+      const archivo = new File(Paths.cache, nombre);
+      archivo.create({ overwrite: true, intermediates: true });
+      archivo.write(cuerpo);
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(archivo.uri, {
+          mimeType: 'text/plain',
+          dialogTitle: 'Ticket de venta',
+        });
+      } else {
+        mostrarAviso('Ticket listo', 'El ticket se guardó en el dispositivo.');
+      }
+    } catch {
+      mostrarAviso('No se pudo compartir', 'No fue posible generar el ticket.');
+    }
+  }
+
   return (
     <Pantalla>
-      <View style={[styles.cabecera, { borderBottomColor: colores.borde }]}>
-        <View style={{ flex: 1 }}>
-          <Text
-            style={[styles.nombreNegocio, { color: colores.texto }]}
-            numberOfLines={1}
-          >
-            {settings?.nombreNegocio ?? 'Caja'}
-          </Text>
-          <Text style={[styles.cabeceraSub, { color: colores.textoSuave }]}>
-            {formatoHora(hora.toISOString())} · {usuario.nombre}
-          </Text>
-        </View>
-        {turno ? (
-          <Sello texto="Turno abierto" color={colores.exito} />
-        ) : (
-          <Pressable
-            onPress={abrirCaja}
-            style={({ pressed }) => [
-              styles.abrirCajaBoton,
-              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
-            ]}
-          >
-            <Gradiente colores={gradientes.primario} estilo={StyleSheet.absoluteFill} />
-            <MaterialIcons name="lock-open" size={15} color="#FFFFFF" />
-            <Text style={styles.abrirCajaTexto}>Abrir caja</Text>
-          </Pressable>
-        )}
-      </View>
-
-      <AvisoLicencia />
-
-      <FlatList
-        horizontal
-        data={[{ id: 'todas' as const, nombre: 'Todas' }, ...categorias]}
-        keyExtractor={(c) => String(c.id)}
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0 }}
-        contentContainerStyle={[styles.chips, { paddingTop: spacing.md, paddingBottom: spacing.md }]}
-        renderItem={({ item }) => (
-          <Chip
-            etiqueta={item.nombre}
-            activo={categoriaSel === item.id}
-            onPress={() => setCategoriaSel(item.id)}
-          />
-        )}
+      <Encabezado
+        titulo="Nueva venta"
+        subtitulo={`${formatoHora(hora.toISOString())} · ${usuario.nombre}`}
+        derecha={
+          <>
+            <Pressable
+              onPress={confirmarVaciar}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Vaciar carrito"
+              style={({ pressed }) => [
+                { opacity: pressed ? 0.5 : lineas.length ? 1 : 0.35, padding: 4 },
+              ]}
+            >
+              <MaterialIcons name="delete-outline" size={21} color="#FFFFFF" />
+            </Pressable>
+            {turno ? (
+              <View style={styles.turnoPill}>
+                <View style={[styles.turnoPunto, { backgroundColor: '#6BE3A0' }]} />
+                <Text style={styles.turnoPillTexto}>Abierto</Text>
+              </View>
+            ) : null}
+          </>
+        }
       />
 
-      <Animated.View
-        style={[
-          { flex: 1 },
-          {
-            opacity: entradaGrilla,
-            transform: [
-              {
-                translateY: entradaGrilla.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
-              },
-            ],
-          },
-        ]}
-      >
+      <Superficie>
+        <View style={{ paddingHorizontal: spacing.md, paddingTop: spacing.md }}>
+          <Campo
+            valor={busqueda}
+            onChange={setBusqueda}
+            placeholder="Buscar producto..."
+            icono="search"
+          />
+        </View>
+
+        <AvisoLicencia />
+
         <FlatList
-          data={filtrados}
-          numColumns={3}
-          key="3col"
-          keyExtractor={(p) => String(p.id)}
-          contentContainerStyle={[styles.grilla, { paddingBottom: 170 }]}
-          columnWrapperStyle={{ gap: spacing.sm }}
-          ListEmptyComponent={
-            <ListaVacia emoji="🧾" titulo="Sin productos" subtitulo="Agrega productos desde Ajustes" />
-          }
-          renderItem={({ item }) => {
-            const agotado = item.stock <= 0;
-            return (
-              <View style={styles.productoContenedor}>
+          horizontal
+          data={[{ id: 'todas' as const, nombre: 'Todas' }, ...categorias]}
+          keyExtractor={(c) => String(c.id)}
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={styles.chips}
+          renderItem={({ item }) => (
+            <Chip
+              etiqueta={item.nombre}
+              activo={categoriaSel === item.id}
+              onPress={() => setCategoriaSel(item.id)}
+            />
+          )}
+        />
+
+        <Animated.View
+          style={[
+            { flex: 1 },
+            {
+              opacity: entradaLista,
+              transform: [
+                {
+                  translateY: entradaLista.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+                },
+              ],
+            },
+          ]}
+        >
+          <FlatList
+            data={filtrados}
+            keyExtractor={(p) => String(p.id)}
+            contentContainerStyle={styles.lista}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <ListaVacia emoji="🧾" titulo="Sin productos" subtitulo="Agrega productos desde Ajustes" />
+            }
+            renderItem={({ item }) => {
+              const agotado = item.stock <= 0;
+              const enCarrito = cantidadEnCarrito(item.id);
+              return (
                 <Pressable
                   onPress={() => agregarProducto(item)}
                   accessibilityRole="button"
                   accessibilityLabel={`${item.nombre}, ${simbolo}${item.precio.toFixed(2)}`}
                   style={({ pressed }) => [
-                    styles.producto,
-                    {
-                      backgroundColor: colores.superficie,
-                      borderColor: colores.borde,
-                      ...sombraTarjeta(colores),
-                    },
-                    agotado && { opacity: 0.55 },
-                    pressed && !agotado && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+                    styles.filaProducto,
+                    { borderBottomColor: colores.borde },
+                    agotado && { opacity: 0.5 },
+                    pressed && !agotado && { backgroundColor: colores.superficieSuave },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.emojiFondo,
-                      {
-                        backgroundColor: agotado ? colores.superficieSuave : `${item.color}14`,
-                      },
-                    ]}
-                  >
+                  <View style={[styles.productoTile, { backgroundColor: colores.superficieSuave }]}>
                     {item.imagen ? (
                       <Image source={{ uri: item.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
                     ) : (
                       <Text style={styles.productoEmoji}>{item.emoji}</Text>
                     )}
-                    {agotado ? (
-                      <View style={styles.agotadoSello}>
-                        <Text style={[styles.agotadoSelloTexto, { color: colores.peligro }]}>Agotado</Text>
-                      </View>
-                    ) : null}
                   </View>
-                  <Text style={[styles.productoNombre, { color: colores.texto }]} numberOfLines={2}>
-                    {item.nombre}
-                  </Text>
-                  <Text style={[styles.productoPrecio, { color: item.color }]}>
-                    {simbolo}
-                    {item.precio.toFixed(2)}
-                  </Text>
-                  <Text
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.productoNombre, { color: colores.texto }]} numberOfLines={1}>
+                      {item.nombre}
+                    </Text>
+                    <Text style={[styles.productoPrecio, { color: colores.textoSuave }]}>
+                      {formatearDinero(item.precio, simbolo)}
+                      {agotado ? ' · Agotado' : item.stock <= item.stockMinimo ? ` · Quedan ${item.stock}` : ''}
+                    </Text>
+                  </View>
+                  {enCarrito > 0 ? (
+                    <View style={[styles.cantidadBadge, { backgroundColor: colores.primarioSuave }]}>
+                      <Text style={[styles.cantidadBadgeTexto, { color: colores.primario }]}>{enCarrito}</Text>
+                    </View>
+                  ) : null}
+                  <View
                     style={[
-                      styles.productoStock,
-                      { color: agotado ? colores.peligro : colores.textoSuave },
+                      styles.masBoton,
+                      { backgroundColor: agotado ? colores.superficieSuave : colores.primarioSuave },
                     ]}
                   >
-                    {agotado ? 'Sin existencias' : `${item.stock} en stock`}
-                  </Text>
+                    <MaterialIcons
+                      name="add"
+                      size={22}
+                      color={agotado ? colores.textoSuave : colores.primario}
+                    />
+                  </View>
                 </Pressable>
-              </View>
-            );
-          }}
-        />
-      </Animated.View>
+              );
+            }}
+          />
+        </Animated.View>
 
-      {hoja === null ? (
-        <View style={styles.barraCobro}>
-          <View
-            style={[
-              styles.barraContenido,
-              {
-                backgroundColor: colores.barra,
-                borderColor: colores.borde,
-                ...sombraFlotante(colores),
-              },
-            ]}
-          >
-            <Animated.View style={{ transform: [{ scale: rebote }], flex: 1 }}>
-              <Text style={[styles.barraCantidad, { color: colores.textoSuave }]}>
-                {totales.cantidad} {totales.cantidad === 1 ? 'artículo' : 'artículos'}
+        <View
+          style={[
+            styles.barraCobro,
+            { backgroundColor: colores.superficie, borderTopColor: colores.borde },
+          ]}
+        >
+          <Animated.View style={{ transform: [{ scale: rebote }], flex: 1 }}>
+            <Text style={[styles.barraCantidad, { color: colores.textoSuave }]}>
+              Total · {totales.cantidad} {totales.cantidad === 1 ? 'artículo' : 'artículos'}
+            </Text>
+            <Text style={[styles.barraTotal, { color: colores.texto }]}>
+              {formatearDinero(totales.total, simbolo)}
+            </Text>
+            <Pressable
+              onPress={() => {
+                setClienteTexto(cliente);
+                setHoja('cliente');
+              }}
+              style={styles.agregarCliente}
+              hitSlop={6}
+            >
+              <MaterialIcons name="person-add" size={15} color={colores.primario} />
+              <Text style={[styles.agregarClienteTexto, { color: colores.primario }]} numberOfLines={1}>
+                {cliente || 'Agregar cliente'}
               </Text>
-              <Text style={[styles.barraTotal, { color: colores.texto }]}>
-                {simbolo}
-                {totales.total.toFixed(2)}
-              </Text>
-              {!turno ? (
-                <Text style={[styles.barraCajaCerrada, { color: colores.peligro }]}>Caja cerrada</Text>
-              ) : null}
-            </Animated.View>
-            <Boton
-              titulo={turno ? 'Cobrar' : 'Abrir caja'}
-              icono={turno ? 'point-of-sale' : 'lock-open'}
-              variante={turno ? 'acento' : 'primario'}
-              tamanio={turno ? 'xl' : 'lg'}
-              bloqueado={turno ? lineas.length === 0 : false}
-              onPress={turno ? () => setHoja('carrito') : abrirCaja}
-              estilo={{ minWidth: turno ? 170 : 150 }}
-            />
-          </View>
+            </Pressable>
+            {!turno ? (
+              <Text style={[styles.barraCajaCerrada, { color: colores.peligro }]}>Caja cerrada</Text>
+            ) : null}
+          </Animated.View>
+          <Boton
+            titulo={turno ? 'Cobrar' : 'Abrir caja'}
+            icono={turno ? 'point-of-sale' : 'lock-open'}
+            variante="primario"
+            tamanio="lg"
+            bloqueado={turno ? lineas.length === 0 : false}
+            onPress={turno ? () => setHoja('carrito') : abrirCaja}
+            estilo={{ minWidth: turno ? 158 : 150 }}
+          />
         </View>
-      ) : null}
+      </Superficie>
 
       <Hoja
         visible={hoja === 'carrito'}
@@ -460,12 +553,12 @@ export default function PosScreen() {
                 <Text style={[styles.textoFila, { color: colores.textoSuave }]}>
                   Descuento ({descuentoPct}%)
                 </Text>
-                <Text style={[styles.valorFila, { color: colores.acento }]}>
+                <Text style={[styles.valorFila, { color: colores.primario }]}>
                   −{formatearDinero(totales.subtotal - totales.total, simbolo)}
                 </Text>
               </View>
             ) : null}
-            <View style={styles.filaTotal}>
+            <View style={[styles.filaTotal, { marginTop: spacing.xs }]}>
               <Text style={[styles.textoTotal, { color: colores.texto }]}>Total</Text>
               <Text style={[styles.valorTotal, { color: colores.texto }]}>
                 {formatearDinero(totales.total, simbolo)}
@@ -473,8 +566,7 @@ export default function PosScreen() {
             </View>
             <Boton
               titulo="Continuar al pago"
-              icono="arrow-forward"
-              variante="acento"
+              variante="primario"
               tamanio="lg"
               bloqueado={lineas.length === 0}
               onPress={cobrar}
@@ -506,12 +598,7 @@ export default function PosScreen() {
         {lineas.length === 0 ? (
           <ListaVacia emoji="🛒" titulo="Carrito vacío" subtitulo="Toca un producto para agregarlo" />
         ) : (
-          <View
-            style={[
-              styles.listaCarrito,
-              { backgroundColor: colores.superficie, borderColor: colores.borde },
-            ]}
-          >
+          <View>
             {lineas.map((l, i) => (
               <View key={`${l.productoId}-${i}`}>
                 {i > 0 ? (
@@ -519,11 +606,11 @@ export default function PosScreen() {
                 ) : null}
                 <View style={styles.linea}>
                   <View style={styles.lineaInfo}>
-                    <View style={[styles.lineaEmoji, { backgroundColor: `${l.color}14` }]}>
+                    <View style={[styles.lineaEmoji, { backgroundColor: colores.superficieSuave }]}>
                       {l.imagen ? (
                         <Image source={{ uri: l.imagen }} style={StyleSheet.absoluteFill} resizeMode="cover" />
                       ) : (
-                        <Text style={{ fontSize: 22 }}>{l.emoji}</Text>
+                        <Text style={{ fontSize: 21 }}>{l.emoji}</Text>
                       )}
                     </View>
                     <View style={{ flex: 1 }}>
@@ -531,7 +618,7 @@ export default function PosScreen() {
                         {l.nombre}
                       </Text>
                       <Text style={[styles.lineaPrecio, { color: colores.textoSuave }]}>
-                        {l.cantidad} × {formatearDinero(l.precio, simbolo)}
+                        {formatearDinero(l.precio * l.cantidad, simbolo)}
                       </Text>
                     </View>
                     <Contador
@@ -546,17 +633,53 @@ export default function PosScreen() {
                       accessibilityLabel={`Quitar ${l.nombre}`}
                       style={({ pressed }) => [{ padding: spacing.xs }, pressed && { opacity: 0.55 }]}
                     >
-                      <MaterialIcons name="delete-outline" size={20} color={colores.peligro} />
+                      <MaterialIcons name="close" size={18} color={colores.textoSuave} />
                     </Pressable>
                   </View>
-                  <Text style={[styles.lineaSubtotal, { color: colores.acento }]}>
-                    {formatearDinero(l.precio * l.cantidad, simbolo)}
-                  </Text>
                 </View>
               </View>
             ))}
           </View>
         )}
+      </Hoja>
+
+      <Hoja
+        visible={hoja === 'cliente'}
+        onCerrar={() => setHoja(null)}
+        titulo="Agregar cliente"
+        subtitulo="Opcional · aparecerá en el ticket"
+        pie={
+          <View style={{ gap: spacing.sm }}>
+            <Boton
+              titulo="Guardar"
+              tamanio="lg"
+              onPress={() => {
+                setCliente(clienteTexto.trim());
+                setHoja(null);
+              }}
+            />
+            {cliente ? (
+              <Boton
+                titulo="Quitar cliente"
+                variante="fantasma"
+                tamanio="md"
+                onPress={() => {
+                  setCliente('');
+                  setClienteTexto('');
+                  setHoja(null);
+                }}
+              />
+            ) : null}
+          </View>
+        }
+      >
+        <Campo
+          valor={clienteTexto}
+          onChange={setClienteTexto}
+          placeholder="Nombre del cliente"
+          icono="person"
+          autoFocus
+        />
       </Hoja>
 
       <Hoja
@@ -574,8 +697,7 @@ export default function PosScreen() {
             </View>
             <Boton
               titulo="Confirmar venta"
-              icono="check-circle"
-              variante="acento"
+              variante="primario"
               tamanio="lg"
               cargando={guardando}
               onPress={confirmarVenta}
@@ -599,8 +721,8 @@ export default function PosScreen() {
           ))}
         </View>
 
-        <View style={[styles.pagoTotal, { backgroundColor: colores.acentoSuave }]}>
-          <Text style={[styles.pagoTotalLabel, { color: colores.acento }]}>Total</Text>
+        <View style={[styles.pagoTotal, { backgroundColor: colores.primarioSuave }]}>
+          <Text style={[styles.pagoTotalLabel, { color: colores.primario }]}>Total</Text>
           <Text style={[styles.pagoTotalValor, { color: colores.texto }]}>
             {formatearDinero(totales.total, simbolo)}
           </Text>
@@ -632,14 +754,9 @@ export default function PosScreen() {
               ))}
             </View>
             {cambio > 0 ? (
-              <View
-                style={[
-                  styles.cambio,
-                  { backgroundColor: colores.acentoSuave },
-                ]}
-              >
-                <MaterialIcons name="currency-exchange" size={18} color={colores.acento} />
-                <Text style={[styles.cambioTexto, { color: colores.acento }]}>
+              <View style={[styles.cambio, { backgroundColor: colores.exitoSuave }]}>
+                <MaterialIcons name="currency-exchange" size={18} color={colores.exito} />
+                <Text style={[styles.cambioTexto, { color: colores.exito }]}>
                   Cambio: {formatearDinero(cambio, simbolo)}
                 </Text>
               </View>
@@ -678,63 +795,58 @@ export default function PosScreen() {
       </Hoja>
 
       {ventaExitosa ? (
-        <View style={[styles.exitoFondo, { backgroundColor: colores.overlay }]}>
+        <View style={[styles.exitoFondo, { backgroundColor: colores.fondo }]}>
           <Animated.View
             style={{
               transform: [
                 {
-                  scale: escalaExito.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }),
+                  scale: escalaExito.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }),
                 },
               ],
               opacity: escalaExito,
               width: '100%',
-              maxWidth: 380,
+              flex: 1,
             }}
           >
-            <View
-              style={[
-                styles.exitoTarjeta,
-                {
-                  backgroundColor: colores.superficie,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: colores.borde,
-                  ...sombraFlotante(colores),
-                },
-              ]}
+            <View style={styles.exitoCabecera}>
+              <Text style={[styles.exitoEtiqueta, { color: colores.textoSuave }]}>
+                Venta #{String(ventaExitosa.numero).padStart(3, '0')}
+              </Text>
+            </View>
+            <Exito
+              titulo="Venta registrada con éxito"
+              mensaje={`Se cobraron ${formatearDinero(ventaExitosa.total, simbolo)} por ${NOMBRES_FORMA_PAGO[ventaExitosa.forma]}.`}
             >
-                <Gradiente colores={gradientes.exito} estilo={styles.exitoIcono}>
-                  <MaterialIcons name="check" size={40} color="#FFFFFF" />
-                </Gradiente>
-                <Sello texto="Vendido" color={colores.exito} />
-                <Text style={[styles.exitoTitulo, { color: colores.texto }]}>
-                  ¡Venta registrada!
+              <Text style={[styles.exitoTotal, { color: colores.texto }]}>
+                Total: {formatearDinero(ventaExitosa.total, simbolo)}
+              </Text>
+              {ventaExitosa.cambio > 0 ? (
+                <Text style={[styles.exitoCambio, { color: colores.exito }]}>
+                  Cambio a devolver: {formatearDinero(ventaExitosa.cambio, simbolo)}
                 </Text>
-                <Text style={[styles.exitoNumero, { color: colores.textoSuave }]}>
-                  Venta N.º {ventaExitosa.numero}
-                </Text>
-                <Text style={[styles.exitoTotal, { color: colores.texto }]}>
-                  {formatearDinero(ventaExitosa.total, simbolo)}
-                </Text>
-                <Badge
-                  texto={NOMBRES_FORMA_PAGO[ventaExitosa.forma]}
-                  color={colores.primarioSuave}
-                  colorTexto={colores.primario}
-                />
-                {ventaExitosa.cambio > 0 ? (
-                  <Text style={[styles.exitoCambio, { color: colores.acento }]}>
-                    Cambio a devolver: {formatearDinero(ventaExitosa.cambio, simbolo)}
-                  </Text>
-                ) : null}
-                <ReglaPunteada estilo={{ alignSelf: 'stretch', marginVertical: spacing.lg }} />
-                <Boton
-                  titulo="Nueva venta"
-                  icono="add-shopping-cart"
-                  variante="acento"
-                  tamanio="lg"
-                  onPress={() => setVentaExitosa(null)}
-                  estilo={{ alignSelf: 'stretch' }}
-                />
-              </View>
+              ) : null}
+              <Badge
+                texto={NOMBRES_FORMA_PAGO[ventaExitosa.forma]}
+                color={colores.primarioSuave}
+                colorTexto={colores.primario}
+              />
+              <ReglaPunteada estilo={{ alignSelf: 'stretch', marginVertical: spacing.lg }} />
+              <Boton
+                titulo="Imprimir ticket"
+                variante="secundario"
+                tamanio="lg"
+                icono="print"
+                onPress={() => void compartirTicket()}
+                estilo={{ alignSelf: 'stretch' }}
+              />
+              <Boton
+                titulo="Nueva venta"
+                variante="primario"
+                tamanio="lg"
+                onPress={() => setVentaExitosa(null)}
+                estilo={{ alignSelf: 'stretch', marginTop: spacing.sm }}
+              />
+            </Exito>
           </Animated.View>
         </View>
       ) : null}
@@ -743,129 +855,113 @@ export default function PosScreen() {
 }
 
 const styles = StyleSheet.create({
-  cabecera: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  nombreNegocio: {
-    fontSize: typography.subtitulo,
-    fontFamily: fuentes.bold,
-    letterSpacing: -0.3,
-  },
-  cabeceraSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.medium, marginTop: 2 },
-  abrirCajaBoton: {
+  turnoPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 9,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 7,
     borderRadius: radius.full,
-    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
   },
-  abrirCajaTexto: {
-    fontSize: typography.micro,
+  turnoPunto: {
+    width: 7,
+    height: 7,
+    borderRadius: radius.full,
+  },
+  turnoPillTexto: {
+    fontSize: 11,
     fontFamily: fuentes.semibold,
     color: '#FFFFFF',
   },
-  barraCajaCerrada: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.semibold,
-    marginTop: 2,
-  },
-  chips: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-  grilla: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-  productoContenedor: { flex: 1, maxWidth: '33.33%', marginBottom: spacing.sm },
-  producto: {
-    flex: 1,
-    borderRadius: radius.lg,
-    padding: spacing.sm,
-    alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  emojiFondo: {
-    width: '100%',
-    aspectRatio: 1.15,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.sm,
-    overflow: 'hidden',
-  },
-  productoEmoji: { fontSize: 34 },
-  agotadoSello: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: radius.full,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  agotadoSelloTexto: {
-    fontSize: 8,
-    fontFamily: fuentes.bold,
-    textTransform: 'uppercase',
-  },
-  productoNombre: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.semibold,
-    textAlign: 'center',
-    lineHeight: 17,
-  },
-  productoPrecio: {
-    fontSize: 16,
-    fontFamily: fuentes.bold,
-    marginTop: 3,
-    fontVariant: ['tabular-nums'],
-  },
-  productoStock: {
-    fontSize: 10,
-    fontFamily: fuentes.medium,
-    marginTop: 3,
-  },
-  barraCobro: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 96,
-  },
-  barraContenido: {
+  chips: { paddingHorizontal: spacing.md, gap: spacing.sm, paddingTop: spacing.xs, paddingBottom: spacing.sm },
+  lista: { paddingHorizontal: spacing.md, paddingBottom: 104 },
+  filaProducto: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
-    paddingLeft: spacing.lg,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  productoTile: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  productoEmoji: { fontSize: 26 },
+  productoNombre: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
+  productoPrecio: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.regular,
+    marginTop: 1,
+  },
+  cantidadBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  cantidadBadgeTexto: { fontSize: 11, fontFamily: fuentes.bold },
+  masBoton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  barraCobro: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    borderTopWidth: 1,
   },
   barraCantidad: {
     fontSize: typography.micro,
     fontFamily: fuentes.medium,
   },
   barraTotal: {
-    fontSize: 34,
-    fontFamily: fuentes.bold,
-    lineHeight: 40,
+    fontSize: 28,
+    fontFamily: fuentes.display,
+    lineHeight: 34,
     fontVariant: ['tabular-nums'],
-    letterSpacing: -1,
+    letterSpacing: -0.8,
   },
-  listaCarrito: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
+  barraCajaCerrada: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.semibold,
+    marginTop: 1,
+  },
+  agregarCliente: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    marginTop: 5,
+    paddingVertical: 2,
+  },
+  agregarClienteTexto: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.semibold,
+    maxWidth: 130,
   },
   lineaDivisor: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 68,
-    marginRight: spacing.md,
+    marginLeft: 64,
   },
   linea: {
-    padding: spacing.md,
+    paddingVertical: spacing.sm,
   },
   lineaInfo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   lineaEmoji: {
@@ -878,15 +974,8 @@ const styles = StyleSheet.create({
   },
   lineaNombre: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold },
   lineaPrecio: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular },
-  lineaSubtotal: {
-    fontSize: typography.cuerpo,
-    fontFamily: fuentes.bold,
-    textAlign: 'right',
-    marginTop: spacing.xs,
-    fontVariant: ['tabular-nums'],
-  },
   descuento: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md, marginBottom: spacing.md },
-  chipsDescuento: { flexDirection: 'row', gap: spacing.xs, paddingBottom: 2 },
+  chipsDescuento: { flexDirection: 'row', gap: spacing.xs, paddingBottom: 10 },
   filaTotal: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -896,13 +985,13 @@ const styles = StyleSheet.create({
   textoFila: { fontSize: typography.cuerpo, fontFamily: fuentes.regular },
   valorFila: {
     fontSize: typography.cuerpo,
-    fontFamily: fuentes.bold,
+    fontFamily: fuentes.semibold,
     fontVariant: ['tabular-nums'],
   },
-  textoTotal: { fontSize: typography.subtitulo, fontFamily: fuentes.bold },
+  textoTotal: { fontSize: typography.subtitulo, fontFamily: fuentes.semibold },
   valorTotal: {
     fontSize: typography.titulo,
-    fontFamily: fuentes.bold,
+    fontFamily: fuentes.display,
     fontVariant: ['tabular-nums'],
     letterSpacing: -0.5,
   },
@@ -914,7 +1003,7 @@ const styles = StyleSheet.create({
   formas: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
   pagoTotal: {
     alignItems: 'center',
-    borderRadius: radius.lg,
+    borderRadius: radius.tarjeta,
     paddingVertical: spacing.md,
     marginBottom: spacing.lg,
   },
@@ -925,12 +1014,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   pagoTotalValor: {
-    fontSize: 40,
-    fontFamily: fuentes.bold,
+    fontSize: 38,
+    fontFamily: fuentes.display,
     fontVariant: ['tabular-nums'],
     letterSpacing: -1,
   },
-  efectivos: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  efectivos: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs },
   cambio: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -939,58 +1028,44 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginTop: spacing.md,
   },
-  cambioTexto: { fontFamily: fuentes.bold, fontSize: typography.cuerpo },
+  cambioTexto: { fontFamily: fuentes.semibold, fontSize: typography.cuerpo },
   errorPago: { fontFamily: fuentes.semibold, marginTop: spacing.sm },
   digitalInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     borderRadius: radius.md,
-    padding: spacing.lg,
+    padding: spacing.md,
   },
-  digitalInfoTexto: { flex: 1, fontFamily: fuentes.semibold, fontSize: typography.cuerpo },
+  digitalInfoTexto: { flex: 1, fontFamily: fuentes.medium, fontSize: typography.cuerpo },
   exitoFondo: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
+    paddingHorizontal: spacing.md,
     zIndex: 10,
   },
-  exitoTarjeta: {
-    borderRadius: radius.xl,
-    padding: spacing.xl,
+  exitoCabecera: {
+    paddingTop: spacing.lg,
     alignItems: 'center',
-    width: '100%',
   },
-  exitoIcono: {
-    width: 76,
-    height: 76,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
+  exitoEtiqueta: {
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.semibold,
   },
-  exitoTitulo: {
-    fontSize: typography.titulo,
-    fontFamily: fuentes.bold,
-    letterSpacing: -0.4,
-    marginTop: spacing.sm,
-  },
-  exitoNumero: { fontSize: typography.cuerpo, fontFamily: fuentes.regular, marginTop: spacing.xs },
   exitoTotal: {
-    fontSize: 40,
-    fontFamily: fuentes.bold,
-    marginVertical: spacing.md,
+    fontSize: 26,
+    fontFamily: fuentes.display,
+    marginTop: spacing.lg,
     fontVariant: ['tabular-nums'],
-    letterSpacing: -1,
+    letterSpacing: -0.6,
   },
   exitoCambio: {
     fontSize: typography.cuerpo,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.md,
+    fontFamily: fuentes.semibold,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
   },
 });

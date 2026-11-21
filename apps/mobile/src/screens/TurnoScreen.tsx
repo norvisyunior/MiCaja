@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
-import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NavigationProp } from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { TurnoCaja } from '../types';
 import { cerrarTurno, listarTurnos, turnoAbierto, turnoAbiertoOCrear } from '../db/repos/turnos';
@@ -13,27 +14,30 @@ import { useSesion } from '../store/sesion';
 import { useAvisos } from '../store/avisos';
 import { useTema } from '../store/tema';
 import { formatearDinero, formatoFechaCorta, formatoHora } from '../utils/fechas';
+import type { ParamListRaiz, ParamListTabs } from '../navigation';
 import {
   Badge,
   Boton,
   Campo,
   Encabezado,
   EstadoCarga,
-  Gradiente,
+  Exito,
   Hoja,
   ListaVacia,
   Pantalla,
   parsearMonto,
   Sello,
+  Superficie,
   Tarjeta,
+  TarjetaAviso,
 } from '../components/UI';
-import { fuentes, gradientes, radius, spacing, typography } from '../theme';
+import { fuentes, radius, spacing, typography } from '../theme';
 
 export default function TurnoScreen() {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario)!;
   const { colores } = useTema();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
   const mostrarAviso = useAvisos((s) => s.mostrar);
 
   const [turno, setTurno] = useState<TurnoCaja | null>(null);
@@ -108,20 +112,20 @@ export default function TurnoScreen() {
   if (cargando) {
     return (
       <Pantalla>
-        <Encabezado titulo="Cierre de caja" onAtras={() => navigation.goBack()} />
-        <EstadoCarga mensaje="Cargando turnos…" />
+        <Encabezado titulo="Cierre de día" onAtras={() => navigation.goBack()} />
+        <Superficie>
+          <EstadoCarga mensaje="Cargando turnos…" />
+        </Superficie>
       </Pantalla>
     );
   }
 
-  return (
-    <Pantalla>
-      <Encabezado titulo="Cierre de caja" subtitulo="Apertura, arqueo y cierre del turno" onAtras={() => navigation.goBack()} />
-
+  const cabecera = (
+    <View style={{ gap: spacing.md }}>
       <AvisoLicencia />
 
       {turno ? (
-        <Tarjeta estilo={styles.tarjetaTurno}>
+        <Tarjeta>
           <View style={styles.turnoTop}>
             <View style={styles.turnoEstado}>
               <View style={[styles.turnoPunto, { backgroundColor: colores.exito }]} />
@@ -135,323 +139,359 @@ export default function TurnoScreen() {
             <Sello texto="En curso" color={colores.exito} />
           </View>
 
-          <View style={[styles.estadisticas, { backgroundColor: colores.superficieSuave }]}>
-            <Estadistica
-              valor={String(resumen?.ventas ?? 0)}
-              etiqueta="ventas"
-              color={colores.texto}
-            />
-            <View style={[styles.estadisticaDivisor, { backgroundColor: colores.borde }]} />
-            <Estadistica
+          <View style={styles.resumenFilas}>
+            <FilaResumen etiqueta="Ventas" valor={String(resumen?.ventas ?? 0)} />
+            <FilaResumen
+              icono="payments"
+              etiqueta="Efectivo"
               valor={formatearDinero(resumen?.efectivo ?? 0, simbolo)}
-              etiqueta="efectivo"
-              color={colores.acento}
             />
-            <View style={[styles.estadisticaDivisor, { backgroundColor: colores.borde }]} />
-            <Estadistica
+            <FilaResumen
+              icono="credit-card"
+              etiqueta="Tarjeta"
               valor={formatearDinero(resumen?.digital ?? 0, simbolo)}
-              etiqueta="digital"
-              color={colores.info}
             />
+            <FilaResumen
+              icono="payments"
+              etiqueta="Otros"
+              valor={formatearDinero(0, simbolo)}
+            />
+            <View style={[styles.totalFila, { borderTopColor: colores.borde }]}>
+              <Text style={[styles.totalLabel, { color: colores.texto }]}>Total vendido</Text>
+              <Text style={[styles.totalValor, { color: colores.texto }]}>
+                {formatearDinero(resumen?.total ?? 0, simbolo)}
+              </Text>
+            </View>
           </View>
 
-          <Gradiente colores={gradientes.primario} estilo={styles.turnoTotal}>
-            <Text style={styles.turnoTotalLabel}>Total vendido en este turno</Text>
-            <Text style={styles.turnoTotalValor}>
-              {formatearDinero(resumen?.total ?? 0, simbolo)}
-            </Text>
-          </Gradiente>
-
           <Boton
-            titulo="Cerrar caja y hacer arqueo"
+            titulo="Finalizar día"
             icono="lock-outline"
-            variante="acento"
             tamanio="lg"
             onPress={abrirArqueo}
             estilo={{ marginTop: spacing.md }}
           />
+          <Pressable
+            onPress={() => navigation.navigate('Resumen')}
+            style={styles.verReporte}
+          >
+            <Text style={[styles.verReporteTexto, { color: colores.primario }]}>Ver reporte</Text>
+          </Pressable>
         </Tarjeta>
       ) : (
-        <Tarjeta estilo={[styles.sinTurno, { backgroundColor: colores.superficie }]}>
-          <Text style={{ fontSize: 40 }}>🕐</Text>
-          <Text style={[styles.sinTurnoTitulo, { color: colores.texto }]}>No hay turno abierto</Text>
-          <Text style={[styles.sinTurnoSub, { color: colores.textoSuave }]}>
-            Abre el turno antes de comenzar a vender para llevar el control de la caja.
-          </Text>
-          <Boton
-            titulo="Abrir turno"
-            icono="play-arrow"
-            variante="acento"
-            tamanio="lg"
-            onPress={abrirTurno}
-            estilo={{ marginTop: spacing.md, alignSelf: 'stretch' }}
-          />
+        <Tarjeta>
+          <View style={styles.sinTurno}>
+            <View style={[styles.sinTurnoIcono, { backgroundColor: colores.primarioSuave }]}>
+              <MaterialIcons name="lock-clock" size={30} color={colores.primario} />
+            </View>
+            <Text style={[styles.sinTurnoTitulo, { color: colores.texto }]}>
+              No hay turno abierto
+            </Text>
+            <Text style={[styles.sinTurnoSub, { color: colores.textoSuave }]}>
+              Abre el turno antes de comenzar a vender para llevar el control de la caja.
+            </Text>
+            <Boton
+              titulo="Abrir turno"
+              icono="play-arrow"
+              tamanio="lg"
+              onPress={abrirTurno}
+              estilo={{ marginTop: spacing.md, alignSelf: 'stretch' }}
+            />
+          </View>
         </Tarjeta>
       )}
 
-      <Text style={[styles.historialTitulo, { color: colores.textoSuave }]}>Historial</Text>
-      <FlatList
-        data={historial}
-        keyExtractor={(t) => String(t.id)}
-        contentContainerStyle={[styles.lista, { paddingBottom: 40 }]}
-        ListEmptyComponent={
-          <ListaVacia emoji="📋" titulo="Sin turnos" subtitulo="Los turnos cerrados aparecerán aquí" />
-        }
-        renderItem={({ item }) => (
-          <Tarjeta padding={spacing.md} estilo={styles.filaTurno}>
-            <View style={styles.filaTurnoFecha}>
-              <Text style={[styles.filaTurnoDia, { color: colores.texto }]}>{formatoFechaCorta(item.apertura)}</Text>
-              <Text style={[styles.filaTurnoHora, { color: colores.textoSuave }]}>
-                {formatoHora(item.apertura)}
-                {item.cierre ? ` – ${formatoHora(item.cierre)}` : ''}
-              </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.filaTurnoVentas, { color: colores.texto }]}>{item.ventasCount} venta(s)</Text>
-              <Badge
-                texto={item.estado === 'abierto' ? 'Abierto' : 'Cerrado'}
-                color={item.estado === 'abierto' ? colores.acentoSuave : colores.superficieSuave}
-                colorTexto={item.estado === 'abierto' ? colores.acento : colores.textoSuave}
-              />
-            </View>
-            <View style={{ alignItems: 'flex-end', gap: 2 }}>
-              <Text style={[styles.filaTurnoTotal, { color: colores.texto }]}>
-                {formatearDinero(item.totalEsperado, simbolo)}
-              </Text>
-              {item.diferencia != null && item.diferencia !== 0 ? (
+      <Text style={[styles.historialTitulo, { color: colores.textoSuave }]}>Historial de turnos</Text>
+    </View>
+  );
+
+  return (
+    <Pantalla>
+      <Encabezado titulo="Cierre de día" onAtras={() => navigation.goBack()} />
+      <Superficie>
+
+        <FlatList
+          data={historial}
+          keyExtractor={(t) => String(t.id)}
+          contentContainerStyle={styles.lista}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={cabecera}
+          ListEmptyComponent={
+            <ListaVacia emoji="📋" titulo="Sin turnos" subtitulo="Los turnos cerrados aparecerán aquí" />
+          }
+          renderItem={({ item }) => (
+            <Pressable
+              style={({ pressed }) => [
+                styles.filaTurno,
+                { borderBottomColor: colores.borde },
+                pressed && { backgroundColor: colores.superficieSuave },
+              ]}
+            >
+              <View style={styles.filaTurnoFecha}>
+                <Text style={[styles.filaTurnoDia, { color: colores.texto }]}>
+                  {formatoFechaCorta(item.apertura)}
+                </Text>
+                <Text style={[styles.filaTurnoHora, { color: colores.textoSuave }]}>
+                  {formatoHora(item.apertura)}
+                  {item.cierre ? ` – ${formatoHora(item.cierre)}` : ''}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.filaTurnoVentas, { color: colores.texto }]}>
+                  {item.ventasCount} venta(s)
+                </Text>
+                <Badge
+                  texto={item.estado === 'abierto' ? 'Abierto' : 'Cerrado'}
+                  color={item.estado === 'abierto' ? colores.exitoSuave : colores.superficieSuave}
+                  colorTexto={item.estado === 'abierto' ? colores.exito : colores.textoSuave}
+                />
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                <Text style={[styles.filaTurnoTotal, { color: colores.texto }]}>
+                  {formatearDinero(item.totalEsperado, simbolo)}
+                </Text>
+                {item.diferencia != null && item.diferencia !== 0 ? (
+                  <Text
+                    style={[
+                      styles.filaTurnoDiferencia,
+                      { color: item.diferencia < 0 ? colores.peligro : colores.advertencia },
+                    ]}
+                  >
+                    {item.diferencia > 0 ? '+' : ''}
+                    {formatearDinero(item.diferencia, simbolo)}
+                  </Text>
+                ) : (
+                  <Text style={[styles.filaTurnoDiferencia, { color: colores.textoSuave }]}>
+                    sin diferencia
+                  </Text>
+                )}
+              </View>
+            </Pressable>
+          )}
+        />
+
+        <Hoja
+          visible={arqueando}
+          onCerrar={() => setArqueando(false)}
+          titulo="Arqueo de caja"
+          subtitulo="Cuenta el dinero y registra el resultado"
+          pie={
+            <View>
+              <View style={styles.filaArqueo}>
+                <Text style={[styles.textoArqueo, { color: colores.textoSuave }]}>Efectivo esperado</Text>
+                <Text style={[styles.valorArqueo, { color: colores.texto }]}>
+                  {formatearDinero(resumen?.efectivo ?? 0, simbolo)}
+                </Text>
+              </View>
+              <View style={styles.filaArqueo}>
+                <Text style={[styles.textoArqueo, { color: colores.textoSuave }]}>Diferencia</Text>
                 <Text
                   style={[
-                    styles.filaTurnoDiferencia,
-                    { color: item.diferencia < 0 ? colores.peligro : colores.acento },
+                    styles.valorArqueo,
+                    {
+                      color:
+                        diferencia === 0
+                          ? colores.texto
+                          : diferencia < 0
+                            ? colores.peligro
+                            : colores.advertencia,
+                    },
                   ]}
                 >
-                  {item.diferencia > 0 ? '+' : ''}
-                  {formatearDinero(item.diferencia, simbolo)}
+                  {diferencia > 0 ? '+' : ''}
+                  {formatearDinero(diferencia, simbolo)}
                 </Text>
-              ) : (
-                <Text style={[styles.filaTurnoDiferencia, { color: colores.textoSuave }]}>sin diferencia</Text>
-              )}
+              </View>
+              <Boton
+                titulo="Confirmar cierre"
+                icono="lock"
+                tamanio="lg"
+                cargando={guardando}
+                onPress={confirmarCierre}
+              />
             </View>
-          </Tarjeta>
-        )}
-      />
-
-      <Hoja
-        visible={arqueando}
-        onCerrar={() => setArqueando(false)}
-        titulo="Arqueo de caja"
-        subtitulo="Cuenta el dinero y registra el resultado"
-        pie={
-          <View>
-            <View style={styles.filaArqueo}>
-              <Text style={[styles.textoArqueo, { color: colores.textoSuave }]}>Efectivo esperado</Text>
-              <Text style={[styles.valorArqueo, { color: colores.texto }]}>
+          }
+        >
+          <View style={[styles.desglose, { borderColor: colores.borde }]}>
+            <View style={styles.desgloseFila}>
+              <MaterialIcons name="payments" size={20} color={colores.primario} />
+              <Text style={[styles.desgloseLabel, { color: colores.textoSuave }]}>Efectivo esperado</Text>
+              <Text style={[styles.desgloseValor, { color: colores.texto }]}>
                 {formatearDinero(resumen?.efectivo ?? 0, simbolo)}
               </Text>
             </View>
-            <View style={styles.filaArqueo}>
-              <Text style={[styles.textoArqueo, { color: colores.textoSuave }]}>Diferencia</Text>
-              <Text
-                style={[
-                  styles.valorArqueo,
-                  {
-                    color:
-                      diferencia === 0
-                        ? colores.texto
-                        : diferencia < 0
-                          ? colores.peligro
-                          : colores.acento,
-                  },
-                ]}
-              >
-                {diferencia > 0 ? '+' : ''}
-                {formatearDinero(diferencia, simbolo)}
+            <View style={styles.desgloseFila}>
+              <MaterialIcons name="smartphone" size={20} color={colores.info} />
+              <Text style={[styles.desgloseLabel, { color: colores.textoSuave }]}>Tarjeta esperada</Text>
+              <Text style={[styles.desgloseValor, { color: colores.texto }]}>
+                {formatearDinero(resumen?.digital ?? 0, simbolo)}
               </Text>
             </View>
-            <Boton
-              titulo="Confirmar cierre"
-              icono="lock"
-              variante="acento"
-              tamanio="lg"
-              cargando={guardando}
-              onPress={confirmarCierre}
-            />
           </View>
-        }
-      >
-        <View style={[styles.desglose, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
-          <View style={styles.desgloseFila}>
-            <MaterialIcons name="payments" size={20} color={colores.acento} />
-            <Text style={[styles.desgloseLabel, { color: colores.textoSuave }]}>Efectivo esperado</Text>
-            <Text style={[styles.desgloseValor, { color: colores.texto }]}>
-              {formatearDinero(resumen?.efectivo ?? 0, simbolo)}
-            </Text>
-          </View>
-          <View style={styles.desgloseFila}>
-            <MaterialIcons name="smartphone" size={20} color={colores.info} />
-            <Text style={[styles.desgloseLabel, { color: colores.textoSuave }]}>Digital esperado</Text>
-            <Text style={[styles.desgloseValor, { color: colores.texto }]}>
-              {formatearDinero(resumen?.digital ?? 0, simbolo)}
-            </Text>
-          </View>
-        </View>
-        <Campo
-          etiqueta="Dinero real contado"
-          valor={dineroTexto}
-          onChange={setDineroTexto}
-          teclado="numeric"
-          sufijo={simbolo}
-          autoFocus
-        />
-      </Hoja>
+          <Campo
+            etiqueta="Dinero real contado"
+            valor={dineroTexto}
+            onChange={setDineroTexto}
+            teclado="numeric"
+            sufijo={simbolo}
+            autoFocus
+          />
+        </Hoja>
 
-      <Hoja visible={!!resultado} onCerrar={() => setResultado(null)} titulo="Turno cerrado">
-        {resultado ? (
-          <View style={styles.resultado}>
-            <View
-              style={[
-                styles.resultadoIcono,
-                {
-                  backgroundColor: (resultado.diferencia ?? 0) === 0 ? colores.exito : colores.advertencia,
-                },
-              ]}
-            >
-              <MaterialIcons
-                name={(resultado.diferencia ?? 0) === 0 ? 'done-all' : 'warning'}
-                size={36}
-                color="#FFFFFF"
-              />
-            </View>
-            <Text style={[styles.resultadoTitulo, { color: colores.texto }]}>
-              {(resultado.diferencia ?? 0) === 0 ? '¡Caja cuadrada!' : 'Caja con diferencia'}
-            </Text>
-            <Sello
-              texto={(resultado.diferencia ?? 0) === 0 ? 'Cuadrada' : 'Diferencia'}
-              color={(resultado.diferencia ?? 0) === 0 ? colores.exito : colores.advertencia}
-            />
-            {(resultado.diferencia ?? 0) !== 0 ? (
-              <Text style={[styles.resultadoDiferencia, { color: colores.advertencia }]}>
-                {(resultado.diferencia ?? 0) > 0 ? '+' : ''}
-                {formatearDinero(resultado.diferencia ?? 0, simbolo)}
+        <Hoja visible={!!resultado} onCerrar={() => setResultado(null)} titulo="Turno cerrado">
+          {resultado ? (
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {((resultado.diferencia ?? 0) === 0) ? (
+                <Exito
+                  titulo="Cuadre correcto"
+                  mensaje="El efectivo contado coincide con lo esperado."
+                />
+              ) : (
+                <TarjetaAviso
+                  icono="warning"
+                  titulo="Diferencia en caja"
+                  destacado={formatearDinero(resultado.diferencia ?? 0, simbolo)}
+                  mensaje="Revisa el efectivo contado antes de continuar."
+                  tono="advertencia"
+                />
+              )}
+              <Text style={[styles.resultadoDetalle, { color: colores.textoSuave }]}>
+                {resultado.ventasCount} ventas · {formatearDinero(resultado.totalEsperado, simbolo)} vendidos ·{' '}
+                {formatearDinero(resultado.desglose.efectivo_total ?? 0, simbolo)} en efectivo esperado ·{' '}
+                {formatearDinero(resultado.dineroReal ?? 0, simbolo)} contados
               </Text>
-            ) : null}
-            <Text style={[styles.resultadoDetalle, { color: colores.textoSuave }]}>
-              {resultado.ventasCount} ventas · {formatearDinero(resultado.totalEsperado, simbolo)} vendidos ·{' '}
-              {formatearDinero(resultado.desglose.efectivo_total ?? 0, simbolo)} en efectivo esperado ·{' '}
-              {formatearDinero(resultado.dineroReal ?? 0, simbolo)} contados
-            </Text>
-            <Boton
-              titulo="Listo"
-              variante="acento"
-              tamanio="lg"
-              onPress={() => setResultado(null)}
-              estilo={{ marginTop: spacing.xl, alignSelf: 'stretch' }}
-            />
-          </View>
-        ) : null}
-      </Hoja>
+              <Boton
+                titulo="Listo"
+                tamanio="lg"
+                onPress={() => setResultado(null)}
+                estilo={{ marginTop: spacing.lg }}
+              />
+            </ScrollView>
+          ) : null}
+        </Hoja>
+      </Superficie>
     </Pantalla>
   );
 }
 
-function Estadistica({ valor, etiqueta, color }: { valor: string; etiqueta: string; color: string }) {
+function FilaResumen({
+  icono,
+  etiqueta,
+  valor,
+}: {
+  icono?: 'payments' | 'smartphone' | 'credit-card';
+  etiqueta: string;
+  valor: string;
+}) {
   const { colores } = useTema();
   return (
-    <View style={styles.estadistica}>
-      <Text style={[styles.estadisticaValor, { color }]} numberOfLines={1} adjustsFontSizeToFit>
-        {valor}
-      </Text>
-      <Text style={[styles.estadisticaLabel, { color: colores.textoSuave }]}>{etiqueta}</Text>
+    <View style={styles.resumenFila}>
+      {icono ? (
+        <MaterialIcons name={icono} size={18} color={colores.primario} />
+      ) : (
+        <MaterialIcons name="receipt-long" size={18} color={colores.primario} />
+      )}
+      <Text style={[styles.resumenEtiqueta, { color: colores.textoSuave }]}>{etiqueta}</Text>
+      <Text style={[styles.resumenValor, { color: colores.texto }]}>{valor}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  tarjetaTurno: { marginHorizontal: spacing.lg },
+  verReporte: {
+    alignSelf: 'center',
+    paddingVertical: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  verReporteTexto: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.semibold,
+  },
+  lista: { paddingHorizontal: spacing.md, paddingBottom: spacing.xxl, paddingTop: spacing.md },
   turnoTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.md,
-    marginBottom: spacing.lg,
   },
   turnoEstado: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
   turnoPunto: { width: 10, height: 10, borderRadius: radius.full },
   turnoTitulo: { fontSize: typography.cuerpo, fontFamily: fuentes.bold },
   turnoHora: { fontSize: typography.cuerpoChico, fontFamily: fuentes.medium, marginTop: 2 },
-  estadisticas: {
+  resumenFilas: { marginTop: spacing.md },
+  resumenFila: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
   },
-  estadistica: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
-  estadisticaDivisor: { width: StyleSheet.hairlineWidth, height: 30 },
-  estadisticaValor: {
-    fontSize: typography.subtitulo,
-    fontFamily: fuentes.bold,
+  resumenEtiqueta: { flex: 1, fontSize: typography.cuerpo, fontFamily: fuentes.regular },
+  resumenValor: {
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.semibold,
     fontVariant: ['tabular-nums'],
   },
-  estadisticaLabel: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.semibold,
-    marginTop: 3,
-  },
-  turnoTotal: {
+  totalFila: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginTop: spacing.md,
-    overflow: 'hidden',
+    paddingTop: spacing.md,
+    marginTop: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  turnoTotalLabel: {
-    color: 'rgba(255,255,255,0.75)',
-    fontFamily: fuentes.semibold,
-    fontSize: typography.cuerpoChico,
-  },
-  turnoTotalValor: {
-    color: '#FFFFFF',
+  totalLabel: { fontSize: typography.destacado, fontFamily: fuentes.semibold },
+  totalValor: {
     fontSize: typography.subtitulo,
-    fontFamily: fuentes.bold,
+    fontFamily: fuentes.display,
     fontVariant: ['tabular-nums'],
+    letterSpacing: -0.4,
   },
-  sinTurno: { marginHorizontal: spacing.lg, alignItems: 'center', paddingVertical: spacing.xl },
-  sinTurnoTitulo: {
-    fontSize: typography.subtitulo,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.sm,
+  sinTurno: { alignItems: 'center', paddingVertical: spacing.md },
+  sinTurnoIcono: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
   },
-  sinTurnoSub: { fontSize: typography.cuerpo, fontFamily: fuentes.regular, textAlign: 'center', marginTop: spacing.xs },
+  sinTurnoTitulo: { fontSize: typography.destacado, fontFamily: fuentes.display },
+  sinTurnoSub: {
+    fontSize: typography.cuerpo,
+    fontFamily: fuentes.regular,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    lineHeight: 21,
+  },
   historialTitulo: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.semibold,
-    marginTop: spacing.xl,
-    marginBottom: spacing.sm,
-    paddingHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
-  lista: { paddingHorizontal: spacing.lg, gap: spacing.sm },
   filaTurno: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  filaTurnoFecha: { alignItems: 'center', minWidth: 70 },
+  filaTurnoFecha: { alignItems: 'flex-start', minWidth: 74 },
   filaTurnoDia: {
-    fontSize: typography.cuerpo,
+    fontSize: typography.cuerpoChico,
     fontFamily: fuentes.bold,
   },
-  filaTurnoHora: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
-  filaTurnoVentas: { fontSize: typography.cuerpo, fontFamily: fuentes.bold, marginBottom: 4 },
+  filaTurnoHora: { fontSize: typography.micro, fontFamily: fuentes.regular, marginTop: 2 },
+  filaTurnoVentas: { fontSize: typography.cuerpo, fontFamily: fuentes.semibold, marginBottom: 4 },
   filaTurnoTotal: {
     fontSize: typography.cuerpo,
     fontFamily: fuentes.bold,
     fontVariant: ['tabular-nums'],
   },
-  filaTurnoDiferencia: { fontSize: typography.cuerpoChico, fontFamily: fuentes.bold },
+  filaTurnoDiferencia: { fontSize: typography.cuerpoChico, fontFamily: fuentes.semibold },
   desglose: {
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.lg,
@@ -476,30 +516,11 @@ const styles = StyleSheet.create({
     fontFamily: fuentes.bold,
     fontVariant: ['tabular-nums'],
   },
-  resultado: { alignItems: 'center', paddingTop: spacing.sm, gap: spacing.sm },
-  resultadoIcono: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.xs,
-  },
-  resultadoTitulo: {
-    fontSize: typography.subtitulo,
-    fontFamily: fuentes.bold,
-  },
-  resultadoDiferencia: {
-    fontSize: 32,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.xs,
-    fontVariant: ['tabular-nums'],
-  },
   resultadoDetalle: {
     fontSize: typography.cuerpo,
     fontFamily: fuentes.regular,
     textAlign: 'center',
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
+    lineHeight: 21,
   },
 });

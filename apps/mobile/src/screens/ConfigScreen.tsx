@@ -56,6 +56,7 @@ import { useAvisos } from '../store/avisos';
 import { useSync } from '../store/sync';
 import { useTema } from '../store/tema';
 import {
+  AccionRapida,
   Badge,
   Boton,
   Campo,
@@ -68,9 +69,10 @@ import {
   ListaVacia,
   PaletaColores,
   Pantalla,
+  Superficie,
   Tarjeta,
 } from '../components/UI';
-import { fuentes, gradientes, paletaProductos, radius, sombraFlotante, spacing, typography } from '../theme';
+import { fuentes, gradientes, paletaProductos, radius, sombraTarjeta, spacing, typography } from '../theme';
 import {
   esUsuarioValido,
   generarUsuarioDesdeNombre,
@@ -162,64 +164,85 @@ export default function ConfigScreen() {
   }
 
   const esAdmin = usuario.rol === 'admin';
-  const colorAvatar = paletaProductos[usuario.id % paletaProductos.length];
 
   return (
     <Pantalla>
       <Encabezado titulo="Ajustes" subtitulo="Administración del negocio" />
+      <Superficie>
       <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 110 }]}>
-        <Tarjeta estilo={{ marginTop: spacing.sm }}>
-          <View style={styles.usuarioTarjeta}>
-            <View style={[styles.usuarioAvatar, { backgroundColor: colorAvatar }]}>
-              <Text style={[styles.usuarioAvatarTexto, { color: '#FFFFFF' }]}>
+        <View
+          style={[
+            styles.perfil,
+            {
+              backgroundColor: colores.superficie,
+              borderColor: colores.borde,
+              ...sombraTarjeta(colores),
+            },
+          ]}
+        >
+          <View style={[styles.perfilAvatarAnillo, { backgroundColor: colores.primarioSuave }]}>
+            <Gradiente colores={gradientes.primario} estilo={styles.perfilAvatar}>
+              <Text style={styles.perfilAvatarTexto}>
                 {usuario.nombre.charAt(0).toUpperCase()}
               </Text>
+            </Gradiente>
+            <View
+              style={[
+                styles.perfilAvatarBadge,
+                { backgroundColor: colores.superficie, borderColor: colores.superficie },
+              ]}
+            >
+              <MaterialIcons
+                name={esAdmin ? 'verified' : 'person'}
+                size={11}
+                color={colores.primario}
+              />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.usuarioNombre, { color: colores.texto }]}>{usuario.nombre}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
-                <Badge
-                  texto={esAdmin ? 'Administrador' : 'Dependiente'}
-                  color={esAdmin ? colores.primarioSuave : colores.infoSuave}
-                  colorTexto={esAdmin ? colores.primario : colores.info}
-                />
-                <Text style={[styles.usuarioAlias, { color: colores.textoSuave }]}>
-                  @{usuario.usuario}
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.perfilNombre, { color: colores.texto }]} numberOfLines={1}>
+              {usuario.nombre}
+            </Text>
+            <View style={styles.perfilMeta}>
+              <Text
+                style={[styles.perfilDetalle, { color: colores.textoSuave }]}
+                numberOfLines={1}
+              >
+                @{usuario.usuario}
+              </Text>
+              <View style={[styles.perfilRol, { backgroundColor: colores.primarioSuave }]}>
+                <Text style={[styles.perfilRolTexto, { color: colores.primario }]}>
+                  {esAdmin ? 'Administrador' : 'Dependiente'}
                 </Text>
               </View>
             </View>
           </View>
-        </Tarjeta>
+          <MaterialIcons name="chevron-right" size={18} color={colores.textoSuave} />
+        </View>
 
         {esAdmin ? (
           <>
-            <Text style={[styles.seccion, { color: colores.textoSuave }]}>Gestión</Text>
-            <Grupo>
-              <Fila
-                icono={<MaterialIcons name="inventory-2" size={22} color={colores.info} />}
-                colorIcono={colores.info}
-                colorFondo={colores.infoSuave}
-                titulo="Productos"
-                sub="Catálogo, precios y stock"
+            <View style={styles.seccionTitulo}>
+              <Text style={[styles.seccion, { color: colores.texto }]}>Gestión</Text>
+              <Text style={[styles.seccionNota, { color: colores.textoSuave }]}>Catálogo y acceso</Text>
+            </View>
+            <View style={styles.acciones}>
+              <AccionRapida
+                icono="inventory-2"
+                etiqueta="Productos"
                 onPress={() => navigation.navigate('Productos')}
               />
-              <Fila
-                icono={<MaterialIcons name="category" size={22} color={colores.advertencia} />}
-                colorIcono={colores.advertencia}
-                colorFondo={colores.advertenciaSuave}
-                titulo="Categorías"
-                sub="Agrupa tus productos"
+              <AccionRapida
+                icono="category"
+                etiqueta="Categorías"
                 onPress={() => setVista('categorias')}
               />
-              <Fila
-                icono={<MaterialIcons name="people" size={22} color={colores.acento} />}
-                colorIcono={colores.acento}
-                colorFondo={colores.acentoSuave}
-                titulo="Usuarios"
-                sub="Empleados y usuarios de acceso"
+              <AccionRapida
+                icono="people"
+                etiqueta="Usuarios"
                 onPress={() => setVista('usuarios')}
               />
-            </Grupo>
+            </View>
           </>
         ) : null}
 
@@ -344,8 +367,12 @@ export default function ConfigScreen() {
           />
         </Grupo>
 
-        <Text style={[styles.version, { color: colores.textoSuave }]}>MiCaja · v1.0.0</Text>
+        <View style={styles.pie}>
+          <View style={[styles.piePunto, { backgroundColor: colores.primario }]} />
+          <Text style={[styles.version, { color: colores.textoSuave }]}>MiCaja · v1.0.0</Text>
+        </View>
       </ScrollView>
+      </Superficie>
 
       <ExportarVentasHoja
         visible={exportar === 'hoja'}
@@ -610,7 +637,7 @@ function CategoriasVista({ onAtras }: { onAtras: () => void }) {
     abierto: false,
     editar: null,
     nombre: '',
-    color: '#A855F7',
+    color: '#3F3FB0',
   });
   const [borrando, setBorrando] = useState<Categoria | null>(null);
 
@@ -646,22 +673,22 @@ function CategoriasVista({ onAtras }: { onAtras: () => void }) {
     <Pantalla>
       <Encabezado
         titulo="Categorías"
-        subtitulo={`${categorias.length} categorías`}
+        subtitulo={`${categorias.length} ${categorias.length === 1 ? 'categoría' : 'categorías'}`}
         onAtras={onAtras}
         derecha={
           <Pressable
-            onPress={() => setForm({ abierto: true, editar: null, nombre: '', color: '#A855F7' })}
+            onPress={() => setForm({ abierto: true, editar: null, nombre: '', color: '#3F3FB0' })}
             style={({ pressed }) => [
               styles.fab,
-              { ...sombraFlotante(colores) },
+              { backgroundColor: '#FFFFFF', ...sombraTarjeta(colores) },
               pressed && { transform: [{ scale: 0.92 }] },
             ]}
           >
-            <Gradiente colores={gradientes.primario} estilo={StyleSheet.absoluteFill} />
-            <MaterialIcons name="add" size={26} color="#FFFFFF" />
+            <MaterialIcons name="add" size={20} color={colores.primario} />
           </Pressable>
         }
       />
+      <Superficie>
       <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 60 }]}>
         {categorias.length === 0 ? (
           <ListaVacia emoji="🗂️" titulo="Sin categorías" subtitulo="Toca + para crear la primera" />
@@ -696,6 +723,7 @@ function CategoriasVista({ onAtras }: { onAtras: () => void }) {
           ))
         )}
       </ScrollView>
+      </Superficie>
 
       <Hoja
         visible={form.abierto}
@@ -1086,7 +1114,7 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
     <Pantalla>
       <Encabezado
         titulo="Usuarios"
-        subtitulo={`${usuarios.length} usuario(s)`}
+        subtitulo={`${usuarios.length} ${usuarios.length === 1 ? 'usuario' : 'usuarios'}`}
         onAtras={onAtras}
         derecha={
           <Pressable
@@ -1104,15 +1132,15 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
             }
             style={({ pressed }) => [
               styles.fab,
-              { ...sombraFlotante(colores) },
+              { backgroundColor: '#FFFFFF', ...sombraTarjeta(colores) },
               pressed && { transform: [{ scale: 0.92 }] },
             ]}
           >
-            <Gradiente colores={gradientes.primario} estilo={StyleSheet.absoluteFill} />
-            <MaterialIcons name="add" size={26} color="#FFFFFF" />
+            <MaterialIcons name="add" size={20} color={colores.primario} />
           </Pressable>
         }
       />
+      <Superficie>
       <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 60 }]}>
         {usuarios.map((u, i) => (
           <View key={u.id} style={[styles.filaProducto, { backgroundColor: colores.superficie, borderColor: colores.borde }]}>
@@ -1202,6 +1230,7 @@ function UsuariosVista({ onAtras }: { onAtras: () => void }) {
           </View>
         ))}
       </ScrollView>
+      </Superficie>
 
       <Hoja
         visible={form.abierto}
@@ -1378,6 +1407,7 @@ function NegocioVista({ onAtras }: { onAtras: () => void }) {
   return (
     <Pantalla>
       <Encabezado titulo="Nombre y moneda" subtitulo="Datos de la caja" onAtras={onAtras} />
+      <Superficie>
       <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 60 }]} keyboardShouldPersistTaps="handled">
         <Campo
           etiqueta="Nombre del negocio"
@@ -1409,6 +1439,7 @@ function NegocioVista({ onAtras }: { onAtras: () => void }) {
         </View>
         <Boton titulo="Guardar cambios" icono="save" tamanio="lg" onPress={guardar} />
       </ScrollView>
+      </Superficie>
     </Pantalla>
   );
 }
@@ -1631,6 +1662,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
         subtitulo="Nube, respaldo y licencia"
         onAtras={onAtras}
       />
+      <Superficie>
       <ScrollView contentContainerStyle={[styles.contenido, { paddingBottom: 60 }]}>
         <Tarjeta estilo={{ marginTop: spacing.sm }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md }}>
@@ -1840,6 +1872,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
           </>
         )}
       </ScrollView>
+      </Superficie>
 
       <Hoja
         visible={hojaInvitacion}
@@ -2132,9 +2165,93 @@ const styles = StyleSheet.create({
     fontFamily: fuentes.medium,
     marginTop: 2,
   },
-  seccion: {
-    fontSize: typography.cuerpoChico,
+  perfil: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm + 2,
+    borderRadius: radius.tarjeta,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    marginTop: spacing.sm,
+  },
+  perfilAvatarAnillo: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2,
+  },
+  perfilAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  perfilAvatarTexto: {
+    fontSize: 18,
+    fontFamily: fuentes.display,
+    color: '#FFFFFF',
+  },
+  perfilAvatarBadge: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 17,
+    height: 17,
+    borderRadius: radius.full,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  perfilNombre: {
+    fontSize: typography.cuerpo,
     fontFamily: fuentes.semibold,
+  },
+  perfilMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  perfilDetalle: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.regular,
+    flexShrink: 1,
+  },
+  perfilRol: {
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: radius.full,
+  },
+  perfilRolTexto: {
+    fontSize: 9.5,
+    fontFamily: fuentes.semibold,
+    letterSpacing: 0.2,
+  },
+  seccionTitulo: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  seccionNota: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.regular,
+    marginTop: spacing.xl,
+    marginBottom: spacing.sm,
+  },
+  acciones: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  seccion: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.semibold,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
     marginTop: spacing.xl,
     marginBottom: spacing.sm,
   },
@@ -2163,8 +2280,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   fab: {
-    width: 44,
-    height: 44,
+    width: 38,
+    height: 38,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2261,11 +2378,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontVariant: ['tabular-nums'],
   },
+  pie: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: spacing.xl,
+  },
+  piePunto: { width: 6, height: 6, borderRadius: radius.full },
   version: {
     textAlign: 'center',
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.regular,
-    marginTop: spacing.xl,
   },
   vistaPreviaExport: {
     flexDirection: 'row',

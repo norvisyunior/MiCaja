@@ -18,9 +18,17 @@ import { guardarSetting } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
 import { useTema } from '../store/tema';
 import type { Usuario } from '../types';
-import { Boton, Campo, Gradiente, Pantalla, Tarjeta } from '../components/UI';
+import {
+  Boton,
+  Campo,
+  Encabezado,
+  Exito,
+  Pantalla,
+  Superficie,
+  TarjetaAviso,
+} from '../components/UI';
 import { PantallaCodigoRecuperacion } from '../components/CodigoRecuperacion';
-import { fuentes, gradientes, radius, spacing, typography } from '../theme';
+import { fuentes, radius, spacing, typography } from '../theme';
 import { esPinValido } from '../utils/pin';
 import {
   esUsuarioValido,
@@ -45,7 +53,6 @@ export default function RegistroScreen({
 
   const [nombreNegocio, setNombreNegocio] = useState('');
   const [propietario, setPropietario] = useState('');
-  const [email, setEmail] = useState('');
   const [usuario, setUsuario] = useState('');
   const [usuarioTocado, setUsuarioTocado] = useState(false);
   const [pin, setPin] = useState('');
@@ -56,6 +63,8 @@ export default function RegistroScreen({
   const [activacionLista, setActivacionLista] = useState<RespuestaActivacion | null>(null);
   const [usuarioCreado, setUsuarioCreado] = useState<Usuario | null>(null);
   const [codigoRecuperacion, setCodigoRecuperacion] = useState<string | null>(null);
+  const [mostrarPin, setMostrarPin] = useState(false);
+  const [cuentaCreadaAceptada, setCuentaCreadaAceptada] = useState(false);
 
   const usuarioLimpio = normalizarUsuario(usuario);
   const negocioLimpio = nombreNegocio.trim();
@@ -127,7 +136,6 @@ export default function RegistroScreen({
       registro = await registrarCuenta(db, {
         nombre: negocioLimpio,
         propietario: adminLimpio,
-        email: email.trim() || undefined,
       });
       setCodigoPendiente(registro.codigoActivacion);
     } catch (fallo) {
@@ -183,6 +191,35 @@ export default function RegistroScreen({
     }
   }
 
+  if (codigoRecuperacion && usuarioCreado && !cuentaCreadaAceptada) {
+    return (
+      <Pantalla>
+        <Encabezado titulo="Cuenta creada" />
+        <Superficie>
+          <ScrollView contentContainerStyle={styles.contenidoExito}>
+            <Exito
+              titulo="¡Cuenta creada!"
+              mensaje="Tu negocio ha sido registrado correctamente."
+            >
+              <TarjetaAviso
+                icono="warning"
+                titulo="Licencia pendiente"
+                mensaje="Tu cuenta está activa, pero requiere una licencia para realizar ventas."
+                tono="advertencia"
+              />
+              <Boton
+                titulo="Entrar"
+                tamanio="lg"
+                onPress={() => setCuentaCreadaAceptada(true)}
+                estilo={{ marginTop: spacing.lg }}
+              />
+            </Exito>
+          </ScrollView>
+        </Superficie>
+      </Pantalla>
+    );
+  }
+
   if (codigoRecuperacion && usuarioCreado) {
     return (
       <PantallaCodigoRecuperacion
@@ -196,167 +233,154 @@ export default function RegistroScreen({
 
   return (
     <Pantalla>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.contenido}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <Encabezado titulo="Crear cuenta" onAtras={onAtras} />
+      <Superficie>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Pressable
-            onPress={onAtras}
-            hitSlop={8}
-            style={({ pressed }) => [styles.volver, pressed && { opacity: 0.6 }]}
+          <ScrollView
+            contentContainerStyle={styles.contenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <MaterialIcons name="arrow-back" size={20} color={colores.textoSuave} />
-            <Text style={[styles.volverTexto, { color: colores.textoSuave }]}>Volver</Text>
-          </Pressable>
-
-          <View style={styles.hero}>
-            <Gradiente colores={gradientes.primario} estilo={styles.logo}>
-              <MaterialIcons name="person-add" size={34} color="#FFFFFF" />
-            </Gradiente>
-            <Text style={[styles.titulo, { color: colores.texto }]}>Crea tu cuenta</Text>
+            <View style={[styles.logo, { backgroundColor: colores.primarioSuave }]}>
+              <MaterialIcons name="person-add" size={30} color={colores.primario} />
+            </View>
+            <Text style={[styles.titulo, { color: colores.texto }]}>Crear cuenta</Text>
             <Text style={[styles.subtitulo, { color: colores.textoSuave }]}>
-              Registra tu negocio y activa este dispositivo en un solo paso.
+              Registra tu negocio para comenzar
             </Text>
-          </View>
 
-          <Tarjeta estilo={styles.tarjeta}>
-            <Campo
-              etiqueta="Nombre del negocio"
-              valor={nombreNegocio}
-              onChange={setNombreNegocio}
-              placeholder="Ej.: Bodega La Esquina"
-              icono="storefront"
-              autoFocus
-            />
-            <Campo
-              etiqueta="Nombre del administrador"
-              valor={propietario}
-              onChange={(texto) => {
-                setPropietario(texto);
-                if (!usuarioTocado) setUsuario(generarUsuarioDesdeNombre(texto));
-              }}
-              placeholder="Ej.: María"
-              icono="person"
-            />
-            <Campo
-              etiqueta="Correo (opcional)"
-              valor={email}
-              onChange={setEmail}
-              placeholder="tu@correo.com"
-              icono="alternate-email"
-              teclado="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
-            />
-            <Campo
-              etiqueta="Usuario de acceso"
-              valor={usuario}
-              onChange={(texto) => {
-                setUsuarioTocado(true);
-                setUsuario(texto.replace(/\s/g, '').toLowerCase());
-              }}
-              placeholder="Ej.: maria"
-              icono="alternate-email"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="username"
-              maxLength={20}
-            />
-            <Campo
-              etiqueta="Contraseña (4 dígitos)"
-              valor={pin}
-              onChange={(texto) => setPin(texto.replace(/\D/g, '').slice(0, 4))}
-              placeholder="••••"
-              teclado="numeric"
-              seguro
-              maxLength={4}
-              icono="lock"
-              autoComplete="new-password"
-            />
-            <Campo
-              etiqueta="Confirmar contraseña"
-              valor={confirmacion}
-              onChange={(texto) => setConfirmacion(texto.replace(/\D/g, '').slice(0, 4))}
-              placeholder="••••"
-              teclado="numeric"
-              seguro
-              maxLength={4}
-              icono="lock-outline"
-              autoComplete="new-password"
-            />
+            <View style={styles.form}>
+              <Campo
+                etiqueta="Nombre del negocio"
+                valor={nombreNegocio}
+                onChange={setNombreNegocio}
+                placeholder="Ej.: Bodega La Esquina"
+                icono="storefront"
+                autoFocus
+              />
+              <Campo
+                etiqueta="Nombre del administrador"
+                valor={propietario}
+                onChange={(texto) => {
+                  setPropietario(texto);
+                  if (!usuarioTocado) setUsuario(generarUsuarioDesdeNombre(texto));
+                }}
+                placeholder="Ej.: María"
+                icono="person"
+              />
+              <Campo
+                etiqueta="Usuario de acceso"
+                valor={usuario}
+                onChange={(texto) => {
+                  setUsuarioTocado(true);
+                  setUsuario(texto.replace(/\s/g, '').toLowerCase());
+                }}
+                placeholder="Ej.: usuario123"
+                icono="alternate-email"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                maxLength={20}
+              />
+              <Campo
+                etiqueta="Contraseña"
+                valor={pin}
+                onChange={(texto) => {
+                  const limpio = texto.replace(/\D/g, '').slice(0, 4);
+                  setPin(limpio);
+                  setConfirmacion(limpio);
+                }}
+                placeholder="••••"
+                teclado="numeric"
+                seguro={!mostrarPin}
+                maxLength={4}
+                icono="lock"
+                autoComplete="new-password"
+                derecha={
+                  <Pressable
+                    onPress={() => setMostrarPin((v) => !v)}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={mostrarPin ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    style={({ pressed }) => [styles.ojo, pressed && { opacity: 0.55 }]}
+                  >
+                    <MaterialIcons
+                      name={mostrarPin ? 'visibility-off' : 'visibility'}
+                      size={20}
+                      color={colores.textoSuave}
+                    />
+                  </Pressable>
+                }
+              />
 
-            {error ? (
-              <View style={[styles.error, { backgroundColor: colores.peligroSuave }]}>
-                <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
-                <Text style={[styles.errorTexto, { color: colores.peligro }]}>{error}</Text>
-              </View>
-            ) : null}
+              {error ? (
+                <View style={[styles.error, { backgroundColor: colores.peligroSuave }]}>
+                  <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
+                  <Text style={[styles.errorTexto, { color: colores.peligro }]}>{error}</Text>
+                </View>
+              ) : null}
 
-            {codigoPendiente ? (
-              <View
-                style={[
-                  styles.codigo,
-                  { backgroundColor: colores.infoSuave, borderColor: colores.info + '33' },
-                ]}
-              >
-                <Text style={[styles.codigoEtiqueta, { color: colores.info }]}>
-                  Código de activación
-                </Text>
-                <Text selectable style={[styles.codigoValor, { color: colores.texto }]}>
-                  {codigoPendiente}
-                </Text>
-                <Text style={[styles.codigoAyuda, { color: colores.textoSuave }]}>
-                  Guárdalo. Puedes reintentar la activación ahora o usarlo más tarde.
-                </Text>
-              </View>
-            ) : null}
+              {codigoPendiente ? (
+                <View style={[styles.codigo, { backgroundColor: colores.infoSuave }]}>
+                  <Text style={[styles.codigoEtiqueta, { color: colores.info }]}>
+                    Código de activación
+                  </Text>
+                  <Text selectable style={[styles.codigoValor, { color: colores.texto }]}>
+                    {codigoPendiente}
+                  </Text>
+                  <Text style={[styles.codigoAyuda, { color: colores.textoSuave }]}>
+                    Guárdalo. Puedes reintentar la activación ahora o usarlo más tarde.
+                  </Text>
+                </View>
+              ) : null}
 
-            {activacionLista ? (
+              {activacionLista ? (
+                <Boton
+                  titulo="Crear administrador"
+                  icono="admin-panel-settings"
+                  tamanio="lg"
+                  cargando={guardando}
+                  onPress={crearAdminPendiente}
+                  estilo={{ marginTop: spacing.sm }}
+                />
+              ) : codigoPendiente ? (
+                <Boton
+                  titulo="Reintentar activación"
+                  icono="phonelink-lock"
+                  tamanio="lg"
+                  cargando={guardando}
+                  onPress={reintentarActivacion}
+                  estilo={{ marginTop: spacing.sm }}
+                />
+              ) : (
+                <Boton
+                  titulo="Crear cuenta"
+                  tamanio="lg"
+                  cargando={guardando}
+                  onPress={crearCuenta}
+                  estilo={{ marginTop: spacing.sm }}
+                />
+              )}
+
+              <Text style={[styles.terminos, { color: colores.textoSuave }]}>
+                Al continuar aceptas nuestros Términos y Condiciones
+              </Text>
+
               <Boton
-                titulo="Crear administrador"
-                icono="admin-panel-settings"
-                tamanio="lg"
-                cargando={guardando}
-                onPress={crearAdminPendiente}
+                titulo="Configurar sin conexión"
+                icono="wifi-off"
+                variante="fantasma"
+                tamanio="sm"
+                onPress={onConfigurarLocal}
                 estilo={{ marginTop: spacing.sm }}
               />
-            ) : codigoPendiente ? (
-              <Boton
-                titulo="Reintentar activación"
-                icono="phonelink-lock"
-                tamanio="lg"
-                cargando={guardando}
-                onPress={reintentarActivacion}
-                estilo={{ marginTop: spacing.sm }}
-              />
-            ) : (
-              <Boton
-                titulo="Crear cuenta y activar"
-                icono="rocket-launch"
-                tamanio="lg"
-                cargando={guardando}
-                onPress={crearCuenta}
-                estilo={{ marginTop: spacing.sm }}
-              />
-            )}
-
-            <Boton
-              titulo="Configurar sin conexión"
-              icono="wifi-off"
-              variante="fantasma"
-              tamanio="sm"
-              onPress={onConfigurarLocal}
-              estilo={{ marginTop: spacing.sm }}
-            />
-          </Tarjeta>
-        </ScrollView>
-      </KeyboardAvoidingView>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Superficie>
     </Pantalla>
   );
 }
@@ -364,48 +388,47 @@ export default function RegistroScreen({
 const styles = StyleSheet.create({
   contenido: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xl,
-  },
-  volver: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    marginBottom: spacing.md,
-  },
-  volverTexto: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.medium,
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
   },
   logo: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.xl,
+    width: 64,
+    height: 64,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
   },
   titulo: {
-    fontSize: typography.tituloGrande,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.lg,
+    fontSize: typography.titulo,
+    fontFamily: fuentes.display,
+    marginTop: spacing.md,
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   subtitulo: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.regular,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     textAlign: 'center',
     lineHeight: 20,
   },
-  tarjeta: {
-    width: '100%',
+  contenidoExito: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xl,
+  },
+  ojo: { padding: spacing.xs },
+  terminos: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.regular,
+    textAlign: 'center',
+    marginTop: spacing.md,
+  },
+  form: {
+    marginTop: spacing.lg,
   },
   error: {
     flexDirection: 'row',
@@ -422,7 +445,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   codigo: {
-    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.md,

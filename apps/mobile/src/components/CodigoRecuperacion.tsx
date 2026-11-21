@@ -1,8 +1,8 @@
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useTema } from '../store/tema';
-import { fuentes, gradientes, radius, spacing, typography } from '../theme';
-import { Boton, Gradiente, Pantalla, Tarjeta } from './UI';
+import { fuentes, radius, spacing, typography } from '../theme';
+import { Boton, Encabezado, Exito, Pantalla, Superficie, Tarjeta } from './UI';
 
 export function ContenidoCodigoRecuperacion({
   nombre,
@@ -15,25 +15,30 @@ export function ContenidoCodigoRecuperacion({
 
   return (
     <View>
-      <Text style={[styles.etiqueta, { color: colores.textoSuave }]}>
+      <Text
+        style={[
+          styles.etiqueta,
+          { color: colores.textoSuave },
+        ]}
+      >
         {nombre ? `Cuenta de ${nombre}` : 'Tu cuenta'}
       </Text>
       <View
         style={[
           styles.codigoCaja,
-          { backgroundColor: colores.superficieSuave, borderColor: colores.borde },
+          { backgroundColor: colores.primarioSuave },
         ]}
       >
         <Text
           selectable
-          style={[styles.codigo, { color: colores.texto }]}
+          style={[styles.codigo, { color: colores.primario }]}
           accessibilityLabel="Código de recuperación"
         >
           {codigo}
         </Text>
       </View>
       <View style={[styles.aviso, { backgroundColor: colores.advertenciaSuave }]}>
-        <MaterialIcons name="warning-amber" size={19} color={colores.advertencia} />
+        <MaterialIcons name="warning" size={20} color={'#F39A16'} />
         <Text style={[styles.avisoTexto, { color: colores.texto }]}>
           Anótalo en un lugar seguro. Solo se muestra esta vez y sirve para
           restablecer tu PIN si lo olvidas. Cada uso genera un código nuevo.
@@ -64,31 +69,32 @@ export function PantallaCodigoRecuperacion({
 
   return (
     <Pantalla>
-      <ScrollView
-        contentContainerStyle={styles.contenido}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.hero}>
-          <Gradiente colores={gradientes.primario} estilo={styles.logo}>
-            <MaterialIcons name="key" size={34} color="#FFFFFF" />
-          </Gradiente>
-          <Text style={[styles.titulo, { color: colores.texto }]}>{titulo}</Text>
-          <Text style={[styles.subtitulo, { color: colores.textoSuave }]}>
-            Este código es tu llave de repuesto. No vuelve a mostrarse.
-          </Text>
-        </View>
+      <Encabezado />
+      <Superficie>
+        <ScrollView
+          contentContainerStyle={styles.contenido}
+          showsVerticalScrollIndicator={false}
+        >
+          <Exito
+            titulo={titulo}
+            mensaje="Este código es tu llave de repuesto. No vuelve a mostrarse."
+          />
+          <Tarjeta estilo={styles.tarjeta}>
+            <ContenidoCodigoRecuperacion nombre={nombre} codigo={codigo} />
+          </Tarjeta>
 
-        <Tarjeta estilo={styles.tarjeta}>
-          <ContenidoCodigoRecuperacion nombre={nombre} codigo={codigo} />
+          <View style={{ flex: 1 }} />
           <Boton
             titulo={textoBoton}
-            icono="arrow-forward"
             tamanio="lg"
             onPress={onContinuar}
             estilo={{ marginTop: spacing.lg }}
           />
-        </Tarjeta>
-      </ScrollView>
+          <Text style={[styles.pie, { color: colores.textoSuave }]}>
+            Guarda este código fuera del teléfono.
+          </Text>
+        </ScrollView>
+      </Superficie>
     </Pantalla>
   );
 }
@@ -96,54 +102,27 @@ export function PantallaCodigoRecuperacion({
 const styles = StyleSheet.create({
   contenido: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xl,
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  logo: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titulo: {
-    fontSize: typography.tituloGrande,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.lg,
-    textAlign: 'center',
-    letterSpacing: -0.5,
-  },
-  subtitulo: {
-    fontSize: typography.cuerpoChico,
-    fontFamily: fuentes.regular,
-    marginTop: spacing.sm,
-    textAlign: 'center',
-    lineHeight: 20,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.xl,
   },
   tarjeta: {
     width: '100%',
+    marginTop: spacing.lg,
   },
   etiqueta: {
     fontSize: typography.micro,
-    fontFamily: fuentes.medium,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    fontFamily: fuentes.semibold,
+    letterSpacing: 0.4,
     marginBottom: spacing.sm,
   },
   codigoCaja: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
+    borderRadius: radius.campo,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
     alignItems: 'center',
   },
   codigo: {
-    fontSize: 24,
+    fontSize: 23,
     letterSpacing: 2,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
@@ -158,11 +137,17 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: typography.cuerpoChico,
     lineHeight: 19,
-    fontFamily: fuentes.medium,
+    fontFamily: fuentes.regular,
   },
   ayuda: {
     fontSize: typography.micro,
     lineHeight: 17,
+    fontFamily: fuentes.regular,
+    marginTop: spacing.md,
+  },
+  pie: {
+    textAlign: 'center',
+    fontSize: typography.micro,
     fontFamily: fuentes.regular,
     marginTop: spacing.md,
   },

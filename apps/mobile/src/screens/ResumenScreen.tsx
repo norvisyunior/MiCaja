@@ -18,10 +18,17 @@ import {
 } from '../db/repos/estadisticas';
 import { obtenerSettings } from '../db/repos/settings';
 import { useTema } from '../store/tema';
-import { useSesion } from '../store/sesion';
 import { useSync } from '../store/sync';
-import { Boton, Chip, Encabezado, EstadoCarga, Pantalla, Tarjeta } from '../components/UI';
-import { Barras, BarraApilada, FilasProgreso } from '../components/Graficos';
+import {
+  Boton,
+  Encabezado,
+  EstadoCarga,
+  Pantalla,
+  Segmentado,
+  Superficie,
+  Tarjeta,
+} from '../components/UI';
+import { Barras, BarraApilada } from '../components/Graficos';
 import { fuentes, radius, spacing, typography } from '../theme';
 import { NOMBRES_FORMA_PAGO } from '../utils/calculos';
 import { formatearDinero, inicioDiaISO, finDiaISO, inicioSemanaISO, inicioMesISO } from '../utils/fechas';
@@ -30,24 +37,23 @@ import type { ParamListRaiz, ParamListTabs } from '../navigation';
 type Rango = 'hoy' | 'semana' | 'mes';
 
 const RANGOS: { id: Rango; etiqueta: string }[] = [
-  { id: 'hoy', etiqueta: 'Hoy' },
-  { id: 'semana', etiqueta: 'Semana' },
-  { id: 'mes', etiqueta: 'Mes' },
+  { id: 'hoy', etiqueta: 'Diario' },
+  { id: 'semana', etiqueta: 'Semanal' },
+  { id: 'mes', etiqueta: 'Mensual' },
 ];
 
 const COLORES_FORMA: Record<string, string> = {
-  efectivo: '#22C55E',
-  transfermovil: '#3B82F6',
-  enzona: '#A855F7',
+  efectivo: '#22A85A',
+  transfermovil: '#2E6FE0',
+  enzona: '#7C5CE0',
   transferencia: '#14B8A6',
-  mixto: '#FF6B35',
+  mixto: '#E8A33D',
 };
 
 const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 
 export default function ResumenScreen() {
   const db = useSQLiteContext();
-  const usuario = useSesion((s) => s.usuario)!;
   const ultimaSync = useSync((s) => s.ultimaSync);
   const { colores } = useTema();
   const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
@@ -95,8 +101,10 @@ export default function ResumenScreen() {
   if (cargando || !resumen) {
     return (
       <Pantalla>
-        <Encabezado titulo="Resumen" />
-        <EstadoCarga />
+        <Encabezado titulo="Reportes" />
+        <Superficie>
+          <EstadoCarga />
+        </Superficie>
       </Pantalla>
     );
   }
@@ -110,8 +118,8 @@ export default function ResumenScreen() {
           const fecha = new Date(`${d.dia}T12:00:00`);
           return {
             etiqueta: DIAS[fecha.getDay()],
-            valor: d.ventas,
-            max: d.ventas === Math.max(...porDia.map((x) => x.ventas)),
+            valor: d.total,
+            max: d.total === Math.max(...porDia.map((x) => x.total)),
           };
         })
       : [{ etiqueta: '—', valor: 0, max: false }];
@@ -122,265 +130,198 @@ export default function ResumenScreen() {
     color: COLORES_FORMA[f.formaPago] ?? colores.primario,
   }));
 
-  const kpis = [
-    {
-      etiqueta: 'Ventas',
-      valor: String(resumen.ventas),
-      icono: 'receipt-long' as const,
-      color: colores.info,
-      fondo: colores.infoSuave,
-    },
-    {
-      etiqueta: 'Ingresos',
-      valor: formatearDinero(resumen.ingresos, simbolo),
-      icono: 'payments' as const,
-      color: colores.acento,
-      fondo: colores.acentoSuave,
-    },
-    {
-      etiqueta: 'Ticket promedio',
-      valor: formatearDinero(resumen.ticketPromedio, simbolo),
-      icono: 'shopping-bag' as const,
-      color: colores.advertencia,
-      fondo: colores.advertenciaSuave,
-    },
-    {
-      etiqueta: 'Efectivo',
-      valor: formatearDinero(resumen.efectivo, simbolo),
-      icono: 'currency-exchange' as const,
-      color: colores.exito,
-      fondo: colores.exitoSuave,
-    },
-  ];
+  const tituloPeriodo =
+    rango === 'hoy' ? 'Ventas del día' : rango === 'semana' ? 'Ventas de la semana' : 'Ventas del mes';
 
   return (
     <Pantalla>
-      <Encabezado titulo="Resumen" subtitulo="Rendimiento del negocio" />
-      <View style={styles.rangos}>
-        {RANGOS.map((r) => (
-          <Chip
-            key={r.id}
-            etiqueta={r.etiqueta}
-            activo={rango === r.id}
-            onPress={() => setRango(r.id)}
-            estilo={{ flex: 1 }}
-          />
-        ))}
-      </View>
-      <ScrollView
-        contentContainerStyle={[styles.contenido, { paddingBottom: 110 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.kpis}>
-          {kpis.map((k) => (
-            <Tarjeta key={k.etiqueta} padding={spacing.md} estilo={styles.kpiContenedor}>
-              <View style={styles.kpiCabecera}>
-                <View style={[styles.kpiIcono, { backgroundColor: k.fondo }]}>
-                  <MaterialIcons name={k.icono} size={19} color={k.color} />
-                </View>
-              </View>
-              <Text
-                style={[styles.kpiValor, { color: colores.texto }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {k.valor}
-              </Text>
-              <Text style={[styles.kpiLabel, { color: colores.textoSuave }]}>{k.etiqueta}</Text>
-            </Tarjeta>
-          ))}
-        </View>
+      <Encabezado titulo="Reportes" />
+      <Superficie>
 
-        <Tarjeta estilo={styles.tarjeta}>
-          <View style={styles.tarjetaCabecera}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>Ventas por día</Text>
-              <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>
-                {ventasTotal} ventas · {formatearDinero(totales, simbolo)}
-              </Text>
-            </View>
-            <View style={[styles.cabeceraIcono, { backgroundColor: colores.acentoSuave }]}>
-              <MaterialIcons name="trending-up" size={19} color={colores.acento} />
-            </View>
-          </View>
-          <Barras datos={datosBarras} />
-        </Tarjeta>
+        <ScrollView
+          contentContainerStyle={styles.contenido}
+          showsVerticalScrollIndicator={false}
+        >
+          <Segmentado opciones={RANGOS} valor={rango} onCambio={setRango} />
 
-        <Tarjeta estilo={styles.tarjeta}>
-          <View style={styles.tarjetaCabecera}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>Formas de pago</Text>
-              <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>
-                {formatearDinero(resumen.efectivo + resumen.digital, simbolo)} cobrados
-              </Text>
-            </View>
-            <View style={[styles.cabeceraIcono, { backgroundColor: colores.infoSuave }]}>
-              <MaterialIcons name="account-balance-wallet" size={19} color={colores.info} />
-            </View>
-          </View>
-
-          {porForma.length === 0 ? (
-            <Text style={[styles.sinDatos, { color: colores.textoSuave }]}>
-              Sin cobros en este período
+          <Tarjeta>
+            <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>{tituloPeriodo}</Text>
+            <Text
+              style={[styles.cifraGrande, { color: colores.texto }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {formatearDinero(totales, simbolo)}
             </Text>
-          ) : (
-            <>
-              <BarraApilada segmentos={segmentos} />
-              <View style={styles.leyenda}>
-                {porForma.map((f) => (
-                  <View key={f.formaPago} style={styles.leyendaFila}>
-                    <View
-                      style={[
-                        styles.leyendaPunto,
-                        { backgroundColor: COLORES_FORMA[f.formaPago] ?? colores.primario },
-                      ]}
-                    />
-                    <Text style={[styles.leyendaTexto, { color: colores.texto }]}>
-                      {NOMBRES_FORMA_PAGO[f.formaPago]}
-                    </Text>
-                    <View style={[styles.leyendaCantidad, { backgroundColor: colores.superficieSuave }]}>
-                      <Text style={[styles.leyendaCantidadTexto, { color: colores.textoSuave }]}>
-                        {f.ventas}
-                      </Text>
-                    </View>
-                    <Text style={[styles.leyendaTotal, { color: colores.texto }]}>
-                      {formatearDinero(f.total, simbolo)}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
-        </Tarjeta>
+            <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>
+              {ventasTotal} venta(s) · ticket medio {formatearDinero(resumen.ticketPromedio, simbolo)}
+            </Text>
+            <View style={{ marginTop: spacing.sm }}>
+              <Barras datos={datosBarras} alto={92} />
+            </View>
+          </Tarjeta>
 
-        <Tarjeta estilo={styles.tarjeta}>
-          <View style={styles.tarjetaCabecera}>
-            <View style={{ flex: 1 }}>
+          <Tarjeta>
+            <View style={styles.tarjetaCabecera}>
               <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>
                 Productos más vendidos
               </Text>
-              <Text style={[styles.tarjetaSub, { color: colores.textoSuave }]}>
-                Por cantidad de unidades
+              <View style={[styles.iconoSuave, { backgroundColor: colores.primarioSuave }]}>
+                <MaterialIcons name="emoji-events" size={18} color={colores.primario} />
+              </View>
+            </View>
+            {tops.length === 0 ? (
+              <Text style={[styles.sinDatos, { color: colores.textoSuave }]}>
+                Sin ventas en este período
               </Text>
-            </View>
-            <View style={[styles.cabeceraIcono, { backgroundColor: colores.advertenciaSuave }]}>
-              <MaterialIcons name="emoji-events" size={19} color={colores.advertencia} />
-            </View>
-          </View>
-          {tops.length === 0 ? (
-            <Text style={[styles.sinDatos, { color: colores.textoSuave }]}>
-              Sin ventas en este período
-            </Text>
-          ) : (
-            <FilasProgreso
-              items={tops.map((t) => ({
-                emoji: t.emoji,
-                imagen: t.imagen,
-                nombre: t.nombre,
-                valor: t.cantidad,
-                detalle: `${t.cantidad} u · ${formatearDinero(t.total, simbolo)}`,
-              }))}
-            />
-          )}
-        </Tarjeta>
+            ) : (
+              <View>
+                {tops.map((t, i) => (
+                  <View
+                    key={`${t.nombre}-${i}`}
+                    style={[
+                      styles.topFila,
+                      i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colores.borde },
+                    ]}
+                  >
+                    <View style={[styles.topTile, { backgroundColor: colores.superficieSuave }]}>
+                      <Text style={{ fontSize: 21 }}>{t.emoji}</Text>
+                    </View>
+                    <Text
+                      style={[styles.topNombre, { color: colores.texto }]}
+                      numberOfLines={1}
+                    >
+                      {t.nombre}
+                    </Text>
+                    <Text style={[styles.topCantidad, { color: colores.texto }]}>{t.cantidad}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </Tarjeta>
 
-        <Boton
-          titulo="Cerrar caja / turno"
-          icono="lock-outline"
-          variante="suave"
-          tamanio="lg"
-          onPress={() => navigation.navigate('Turno')}
-          estilo={{ marginTop: spacing.sm }}
-        />
-      </ScrollView>
+          <Tarjeta>
+            <View style={styles.tarjetaCabecera}>
+              <Text style={[styles.tarjetaTitulo, { color: colores.texto }]}>Formas de pago</Text>
+              <View style={[styles.iconoSuave, { backgroundColor: colores.infoSuave }]}>
+                <MaterialIcons name="account-balance-wallet" size={18} color={colores.info} />
+              </View>
+            </View>
+            {porForma.length === 0 ? (
+              <Text style={[styles.sinDatos, { color: colores.textoSuave }]}>
+                Sin cobros en este período
+              </Text>
+            ) : (
+              <>
+                <BarraApilada segmentos={segmentos} />
+                <View style={styles.leyenda}>
+                  {porForma.map((f) => (
+                    <View key={f.formaPago} style={styles.leyendaFila}>
+                      <View
+                        style={[
+                          styles.leyendaPunto,
+                          { backgroundColor: COLORES_FORMA[f.formaPago] ?? colores.primario },
+                        ]}
+                      />
+                      <Text style={[styles.leyendaTexto, { color: colores.texto }]}>
+                        {NOMBRES_FORMA_PAGO[f.formaPago]}
+                      </Text>
+                      <Text style={[styles.leyendaCantidad, { color: colores.textoSuave }]}>
+                        {f.ventas}
+                      </Text>
+                      <Text style={[styles.leyendaTotal, { color: colores.texto }]}>
+                        {formatearDinero(f.total, simbolo)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+          </Tarjeta>
+
+          <View style={styles.acciones}>
+            <Boton
+              titulo="Ver historial"
+              icono="receipt-long"
+              variante="secundario"
+              tamanio="md"
+              onPress={() => navigation.navigate('Historial')}
+              estilo={{ flex: 1 }}
+            />
+            <Boton
+              titulo="Cerrar caja"
+              icono="lock-outline"
+              variante="primario"
+              tamanio="md"
+              onPress={() => navigation.navigate('Turno')}
+              estilo={{ flex: 1 }}
+            />
+          </View>
+        </ScrollView>
+      </Superficie>
     </Pantalla>
   );
 }
 
 const styles = StyleSheet.create({
-  rangos: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md,
+  contenido: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl },
+  tarjetaTitulo: {
+    fontSize: typography.destacado,
+    fontFamily: fuentes.display,
+    letterSpacing: -0.3,
   },
-  contenido: { paddingHorizontal: spacing.lg, gap: spacing.md },
-  kpis: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+  cifraGrande: {
+    fontSize: 34,
+    fontFamily: fuentes.display,
+    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
+    marginTop: spacing.xs,
   },
-  kpiContenedor: {
-    width: '48.4%',
-  },
-  kpiCabecera: {
+  tarjetaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
+  tarjetaCabecera: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
     marginBottom: spacing.sm,
   },
-  kpiIcono: {
-    width: 36,
-    height: 36,
+  iconoSuave: {
+    width: 34,
+    height: 34,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  kpiValor: {
-    fontSize: typography.titulo,
-    fontFamily: fuentes.bold,
-    fontVariant: ['tabular-nums'],
-    letterSpacing: -0.6,
-  },
-  kpiLabel: {
-    fontSize: typography.micro,
-    fontFamily: fuentes.medium,
-    marginTop: 3,
-  },
-  tarjeta: {
-    padding: spacing.lg,
-  },
-  tarjetaCabecera: {
+  topFila: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    marginBottom: spacing.lg,
+    paddingVertical: 10,
   },
-  cabeceraIcono: {
+  topTile: {
     width: 38,
     height: 38,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tarjetaTitulo: {
-    fontSize: typography.destacado,
-    fontFamily: fuentes.bold,
-    letterSpacing: -0.3,
-  },
-  tarjetaSub: { fontSize: typography.cuerpoChico, fontFamily: fuentes.regular, marginTop: 2 },
-  leyenda: {
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  leyendaFila: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  leyendaPunto: { width: 10, height: 10, borderRadius: radius.full },
-  leyendaTexto: { flex: 1, fontSize: typography.cuerpoChico, fontFamily: fuentes.medium },
-  leyendaCantidad: {
-    minWidth: 24,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-    alignItems: 'center',
-  },
-  leyendaCantidadTexto: { fontSize: 10, fontFamily: fuentes.bold },
-  leyendaTotal: {
-    fontSize: typography.cuerpoChico,
+  topNombre: { flex: 1, fontSize: typography.cuerpo, fontFamily: fuentes.medium },
+  topCantidad: {
+    fontSize: typography.cuerpo,
     fontFamily: fuentes.bold,
     fontVariant: ['tabular-nums'],
+  },
+  leyenda: { gap: spacing.sm, marginTop: spacing.md },
+  leyendaFila: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  leyendaPunto: { width: 9, height: 9, borderRadius: radius.full },
+  leyendaTexto: { flex: 1, fontSize: typography.cuerpoChico, fontFamily: fuentes.medium },
+  leyendaCantidad: { fontSize: typography.micro, fontFamily: fuentes.medium, minWidth: 26, textAlign: 'right' },
+  leyendaTotal: {
+    fontSize: typography.cuerpoChico,
+    fontFamily: fuentes.semibold,
+    fontVariant: ['tabular-nums'],
+    minWidth: 74,
+    textAlign: 'right',
   },
   sinDatos: {
     fontSize: typography.cuerpo,
@@ -388,4 +329,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: spacing.md,
   },
+  acciones: { flexDirection: 'row', gap: spacing.sm },
 });

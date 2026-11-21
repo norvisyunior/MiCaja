@@ -1,11 +1,11 @@
 ﻿import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useAvisos } from '../store/avisos';
 import { useTema } from '../store/tema';
 import { fuentes, radius, spacing, typography } from '../theme';
-import { Gradiente } from './UI';
 
 export function AvisoGlobal() {
-  const { colores, modo } = useTema();
+  const { colores } = useTema();
   const avisos = useAvisos((s) => s.avisos);
   const cerrar = useAvisos((s) => s.cerrar);
   const aviso = avisos[avisos.length - 1];
@@ -22,7 +22,15 @@ export function AvisoGlobal() {
       onRequestClose={() => cerrar(aviso.id)}
     >
       <View style={[styles.fondo, { backgroundColor: colores.overlay }]}>
-        <View style={[styles.tarjeta, { backgroundColor: colores.vidrio, borderColor: colores.borde }]}>
+        <View
+          style={[
+            styles.tarjeta,
+            { backgroundColor: colores.superficie, borderColor: colores.borde },
+          ]}
+        >
+          <View style={[styles.icono, { backgroundColor: colores.primarioSuave }]}>
+            <MaterialIcons name="notifications-none" size={26} color={colores.primario} />
+          </View>
           <Text style={[styles.titulo, { color: colores.texto }]}>{aviso.titulo}</Text>
           {aviso.mensaje ? (
             <Text style={[styles.mensaje, { color: colores.textoSuave }]}>{aviso.mensaje}</Text>
@@ -31,13 +39,6 @@ export function AvisoGlobal() {
             {aviso.botones.map((b, i) => {
               const peligro = b.estilo === 'peligro';
               const cancel = b.estilo === 'cancel';
-              const colorTexto = cancel
-                ? colores.texto
-                : peligro
-                  ? '#FFFFFF'
-                  : modo === 'oscuro'
-                    ? colores.fondoProfundo
-                    : colores.textoInverso;
               return (
                 <Pressable
                   key={i}
@@ -47,25 +48,22 @@ export function AvisoGlobal() {
                   }}
                   style={({ pressed }) => [
                     styles.boton,
-                    cancel
-                      ? { backgroundColor: colores.vidrioSuave, borderWidth: 1, borderColor: colores.borde }
-                      : { backgroundColor: colores.primario, overflow: 'hidden' },
+                    {
+                      backgroundColor: cancel ? colores.superficie : peligro ? colores.peligro : colores.primario,
+                      borderWidth: cancel ? 1 : 0,
+                      borderColor: colores.borde,
+                    },
                     pressed && { opacity: 0.85 },
                   ]}
                 >
-                  {!cancel && !peligro ? (
-                    <Gradiente
-                      colores={['#A855F7', '#EC4899']}
-                      estilo={StyleSheet.absoluteFill}
-                    />
-                  ) : null}
-                  {!cancel && peligro ? (
-                    <Gradiente
-                      colores={['#FB7185', '#F43F5E']}
-                      estilo={StyleSheet.absoluteFill}
-                    />
-                  ) : null}
-                  <Text style={[styles.botonTexto, { color: colorTexto }]}>{b.texto}</Text>
+                  <Text
+                    style={[
+                      styles.botonTexto,
+                      { color: cancel ? colores.primario : '#FFFFFF' },
+                    ]}
+                  >
+                    {b.texto}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -84,35 +82,45 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   tarjeta: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.xl,
+    borderWidth: 1,
     padding: spacing.xl,
     width: '100%',
     maxWidth: 400,
   },
+  icono: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
   titulo: {
-    fontSize: typography.subtitulo,
-    fontFamily: fuentes.extrabold,
+    fontSize: typography.titulo,
+    fontFamily: fuentes.display,
+    letterSpacing: -0.4,
   },
   mensaje: {
     fontSize: typography.cuerpo,
     marginTop: spacing.sm,
     marginBottom: spacing.xl,
     fontFamily: fuentes.regular,
+    lineHeight: 22,
   },
   botones: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   boton: {
     flex: 1,
-    height: 44,
-    borderRadius: radius.md,
+    height: 48,
+    borderRadius: radius.boton,
     alignItems: 'center',
     justifyContent: 'center',
   },
   botonTexto: {
-    fontFamily: fuentes.bold,
+    fontFamily: fuentes.semibold,
     fontSize: typography.cuerpoChico,
   },
 });

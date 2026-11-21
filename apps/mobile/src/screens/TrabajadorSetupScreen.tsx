@@ -15,9 +15,15 @@ import { CLAVE_CODIGO_PENDIENTE, CLAVE_ROL_ACTIVACION, leerSetting } from '../ap
 import { useSesion } from '../store/sesion';
 import { useTema } from '../store/tema';
 import type { Rol, Usuario } from '../types';
-import { Boton, Campo, Gradiente, Pantalla, Tarjeta } from '../components/UI';
+import {
+  Boton,
+  Campo,
+  Encabezado,
+  Pantalla,
+  Superficie,
+} from '../components/UI';
 import { PantallaCodigoRecuperacion } from '../components/CodigoRecuperacion';
-import { fuentes, gradientes, radius, spacing, typography } from '../theme';
+import { fuentes, radius, spacing, typography } from '../theme';
 import { esPinValido } from '../utils/pin';
 import {
   esUsuarioValido,
@@ -129,93 +135,95 @@ export default function TrabajadorSetupScreen({ onListo }: { onListo?: () => voi
 
   return (
     <Pantalla>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.contenido}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <Encabezado titulo="Crea tu cuenta" />
+      <Superficie>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.hero}>
-            <Gradiente colores={gradientes.primario} estilo={styles.logo}>
-              <MaterialIcons name="badge" size={34} color="#FFFFFF" />
-            </Gradiente>
-            <Text style={[styles.titulo, { color: colores.texto }]}>Crea tu cuenta</Text>
-            <Text style={[styles.subtitulo, { color: colores.textoSuave }]}>
-              Este dispositivo quedó unido al negocio. Crea tu usuario con el rol
-              {rol === 'admin' ? ' de administrador ' : ' de dependiente '}
-              que te asignaron para usar la caja.
+          <ScrollView
+            contentContainerStyle={styles.contenido}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.logo, { backgroundColor: colores.primarioSuave }]}>
+              <MaterialIcons name="badge" size={30} color={colores.primario} />
+            </View>
+            <Text style={[styles.titulo, { color: colores.texto }]}>
+              {rol === 'admin' ? 'Cuenta de administrador' : 'Cuenta de dependiente'}
             </Text>
-          </View>
+            <Text style={[styles.subtitulo, { color: colores.textoSuave }]}>
+              Este dispositivo quedó unido al negocio. Crea tu usuario para usar la caja.
+            </Text>
 
-          <Tarjeta estilo={styles.tarjeta}>
-            <Campo
-              etiqueta="Tu nombre"
-              valor={nombre}
-              onChange={(texto) => {
-                setNombre(texto);
-                if (!usuarioTocado) setUsuario(generarUsuarioDesdeNombre(texto));
-              }}
-              placeholder="Ej.: Carlos"
-              icono="person"
-              autoFocus
-            />
-            <Campo
-              etiqueta="Usuario de acceso"
-              valor={usuario}
-              onChange={(texto) => {
-                setUsuarioTocado(true);
-                setUsuario(texto.replace(/\s/g, '').toLowerCase());
-              }}
-              placeholder="Ej.: carlos"
-              icono="alternate-email"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="username"
-              maxLength={20}
-            />
-            <Campo
-              etiqueta="Contraseña (4 dígitos)"
-              valor={pin}
-              onChange={(texto) => setPin(texto.replace(/\D/g, '').slice(0, 4))}
-              placeholder="••••"
-              teclado="numeric"
-              seguro
-              maxLength={4}
-              icono="lock"
-              autoComplete="new-password"
-            />
-            <Campo
-              etiqueta="Confirmar contraseña"
-              valor={confirmacion}
-              onChange={(texto) => setConfirmacion(texto.replace(/\D/g, '').slice(0, 4))}
-              placeholder="••••"
-              teclado="numeric"
-              seguro
-              maxLength={4}
-              icono="lock-outline"
-              autoComplete="new-password"
-            />
+            <View style={styles.form}>
+              <Campo
+                etiqueta="Tu nombre"
+                valor={nombre}
+                onChange={(texto) => {
+                  setNombre(texto);
+                  if (!usuarioTocado) setUsuario(generarUsuarioDesdeNombre(texto));
+                }}
+                placeholder="Ej.: Carlos"
+                icono="person"
+                autoFocus
+              />
+              <Campo
+                etiqueta="Usuario de acceso"
+                valor={usuario}
+                onChange={(texto) => {
+                  setUsuarioTocado(true);
+                  setUsuario(texto.replace(/\s/g, '').toLowerCase());
+                }}
+                placeholder="Ej.: carlos"
+                icono="alternate-email"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                maxLength={20}
+              />
+              <Campo
+                etiqueta="Contraseña (4 dígitos)"
+                valor={pin}
+                onChange={(texto) => setPin(texto.replace(/\D/g, '').slice(0, 4))}
+                placeholder="••••"
+                teclado="numeric"
+                seguro
+                maxLength={4}
+                icono="lock"
+                autoComplete="new-password"
+              />
+              <Campo
+                etiqueta="Confirmar contraseña"
+                valor={confirmacion}
+                onChange={(texto) => setConfirmacion(texto.replace(/\D/g, '').slice(0, 4))}
+                placeholder="••••"
+                teclado="numeric"
+                seguro
+                maxLength={4}
+                icono="lock-outline"
+                autoComplete="new-password"
+              />
 
-            {error ? (
-              <View style={[styles.error, { backgroundColor: colores.peligroSuave }]}>
-                <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
-                <Text style={[styles.errorTexto, { color: colores.peligro }]}>{error}</Text>
-              </View>
-            ) : null}
+              {error ? (
+                <View style={[styles.error, { backgroundColor: colores.peligroSuave }]}>
+                  <MaterialIcons name="error-outline" size={18} color={colores.peligro} />
+                  <Text style={[styles.errorTexto, { color: colores.peligro }]}>{error}</Text>
+                </View>
+              ) : null}
 
-            <Boton
-              titulo="Empezar"
-              icono="arrow-forward"
-              tamanio="lg"
-              cargando={guardando}
-              onPress={comenzar}
-            />
-          </Tarjeta>
-        </ScrollView>
-      </KeyboardAvoidingView>
+              <Boton
+                titulo="Empezar"
+                icono="arrow-forward"
+                tamanio="lg"
+                cargando={guardando}
+                onPress={comenzar}
+                estilo={{ marginTop: spacing.sm }}
+              />
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Superficie>
     </Pantalla>
   );
 }
@@ -223,42 +231,34 @@ export default function TrabajadorSetupScreen({ onListo }: { onListo?: () => voi
 const styles = StyleSheet.create({
   contenido: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xl,
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
   },
   logo: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.xl,
+    width: 64,
+    height: 64,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  logoTexto: {
-    fontSize: 30,
-    fontFamily: fuentes.bold,
-    color: '#FFFFFF',
+    alignSelf: 'center',
   },
   titulo: {
-    fontSize: typography.tituloGrande,
-    fontFamily: fuentes.bold,
-    marginTop: spacing.lg,
+    fontSize: typography.titulo,
+    fontFamily: fuentes.display,
+    marginTop: spacing.md,
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   subtitulo: {
     fontSize: typography.cuerpoChico,
     fontFamily: fuentes.regular,
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     textAlign: 'center',
     lineHeight: 20,
   },
-  tarjeta: {
-    width: '100%',
+  form: {
+    marginTop: spacing.lg,
   },
   error: {
     flexDirection: 'row',

@@ -22,6 +22,7 @@ import {
   type KeyboardTypeOptions,
   type StyleProp,
   type TextInputProps,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -74,6 +75,10 @@ export function Gradiente({
   );
 }
 
+/**
+ * Fondo raíz de toda pantalla. El área de la barra de estado queda siempre en
+ * indigo para que la "banda" superior de la referencia continúe sin cortes.
+ */
 export function Pantalla({
   children,
   estilo,
@@ -83,29 +88,50 @@ export function Pantalla({
 }) {
   const { colores } = useTema();
   return (
-    <SafeAreaView
-      style={[{ flex: 1, backgroundColor: colores.fondo }, estilo]}
-      edges={['top', 'left', 'right']}
-    >
-      <View
-        pointerEvents="none"
-        style={StyleSheet.absoluteFill}
+    <View style={{ flex: 1, backgroundColor: colores.primarioOscuro }}>
+      <Gradiente
+        colores={gradientes.banda}
+        inicio={{ x: 0, y: 0 }}
+        fin={{ x: 1, y: 0.8 }}
+        estilo={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView
+        style={[{ flex: 1 }, estilo]}
+        edges={['top', 'left', 'right']}
       >
-        <Gradiente
-          colores={[colores.fondoProfundo, colores.fondo]}
-          inicio={{ x: 0.5, y: 0 }}
-          fin={{ x: 0.5, y: 1 }}
-          estilo={StyleSheet.absoluteFill}
-        />
-        <Gradiente
-          colores={['rgba(124, 58, 237, 0.08)', 'rgba(8, 10, 36, 0)']}
-          inicio={{ x: 0.5, y: 0 }}
-          fin={{ x: 0.5, y: 1 }}
-          estilo={{ position: 'absolute', top: 0, left: 0, right: 0, height: 280 }}
-        />
-      </View>
-      <View style={{ flex: 1 }}>{children}</View>
-    </SafeAreaView>
+        {children}
+      </SafeAreaView>
+    </View>
+  );
+}
+
+/**
+ * Lienzo blanco con esquinas superiores redondeadas que se apoya sobre la
+ * banda indigo, tal como en los mockups de referencia.
+ */
+export function Superficie({
+  children,
+  estilo,
+}: {
+  children: ReactNode;
+  estilo?: StyleProp<ViewStyle>;
+}) {
+  const { colores } = useTema();
+  return (
+    <View
+      style={[
+        {
+          flex: 1,
+          backgroundColor: colores.fondo,
+          borderTopLeftRadius: radius.hoja,
+          borderTopRightRadius: radius.hoja,
+          overflow: 'hidden',
+        },
+        estilo,
+      ]}
+    >
+      {children}
+    </View>
   );
 }
 
@@ -164,29 +190,28 @@ export function ReglaPunteada({
 const TIPOS_BOTON: Record<
   string,
   {
-    grad?: readonly string[];
     bg?: (c: PaletaColores) => string;
     texto: (c: PaletaColores) => string;
     borde?: (c: PaletaColores) => string;
   }
 > = {
-  primario: { grad: gradientes.cta, texto: () => '#FFFFFF' },
-  acento: { grad: gradientes.cobrar, texto: () => '#FFFFFF' },
-  peligro: { grad: gradientes.peligro, texto: () => '#FFFFFF' },
+  primario: { bg: (c) => c.primario, texto: () => '#FFFFFF' },
+  acento: { bg: (c) => c.primario, texto: () => '#FFFFFF' },
+  peligro: { bg: (c) => c.peligro, texto: () => '#FFFFFF' },
   secundario: {
-    bg: (c) => c.vidrioSuave,
-    texto: (c) => c.texto,
+    bg: (c) => c.superficie,
+    texto: (c) => c.primario,
     borde: (c) => c.borde,
   },
   fantasma: { bg: () => 'transparent', texto: (c) => c.primario, borde: (c) => c.borde },
-  suave: { bg: (c) => c.primarioSuave, texto: (c) => c.texto },
+  suave: { bg: (c) => c.primarioSuave, texto: (c) => c.primario },
 };
 
 const TAMANOS_BOTON = {
   sm: { alto: 44, fontSize: 13, icono: 17, gap: 6, redondeo: radius.md },
-  md: { alto: 52, fontSize: 15, icono: 19, gap: 8, redondeo: radius.md },
-  lg: { alto: 56, fontSize: 16, icono: 21, gap: 8, redondeo: radius.lg },
-  xl: { alto: 64, fontSize: 18, icono: 24, gap: 10, redondeo: radius.lg },
+  md: { alto: 52, fontSize: 15, icono: 19, gap: 8, redondeo: radius.boton },
+  lg: { alto: 54, fontSize: 16, icono: 20, gap: 8, redondeo: radius.boton },
+  xl: { alto: 60, fontSize: 17, icono: 22, gap: 10, redondeo: radius.boton },
 } as const;
 
 export function Boton({
@@ -222,7 +247,7 @@ export function Boton({
         disabled={inactivo}
         onPressIn={() => {
           Animated.timing(escala, {
-            toValue: 0.97,
+            toValue: 0.985,
             duration: 90,
             useNativeDriver: true,
           }).start();
@@ -241,26 +266,16 @@ export function Boton({
             justifyContent: 'center',
             borderRadius: tam.redondeo,
             paddingHorizontal: spacing.xl,
-            backgroundColor: tipo.grad
-              ? 'transparent'
-              : tipo.bg
-                ? tipo.bg(colores)
-                : 'transparent',
-            borderWidth: tipo.borde && !tipo.grad ? StyleSheet.hairlineWidth : 0,
-            borderColor: tipo.borde && !tipo.grad ? tipo.borde(colores) : 'transparent',
+            backgroundColor: tipo.bg ? tipo.bg(colores) : 'transparent',
+            borderWidth: tipo.borde ? 1 : 0,
+            borderColor: tipo.borde ? tipo.borde(colores) : 'transparent',
             height: tam.alto,
-            opacity: inactivo ? 0.4 : pressed ? 0.9 : 1,
+            opacity: inactivo ? 0.38 : pressed ? 0.88 : 1,
             gap: tam.gap,
             overflow: 'hidden',
           },
         ]}
       >
-        {tipo.grad ? (
-          <Gradiente
-            colores={tipo.grad}
-            estilo={StyleSheet.absoluteFill}
-          />
-        ) : null}
         {cargando ? (
           <ActivityIndicator color={colorTexto} size="small" />
         ) : (
@@ -273,7 +288,7 @@ export function Boton({
                 fontFamily: fuentes.semibold,
                 color: colorTexto,
                 fontSize: tam.fontSize,
-                letterSpacing: 0.2,
+                letterSpacing: 0.1,
               }}
             >
               {titulo}
@@ -289,9 +304,9 @@ export function Tarjeta({
   children,
   estilo,
   onPress,
-  redondeo = radius.lg,
+  redondeo = radius.tarjeta,
   contorno = true,
-  padding = spacing.lg,
+  padding = spacing.md,
 }: {
   children: ReactNode;
   estilo?: StyleProp<ViewStyle>;
@@ -307,7 +322,7 @@ export function Tarjeta({
         {
           backgroundColor: colores.superficie,
           borderRadius: redondeo,
-          borderWidth: contorno ? StyleSheet.hairlineWidth : 0,
+          borderWidth: contorno ? 1 : 0,
           borderColor: contorno ? colores.borde : 'transparent',
           padding,
           ...sombraTarjeta(colores),
@@ -323,7 +338,7 @@ export function Tarjeta({
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        pressed && { opacity: 0.94, transform: [{ scale: 0.995 }] },
+        pressed && { opacity: 0.92, transform: [{ scale: 0.995 }] },
       ]}
     >
       {contenido}
@@ -332,8 +347,7 @@ export function Tarjeta({
 }
 
 /**
- * Lista agrupada dentro de una sola tarjeta. Evita el patrón de tarjeta con
- * sombra + tarjeta interna con borde, que en Android se veía como doble borde.
+ * Lista agrupada dentro de una sola tarjeta.
  */
 export function Grupo({
   children,
@@ -352,10 +366,10 @@ export function Grupo({
       style={[
         {
           backgroundColor: colores.superficie,
-          borderRadius: radius.lg,
-          borderWidth: StyleSheet.hairlineWidth,
+          borderRadius: radius.tarjeta,
+          borderWidth: 1,
           borderColor: colores.borde,
-          ...sombraTarjeta(colores),
+          overflow: 'hidden',
         },
         estilo,
       ]}
@@ -379,69 +393,110 @@ export function Grupo({
   );
 }
 
+/**
+ * Banda indigo superior. En las pantallas internas lleva solo la flecha de
+ * regreso y, opcionalmente, una acción a la derecha.
+ */
 export function Encabezado({
   titulo,
   subtitulo,
   derecha,
   onAtras,
+  marca,
+  estilo,
 }: {
-  titulo: string;
+  titulo?: string;
   subtitulo?: string;
   derecha?: ReactNode;
   onAtras?: () => void;
+  marca?: ReactNode;
+  estilo?: StyleProp<ViewStyle>;
 }) {
-  const { colores } = useTema();
   return (
-    <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+    <View style={[{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm }, estilo]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 36 }}>
         {onAtras ? (
           <Pressable
             onPress={onAtras}
-            hitSlop={8}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Volver"
             style={({ pressed }) => [
               {
-                width: 42,
-                height: 42,
-                borderRadius: radius.full,
-                backgroundColor: colores.vidrioSuave,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: colores.borde,
+                width: 36,
+                height: 36,
                 alignItems: 'center',
                 justifyContent: 'center',
-                transform: [{ scale: pressed ? 0.92 : 1 }],
+                opacity: pressed ? 0.6 : 1,
               },
             ]}
           >
-            <MaterialIcons name="arrow-back" size={22} color={colores.texto} />
+            <MaterialIcons name="arrow-back" size={22} color="#FFFFFF" />
           </Pressable>
         ) : null}
-        <View style={{ flex: 1 }}>
-          <Text
-            numberOfLines={1}
+        {marca ?? (
+          <View style={{ flex: 1, minWidth: 0 }}>
+            {titulo ? (
+              <Text
+                numberOfLines={1}
+                style={{
+                  fontSize: typography.destacado,
+                  fontFamily: fuentes.display,
+                  color: '#FFFFFF',
+                  letterSpacing: -0.2,
+                }}
+              >
+                {titulo}
+              </Text>
+            ) : null}
+          </View>
+        )}
+        {derecha ? (
+          <View
             style={{
-              fontSize: typography.subtitulo,
-              fontFamily: fuentes.bold,
-              color: colores.texto,
-              letterSpacing: -0.3,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.sm,
+              flexShrink: 0,
             }}
           >
-            {titulo}
-          </Text>
-          {subtitulo ? (
-            <Text
-              style={{
-                fontSize: typography.cuerpoChico,
-                color: colores.textoSuave,
-                marginTop: 2,
-                fontFamily: fuentes.regular,
-              }}
-            >
-              {subtitulo}
-            </Text>
-          ) : null}
-        </View>
-        {derecha ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>{derecha}</View> : null}
+            {derecha}
+          </View>
+        ) : null}
       </View>
+      {subtitulo ? (
+        <Text
+          numberOfLines={1}
+          style={{
+            fontSize: typography.micro,
+            color: 'rgba(255, 255, 255, 0.74)',
+            marginTop: 2,
+            marginLeft: onAtras ? 44 : 0,
+            fontFamily: fuentes.regular,
+          }}
+        >
+          {subtitulo}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** Marca de la app para la banda indigo del inicio. */
+export function MarcaMiCaja({ compacta = false }: { compacta?: boolean }) {
+  return (
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <MaterialIcons name="shopping-cart" size={compacta ? 24 : 26} color="#FFFFFF" />
+      <Text
+        style={{
+          fontSize: compacta ? 21 : 23,
+          fontFamily: fuentes.display,
+          color: '#FFFFFF',
+          letterSpacing: -0.5,
+        }}
+      >
+        MiCaja
+      </Text>
     </View>
   );
 }
@@ -462,33 +517,94 @@ export function Chip({
   estilo?: StyleProp<ViewStyle>;
 }) {
   const { colores } = useTema();
-  const base = color ?? colores.acento;
+  const base = color ?? colores.primario;
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.chip,
         {
-          backgroundColor: activo ? base : colores.vidrioSuave,
-          borderColor: activo ? base : colores.borde,
-          borderWidth: StyleSheet.hairlineWidth,
-          transform: [{ scale: pressed ? 0.95 : 1 }],
+          backgroundColor: activo ? (color ? base + '1F' : colores.primarioSuave) : colores.superficie,
+          borderColor: activo ? 'transparent' : colores.borde,
+          transform: [{ scale: pressed ? 0.97 : 1 }],
         },
         estilo,
       ]}
     >
       {icono ? (
-        <MaterialIcons name={icono} size={15} color={activo ? colores.textoInverso : colores.textoSuave} />
+        <MaterialIcons name={icono} size={16} color={activo ? base : colores.textoSuave} />
       ) : null}
       <Text
         style={[
           styles.chipTexto,
-          { color: activo ? colores.textoInverso : colores.texto },
+          {
+            color: activo ? base : colores.textoSuave,
+            fontFamily: activo ? fuentes.semibold : fuentes.medium,
+          },
         ]}
       >
         {etiqueta}
       </Text>
     </Pressable>
+  );
+}
+
+export function Segmentado<T extends string>({
+  opciones,
+  valor,
+  onCambio,
+  estilo,
+}: {
+  opciones: { id: T; etiqueta: string }[];
+  valor: T;
+  onCambio: (id: T) => void;
+  estilo?: StyleProp<ViewStyle>;
+}) {
+  const { colores } = useTema();
+  return (
+    <View
+      style={[
+        {
+          flexDirection: 'row',
+          backgroundColor: colores.superficieSuave,
+          borderRadius: radius.lg,
+          padding: 4,
+          gap: 4,
+        },
+        estilo,
+      ]}
+    >
+      {opciones.map((o) => {
+        const activo = o.id === valor;
+        return (
+          <Pressable
+            key={o.id}
+            onPress={() => onCambio(o.id)}
+            style={({ pressed }) => [
+              {
+                flex: 1,
+                height: 38,
+                borderRadius: radius.md,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: activo ? colores.primarioSuave : 'transparent',
+                opacity: pressed ? 0.75 : 1,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                fontSize: typography.cuerpoChico,
+                fontFamily: activo ? fuentes.semibold : fuentes.medium,
+                color: activo ? colores.primario : colores.textoSuave,
+              }}
+            >
+              {o.etiqueta}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -503,13 +619,11 @@ export function Sello({
   rotacion?: number;
 }) {
   const { colores } = useTema();
-  const fondo = color ? color + '1A' : colores.superficieSuave;
+  const fondo = color ? color + '18' : colores.superficieSuave;
   return (
     <View
       style={{
         backgroundColor: fondo,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: color ? color + '3D' : colores.borde,
         borderRadius: radius.full,
         paddingHorizontal: 10,
         paddingVertical: 4,
@@ -520,7 +634,7 @@ export function Sello({
         style={{
           fontFamily: fuentes.semibold,
           fontSize: 11,
-          letterSpacing: 0.4,
+          letterSpacing: 0.2,
           color: colorTexto ?? color ?? colores.texto,
         }}
       >
@@ -548,8 +662,6 @@ export function Badge({
         styles.badge,
         {
           backgroundColor: color ?? colores.superficieSuave,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colorTexto ? colorTexto + '2E' : colores.borde,
         },
       ]}
     >
@@ -584,6 +696,10 @@ export function EstadoStock({ stock, stockMinimo }: { stock: number; stockMinimo
   );
 }
 
+/**
+ * Campo con la etiqueta dentro del recuadro, icono indigo a la izquierda y
+ * borde fino, igual que los formularios de la referencia.
+ */
 export function Campo({
   etiqueta,
   valor,
@@ -605,6 +721,7 @@ export function Campo({
   textContentType,
   editable = true,
   inputRef,
+  estilo,
 }: {
   etiqueta?: string;
   valor: string;
@@ -626,52 +743,54 @@ export function Campo({
   textContentType?: TextInputProps['textContentType'];
   editable?: boolean;
   inputRef?: React.RefObject<TextInput | null>;
+  estilo?: StyleProp<ViewStyle>;
 }) {
   const { colores } = useTema();
   const [enfocado, setEnfocado] = useState(false);
   return (
-    <View style={{ marginBottom: spacing.md }}>
-      {etiqueta ? (
-        <Text
-          style={{
-            fontSize: typography.micro,
-            fontFamily: fuentes.semibold,
-            color: colores.textoSuave,
-            letterSpacing: 0.5,
-            marginBottom: 6,
-          }}
-        >
-          {etiqueta}
-        </Text>
-      ) : null}
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: spacing.sm,
+    <View
+      style={[
+        styles.campo,
+        {
           backgroundColor: colores.superficie,
-          borderWidth: 1,
-          borderColor: enfocado ? colores.bordeLuminoso : colores.borde,
-          borderRadius: radius.md,
-          paddingHorizontal: spacing.md,
-          minHeight: 52,
-          shadowColor: colores.acento,
-          shadowOpacity: enfocado ? 0.18 : 0,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 0 },
-          elevation: enfocado ? 2 : 0,
-        }}
-      >
-        {icono ? <MaterialIcons name={icono} size={20} color={colores.textoSuave} /> : null}
+          borderColor: enfocado ? colores.primario : colores.borde,
+          borderWidth: enfocado ? 1.5 : 1,
+        },
+        estilo,
+      ]}
+    >
+      {icono ? (
+        <MaterialIcons
+          name={icono}
+          size={21}
+          color={enfocado ? colores.primario : colores.primario}
+          style={{ marginTop: etiqueta ? 13 : 0 }}
+        />
+      ) : null}
+      <View style={{ flex: 1, justifyContent: 'center' }}>
+        {etiqueta ? (
+          <Text
+            numberOfLines={1}
+            style={{
+              fontSize: typography.micro,
+              fontFamily: fuentes.medium,
+              color: colores.textoSuave,
+              marginTop: 9,
+            }}
+          >
+            {etiqueta}
+          </Text>
+        ) : null}
         <TextInput
           ref={inputRef}
           style={{
-            flex: 1,
             fontSize: typography.cuerpo,
             color: colores.texto,
-            paddingVertical: 10,
+            paddingTop: etiqueta ? 1 : 13,
+            paddingBottom: etiqueta ? 10 : 13,
             fontFamily: fuentes.medium,
             backgroundColor: 'transparent',
+            minHeight: etiqueta ? 30 : 48,
           }}
           value={valor}
           onChangeText={onChange}
@@ -683,8 +802,8 @@ export function Campo({
           secureTextEntry={seguro}
           maxLength={maxLength}
           underlineColorAndroid="transparent"
-          cursorColor={colores.acento}
-          selectionColor={colores.acento}
+          cursorColor={colores.primario}
+          selectionColor={colores.primario}
           onFocus={() => setEnfocado(true)}
           onBlur={() => setEnfocado(false)}
           onSubmitEditing={onSubmitEditing}
@@ -695,11 +814,13 @@ export function Campo({
           textContentType={textContentType}
           editable={editable}
         />
-        {sufijo ? (
-          <Text style={{ fontSize: typography.cuerpo, fontFamily: fuentes.semibold, color: colores.textoSuave }}>{sufijo}</Text>
-        ) : null}
-        {derecha}
       </View>
+      {sufijo ? (
+        <Text style={{ fontSize: typography.cuerpo, fontFamily: fuentes.semibold, color: colores.textoSuave }}>
+          {sufijo}
+        </Text>
+      ) : null}
+      {derecha}
     </View>
   );
 }
@@ -715,34 +836,229 @@ export function Contador({
 }) {
   const { colores } = useTema();
   return (
-    <View
-      style={[
-        styles.contador,
-        { backgroundColor: colores.vidrioSuave, borderWidth: StyleSheet.hairlineWidth, borderColor: colores.borde },
-      ]}
-    >
+    <View style={[styles.contador, { backgroundColor: colores.superficieSuave }]}>
       <Pressable
         onPress={onMenos}
         disabled={cantidad <= 1}
         style={({ pressed }) => [
           styles.contadorBoton,
-          { backgroundColor: colores.superficieSuave },
+          { backgroundColor: colores.superficie },
           (pressed || cantidad <= 1) && { opacity: 0.4 },
         ]}
       >
-        <MaterialIcons name="remove" size={18} color={colores.texto} />
+        <MaterialIcons name="remove" size={17} color={colores.texto} />
       </Pressable>
       <Text style={[styles.contadorCantidad, { color: colores.texto }]}>{cantidad}</Text>
       <Pressable
         onPress={onMas}
         style={({ pressed }) => [
           styles.contadorBoton,
-          { backgroundColor: colores.superficieSuave },
-          pressed && { opacity: 0.4 },
+          { backgroundColor: colores.primarioSuave },
+          pressed && { opacity: 0.5 },
         ]}
       >
-        <MaterialIcons name="add" size={18} color={colores.texto} />
+        <MaterialIcons name="add" size={17} color={colores.primario} />
       </Pressable>
+    </View>
+  );
+}
+
+/** Acceso rápido cuadrado con icono en pastilla y etiqueta (mockup del panel principal). */
+export function AccionRapida({
+  icono,
+  etiqueta,
+  onPress,
+  estilo,
+}: {
+  icono: NombreIcono;
+  etiqueta: string;
+  onPress: () => void;
+  estilo?: StyleProp<ViewStyle>;
+}) {
+  const { colores } = useTema();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flex: 1,
+          minWidth: 0,
+          minHeight: 96,
+          borderRadius: radius.accion,
+          backgroundColor: colores.primarioSuave,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          paddingHorizontal: spacing.sm,
+          paddingVertical: spacing.md,
+          opacity: pressed ? 0.75 : 1,
+          transform: [{ scale: pressed ? 0.985 : 1 }],
+        },
+        estilo,
+      ]}
+    >
+      <View
+        style={{
+          width: 42,
+          height: 42,
+          borderRadius: radius.md,
+          backgroundColor: colores.primario,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <MaterialIcons name={icono} size={24} color={colores.textoInverso} />
+      </View>
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+        style={{
+          fontSize: typography.cuerpoChico,
+          fontFamily: fuentes.semibold,
+          color: colores.texto,
+          textAlign: 'center',
+        }}
+      >
+        {etiqueta}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Tarjeta de aviso con icono a la izquierda. */
+export function TarjetaAviso({
+  icono,
+  titulo,
+  destacado,
+  mensaje,
+  tono = 'advertencia',
+  accion,
+}: {
+  icono: NombreIcono;
+  titulo: string;
+  destacado?: string;
+  mensaje?: string;
+  tono?: 'advertencia' | 'exito' | 'info' | 'peligro';
+  accion?: ReactNode;
+}) {
+  const { colores } = useTema();
+  const fondo =
+    tono === 'exito'
+      ? colores.exitoSuave
+      : tono === 'info'
+        ? colores.infoSuave
+        : tono === 'peligro'
+          ? colores.peligroSuave
+          : colores.advertenciaSuave;
+  const color =
+    tono === 'exito'
+      ? colores.exito
+      : tono === 'info'
+        ? colores.info
+        : tono === 'peligro'
+          ? colores.peligro
+          : '#F39A16';
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: fondo,
+        borderRadius: radius.tarjeta,
+        padding: spacing.md,
+      }}
+    >
+      <MaterialIcons name={icono} size={30} color={color} />
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            fontSize: typography.cuerpo,
+            fontFamily: fuentes.bold,
+            color: colores.texto,
+          }}
+        >
+          {titulo}
+          {destacado ? (
+            <Text style={{ color }}> {destacado}</Text>
+          ) : null}
+        </Text>
+        {mensaje ? (
+          <Text
+            style={{
+              fontSize: typography.cuerpoChico,
+              fontFamily: fuentes.regular,
+              color: colores.textoSuave,
+              marginTop: 2,
+              lineHeight: 18,
+            }}
+          >
+            {mensaje}
+          </Text>
+        ) : null}
+      </View>
+      {accion}
+    </View>
+  );
+}
+
+/** Confirmación con el círculo verde de la referencia. */
+export function Exito({
+  titulo,
+  mensaje,
+  children,
+  estilo,
+}: {
+  titulo: string;
+  mensaje?: string;
+  children?: ReactNode;
+  estilo?: StyleProp<ViewStyle>;
+}) {
+  const { colores } = useTema();
+  return (
+    <View style={[{ alignItems: 'center', paddingHorizontal: spacing.lg }, estilo]}>
+      <View
+        style={{
+          width: 92,
+          height: 92,
+          borderRadius: radius.full,
+          backgroundColor: colores.exito,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginTop: spacing.lg,
+          marginBottom: spacing.lg,
+        }}
+      >
+        <MaterialIcons name="check" size={52} color="#FFFFFF" />
+      </View>
+      <Text
+        style={{
+          fontSize: typography.tituloHoja,
+          fontFamily: fuentes.display,
+          color: colores.texto,
+          textAlign: 'center',
+          letterSpacing: -0.4,
+        }}
+      >
+        {titulo}
+      </Text>
+      {mensaje ? (
+        <Text
+          style={{
+            fontSize: typography.cuerpo,
+            fontFamily: fuentes.regular,
+            color: colores.textoSuave,
+            textAlign: 'center',
+            lineHeight: 22,
+            marginTop: spacing.sm,
+            maxWidth: 320,
+          }}
+        >
+          {mensaje}
+        </Text>
+      ) : null}
+      {children}
     </View>
   );
 }
@@ -761,23 +1077,21 @@ export function ListaVacia({
     <View style={styles.vacio}>
       <View
         style={{
-          width: 88,
-          height: 88,
+          width: 84,
+          height: 84,
           borderRadius: radius.full,
-          backgroundColor: colores.vidrioSuave,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colores.borde,
+          backgroundColor: colores.primarioSuave,
           alignItems: 'center',
           justifyContent: 'center',
           marginBottom: spacing.sm,
         }}
       >
-        <Text style={{ fontSize: 36 }}>{emoji}</Text>
+        <Text style={{ fontSize: 34 }}>{emoji}</Text>
       </View>
       <Text
         style={{
           fontSize: typography.destacado,
-          fontFamily: fuentes.bold,
+          fontFamily: fuentes.display,
           color: colores.texto,
           textAlign: 'center',
         }}
@@ -804,7 +1118,7 @@ export function EstadoCarga({ mensaje = 'Cargando…' }: { mensaje?: string }) {
   const { colores } = useTema();
   return (
     <View style={styles.vacio}>
-      <ActivityIndicator size="large" color={colores.acento} />
+      <ActivityIndicator size="large" color={colores.primario} />
       <Text
         style={{
           fontSize: typography.cuerpoChico,
@@ -849,23 +1163,18 @@ export function Hoja({
       <View style={[styles.hojaFondo, { backgroundColor: colores.overlay }]}>
         <Pressable style={{ flex: 1 }} onPress={onCerrar} />
         <KeyboardAvoidingView
-          // En Android un Modal no siempre se redimensiona con el teclado.
-          // "padding" eleva el contenido de la hoja y evita que el teclado
-          // tape los últimos campos del formulario.
           behavior="padding"
           keyboardVerticalOffset={0}
           style={[
             styles.hoja,
             {
-              backgroundColor: colores.superficie,
-              borderTopColor: colores.bordeLuminoso,
-              borderTopWidth: StyleSheet.hairlineWidth,
+              backgroundColor: colores.fondo,
               maxHeight: Math.max(200, altoVentana * alturaMaxima),
             },
           ]}
         >
           <View style={{ alignItems: 'center', paddingTop: spacing.sm, paddingBottom: spacing.xs }}>
-            <View style={[styles.hojaMango, { backgroundColor: colores.textoSuave }]} />
+            <View style={[styles.hojaMango, { backgroundColor: colores.borde }]} />
           </View>
           <View style={styles.hojaCabecera}>
             <View style={{ flex: 1 }}>
@@ -873,9 +1182,9 @@ export function Hoja({
                 numberOfLines={1}
                 style={{
                   fontSize: typography.subtitulo,
-                  fontFamily: fuentes.bold,
+                  fontFamily: fuentes.display,
                   color: colores.texto,
-                  letterSpacing: -0.3,
+                  letterSpacing: -0.4,
                 }}
               >
                 {titulo}
@@ -899,9 +1208,7 @@ export function Hoja({
               style={({ pressed }) => [
                 styles.hojaCerrar,
                 {
-                  backgroundColor: colores.vidrioSuave,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: colores.borde,
+                  backgroundColor: colores.superficieSuave,
                   transform: [{ scale: pressed ? 0.9 : 1 }],
                 },
               ]}
@@ -919,10 +1226,8 @@ export function Hoja({
           </ScrollView>
           {pie ? (
             <View>
-              <ReglaPunteada estilo={{ marginHorizontal: spacing.lg }} />
-              <View style={[styles.hojaPie, { backgroundColor: colores.superficie }]}>
-                {pie}
-              </View>
+              <ReglaPunteada estilo={{ marginHorizontal: spacing.md }} />
+              <View style={[styles.hojaPie, { backgroundColor: colores.fondo }]}>{pie}</View>
             </View>
           ) : null}
         </KeyboardAvoidingView>
@@ -957,7 +1262,7 @@ export function ConfirmarModal({
             styles.confirmarTarjeta,
             {
               backgroundColor: colores.superficie,
-              borderWidth: StyleSheet.hairlineWidth,
+              borderWidth: 1,
               borderColor: colores.borde,
               ...sombraFlotante(colores),
             },
@@ -966,7 +1271,7 @@ export function ConfirmarModal({
           <Text
             style={{
               fontSize: typography.subtitulo,
-              fontFamily: fuentes.bold,
+              fontFamily: fuentes.display,
               color: colores.texto,
               letterSpacing: -0.3,
             }}
@@ -1032,9 +1337,7 @@ export function PinPad({
                 style={({ pressed }) => [
                   styles.pinpadTecla,
                   {
-                    backgroundColor: esBorrar ? colores.peligroSuave : colores.vidrioSuave,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: esBorrar ? colores.peligroSuave : colores.borde,
+                    backgroundColor: esBorrar ? colores.peligroSuave : colores.superficieSuave,
                     transform: [{ scale: pressed ? 0.94 : 1 }],
                     opacity: pressed ? 0.8 : 1,
                   },
@@ -1099,19 +1402,24 @@ export function parsearMonto(texto: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+export const textoFila: TextStyle = {
+  fontSize: typography.cuerpo,
+  fontFamily: fuentes.regular,
+};
+
 const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    height: 36,
+    height: 38,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.full,
+    borderRadius: radius.lg,
+    borderWidth: 1,
   },
   chipTexto: {
     fontSize: 13,
-    fontFamily: fuentes.medium,
   },
   badge: {
     flexDirection: 'row',
@@ -1125,37 +1433,42 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: fuentes.semibold,
   },
+  campo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderRadius: radius.campo,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    minHeight: 58,
+  },
   contador: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 2,
     borderRadius: radius.full,
-    padding: 4,
+    padding: 3,
   },
   contadorBoton: {
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
   contadorCantidad: {
-    minWidth: 28,
+    minWidth: 24,
     textAlign: 'center',
-    fontSize: typography.cuerpo,
+    fontSize: typography.cuerpoChico,
     fontFamily: fuentes.extrabold,
     fontVariant: ['tabular-nums'],
   },
   vacio: { alignItems: 'center', justifyContent: 'center', padding: spacing.xxl, gap: spacing.xs },
-  tarjeta: {
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
   hojaFondo: { flex: 1, justifyContent: 'flex-end' },
   hoja: {
     flexShrink: 1,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
+    borderTopLeftRadius: radius.hoja,
+    borderTopRightRadius: radius.hoja,
     paddingTop: spacing.xs,
   },
   hojaMango: {
@@ -1166,7 +1479,7 @@ const styles = StyleSheet.create({
   hojaCabecera: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
     gap: spacing.md,
   },
@@ -1177,9 +1490,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hojaContenido: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  hojaContenido: { paddingHorizontal: spacing.md, paddingBottom: spacing.xl },
   hojaPie: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
   },
@@ -1198,7 +1511,7 @@ const styles = StyleSheet.create({
   pinpadTecla: {
     flex: 1,
     height: 60,
-    borderRadius: radius.full,
+    borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
   },

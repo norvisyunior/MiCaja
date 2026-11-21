@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { FormaPago, Venta } from '../types';
 import { listarVentas, anularVenta, puedeAnularVenta } from '../db/repos/ventas';
@@ -29,7 +29,7 @@ import {
   Hoja,
   ListaVacia,
   Pantalla,
-  Tarjeta,
+  Superficie,
 } from '../components/UI';
 import { fuentes, radius, spacing, typography } from '../theme';
 
@@ -62,6 +62,7 @@ export default function HistorialScreen() {
   const usuario = useSesion((s) => s.usuario)!;
   const ultimaSync = useSync((s) => s.ultimaSync);
   const { colores } = useTema();
+  const navigation = useNavigation();
   const mostrarAviso = useAvisos((s) => s.mostrar);
 
   const [filtro, setFiltro] = useState<Filtro>('hoy');
@@ -148,321 +149,317 @@ export default function HistorialScreen() {
     <Pantalla>
       <Encabezado
         titulo="Historial"
-        subtitulo={
-          ventasValidas > 0
-            ? `${ventasValidas} venta(s) · ${formatearDinero(totalFiltrado, simbolo)}`
-            : 'Tus ventas registradas'
-        }
+        subtitulo={`${ventasValidas} ${ventasValidas === 1 ? 'venta' : 'ventas'} · ${formatearDinero(totalFiltrado, simbolo)}`}
+        onAtras={() => navigation.goBack()}
       />
-      <View style={styles.busqueda}>
-        <Campo
-          valor={busqueda}
-          onChange={setBusqueda}
-          placeholder="Buscar por número, producto o usuario…"
-          icono="search"
-        />
-        <View style={styles.filtros}>
-          {FILTROS.map((f) => (
-            <Chip
-              key={f.id}
-              etiqueta={f.etiqueta}
-              activo={filtro === f.id}
-              onPress={() => setFiltro(f.id)}
-            />
-          ))}
+      <Superficie>
+        <View style={styles.busqueda}>
+          <Campo
+            valor={busqueda}
+            onChange={setBusqueda}
+            placeholder="Buscar por número, producto o usuario…"
+            icono="search"
+          />
+          <View style={styles.filtros}>
+            {FILTROS.map((f) => (
+              <Chip
+                key={f.id}
+                etiqueta={f.etiqueta}
+                activo={filtro === f.id}
+                onPress={() => setFiltro(f.id)}
+              />
+            ))}
+          </View>
         </View>
-      </View>
 
-      {cargando ? (
-        <EstadoCarga />
-      ) : (
-        <FlatList
-          data={filtradas}
-          keyExtractor={(v) => String(v.id)}
-          contentContainerStyle={[styles.lista, { paddingBottom: 110 }]}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <ListaVacia emoji="🧾" titulo="Sin ventas" subtitulo="Las ventas registradas aparecerán aquí" />
+        {cargando ? (
+          <EstadoCarga />
+        ) : (
+          <FlatList
+            data={filtradas}
+            keyExtractor={(v) => String(v.id)}
+            contentContainerStyle={styles.lista}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <ListaVacia emoji="🧾" titulo="Sin ventas" subtitulo="Las ventas registradas aparecerán aquí" />
+            }
+            renderItem={({ item }) => {
+              const d = new Date(item.fechaIso);
+              const dia = String(d.getDate()).padStart(2, '0');
+              const mes = MESES[d.getMonth()];
+              const hora = d.toLocaleTimeString('es-CU', { hour: '2-digit', minute: '2-digit' });
+              const productos =
+                item.items.length > 0
+                  ? item.items.map((it) => it.nombre).slice(0, 3).join(', ')
+                  : `Venta N.º ${item.numero}`;
+              const extra = item.items.length > 3 ? ` +${item.items.length - 3}` : '';
+
+              return (
+                <Pressable
+                  onPress={() => abrirDetalle(item)}
+                  style={({ pressed }) => [
+                    styles.venta,
+                    { borderBottomColor: colores.borde },
+                    item.anulada && { opacity: 0.72 },
+                    pressed && { backgroundColor: colores.superficieSuave },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.fechaBloque,
+                      {
+                        backgroundColor: item.anulada ? colores.peligroSuave : colores.primarioSuave,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.fechaDia,
+                        { color: item.anulada ? colores.peligro : colores.primario },
+                      ]}
+                    >
+                      {dia}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.fechaMes,
+                        { color: item.anulada ? colores.peligro : colores.primario },
+                      ]}
+                    >
+                      {mes}
+                    </Text>
+                    <Text style={[styles.fechaHora, { color: colores.textoSuave }]}>{hora}</Text>
+                  </View>
+
+                  <View style={styles.ventaCentro}>
+                    <Text style={[styles.ventaNombre, { color: colores.texto }]} numberOfLines={1}>
+                      {productos}
+                      {extra}
+                    </Text>
+                    <View style={styles.badges}>
+                      <Badge
+                        texto={NOMBRES_FORMA_PAGO[item.formaPago as FormaPago]}
+                        color={colores.infoSuave}
+                        colorTexto={colores.info}
+                      />
+                      {item.usuarioNombre ? (
+                        <Badge
+                          texto={item.usuarioNombre}
+                          icono="person"
+                          color={colores.superficieSuave}
+                          colorTexto={colores.textoSuave}
+                        />
+                      ) : null}
+                      {item.anulada ? (
+                        <Badge
+                          texto="Anulada"
+                          color={colores.peligroSuave}
+                          colorTexto={colores.peligro}
+                          icono="block"
+                        />
+                      ) : null}
+                    </View>
+                  </View>
+
+                  <View style={styles.ventaDerecha}>
+                    <Text
+                      style={[
+                        styles.ventaTotal,
+                        { color: colores.texto },
+                        item.anulada && { color: colores.textoSuave, textDecorationLine: 'line-through' },
+                      ]}
+                    >
+                      {formatearDinero(item.total, simbolo)}
+                    </Text>
+                    <MaterialIcons name="chevron-right" size={18} color={colores.textoSuave} />
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
+        )}
+
+        <Hoja
+          visible={!!detalle}
+          onCerrar={() => {
+            setDetalle(null);
+            setAnulando(false);
+            setMotivo('');
+          }}
+          titulo={detalle ? `Venta N.º ${detalle.numero}` : ''}
+          subtitulo={detalle ? formatoFechaHora(detalle.fechaIso) : ''}
+          pie={
+            detalle && !detalle.anulada && !noAnulable ? (
+              <Boton
+                titulo="Anular venta"
+                icono="block"
+                variante="peligro"
+                tamanio="md"
+                onPress={() => setAnulando(true)}
+              />
+            ) : undefined
           }
-          renderItem={({ item }) => {
-            const d = new Date(item.fechaIso);
-            const dia = String(d.getDate()).padStart(2, '0');
-            const mes = MESES[d.getMonth()];
-            const hora = d.toLocaleTimeString('es-CU', { hour: '2-digit', minute: '2-digit' });
-            const productos =
-              item.items.length > 0
-                ? item.items.map((it) => it.nombre).slice(0, 3).join(', ')
-                : `Venta N.º ${item.numero}`;
-            const extra = item.items.length > 3 ? ` +${item.items.length - 3}` : '';
+        >
+          {detalle ? (
+            <>
+              <View style={styles.detalleCabecera}>
+                <Badge
+                  texto={NOMBRES_FORMA_PAGO[detalle.formaPago]}
+                  color={colores.infoSuave}
+                  colorTexto={colores.info}
+                />
+                <Badge
+                  texto={detalle.usuarioNombre ?? '—'}
+                  icono="person"
+                  color={colores.superficieSuave}
+                  colorTexto={colores.textoSuave}
+                />
+                {detalle.anulada ? (
+                  <Badge
+                    texto="Anulada"
+                    color={colores.peligroSuave}
+                    colorTexto={colores.peligro}
+                    icono="block"
+                  />
+                ) : null}
+              </View>
 
-            return (
-              <Tarjeta
-                onPress={() => abrirDetalle(item)}
-                padding={spacing.md}
-                estilo={[styles.venta, item.anulada && { opacity: 0.72 }]}
-              >
+              <View style={[styles.grupoItems, { borderColor: colores.borde }]}>
+                {detalle.items.map((it, indice) => (
+                  <Fragment key={it.id}>
+                    {indice > 0 ? (
+                      <View style={[styles.itemDivisor, { backgroundColor: colores.borde }]} />
+                    ) : null}
+                    <View style={styles.detalleItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.detalleItemNombre, { color: colores.texto }]}>
+                          {it.nombre}
+                        </Text>
+                        <Text style={[styles.detalleItemSub, { color: colores.textoSuave }]}>
+                          {it.cantidad} × {formatearDinero(it.precioUnitario, simbolo)}
+                        </Text>
+                      </View>
+                      <Text style={[styles.detalleItemTotal, { color: colores.texto }]}>
+                        {formatearDinero(it.subtotal, simbolo)}
+                      </Text>
+                    </View>
+                  </Fragment>
+                ))}
+              </View>
+
+              <View style={[styles.detalleTotales, { borderColor: colores.borde }]}>
+                <View style={styles.filaDetalle}>
+                  <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>Subtotal</Text>
+                  <Text style={[styles.valorDetalle, { color: colores.texto }]}>
+                    {formatearDinero(detalle.subtotal, simbolo)}
+                  </Text>
+                </View>
+                {detalle.descuentoPct > 0 ? (
+                  <View style={styles.filaDetalle}>
+                    <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>
+                      Descuento ({detalle.descuentoPct}%)
+                    </Text>
+                    <Text style={[styles.valorDetalle, { color: colores.primario }]}>
+                      −{formatearDinero(detalle.subtotal - detalle.total, simbolo)}
+                    </Text>
+                  </View>
+                ) : null}
+                <View style={styles.filaDetalle}>
+                  <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>Efectivo</Text>
+                  <Text style={[styles.valorDetalle, { color: colores.texto }]}>
+                    {formatearDinero(detalle.montoEfectivo, simbolo)}
+                  </Text>
+                </View>
+                <View style={styles.filaDetalle}>
+                  <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>Digital</Text>
+                  <Text style={[styles.valorDetalle, { color: colores.texto }]}>
+                    {formatearDinero(detalle.montoDigital, simbolo)}
+                  </Text>
+                </View>
                 <View
                   style={[
-                    styles.fechaBloque,
+                    styles.filaDetalle,
                     {
-                      backgroundColor: item.anulada ? colores.peligroSuave : colores.acentoSuave,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderTopColor: colores.borde,
+                      paddingTop: spacing.sm,
+                      marginTop: spacing.sm,
+                      marginBottom: 0,
                     },
                   ]}
                 >
-                  <Text style={[styles.fechaDia, { color: item.anulada ? colores.peligro : colores.acento }]}>
-                    {dia}
+                  <Text style={[styles.textoDetalleTotal, { color: colores.texto }]}>Total</Text>
+                  <Text style={[styles.valorDetalleTotal, { color: colores.primario }]}>
+                    {formatearDinero(detalle.total, simbolo)}
                   </Text>
-                  <Text style={[styles.fechaMes, { color: item.anulada ? colores.peligro : colores.acento }]}>
-                    {mes}
-                  </Text>
-                  <Text style={[styles.fechaHora, { color: colores.textoSuave }]}>{hora}</Text>
                 </View>
+              </View>
 
-                <View style={styles.ventaCentro}>
-                  <Text style={[styles.ventaNombre, { color: colores.texto }]} numberOfLines={1}>
-                    {productos}
-                    {extra}
-                  </Text>
-                  <View style={styles.badges}>
-                    <Badge
-                      texto={`#${item.numero}`}
-                      color={colores.superficieSuave}
-                      colorTexto={colores.textoSuave}
-                    />
-                    <Badge
-                      texto={NOMBRES_FORMA_PAGO[item.formaPago as FormaPago]}
-                      color={colores.infoSuave}
-                      colorTexto={colores.info}
-                    />
-                    {item.usuarioNombre ? (
-                      <Badge
-                        texto={item.usuarioNombre}
-                        icono="person"
-                        color={colores.superficieSuave}
-                        colorTexto={colores.textoSuave}
-                      />
-                    ) : null}
-                    {item.anulada ? (
-                      <Badge
-                        texto="Anulada"
-                        color={colores.peligroSuave}
-                        colorTexto={colores.peligro}
-                        icono="block"
-                      />
-                    ) : null}
-                  </View>
-                </View>
-
-                <View style={styles.ventaDerecha}>
-                  <Text
-                    style={[
-                      styles.ventaTotal,
-                      { color: colores.texto },
-                      item.anulada && { color: colores.textoSuave, textDecorationLine: 'line-through' },
-                    ]}
-                  >
-                    {formatearDinero(item.total, simbolo)}
-                  </Text>
-                  <MaterialIcons name="chevron-right" size={18} color={colores.textoSuave} />
-                </View>
-              </Tarjeta>
-            );
-          }}
-        />
-      )}
-
-      <Hoja
-        visible={!!detalle}
-        onCerrar={() => {
-          setDetalle(null);
-          setAnulando(false);
-          setMotivo('');
-        }}
-        titulo={detalle ? `Venta N.º ${detalle.numero}` : ''}
-        subtitulo={detalle ? formatoFechaHora(detalle.fechaIso) : ''}
-        pie={
-          detalle && !detalle.anulada && !noAnulable ? (
-            <Boton
-              titulo="Anular venta"
-              icono="block"
-              variante="peligro"
-              tamanio="md"
-              onPress={() => setAnulando(true)}
-            />
-          ) : undefined
-        }
-      >
-        {detalle ? (
-          <>
-            <View style={styles.detalleCabecera}>
-              <Badge
-                texto={NOMBRES_FORMA_PAGO[detalle.formaPago]}
-                color={colores.infoSuave}
-                colorTexto={colores.info}
-              />
-              <Badge
-                texto={detalle.usuarioNombre ?? '—'}
-                icono="person"
-                color={colores.superficieSuave}
-                colorTexto={colores.textoSuave}
-              />
               {detalle.anulada ? (
-                <Badge
-                  texto="Anulada"
-                  color={colores.peligroSuave}
-                  colorTexto={colores.peligro}
-                  icono="block"
-                />
+                <View style={[styles.anuladaInfo, { backgroundColor: colores.peligroSuave }]}>
+                  <MaterialIcons name="info-outline" size={18} color={colores.peligro} />
+                  <Text style={[styles.anuladaTexto, { color: colores.peligro }]}>
+                    {detalle.motivoAnulacion ?? 'Sin motivo registrado.'}
+                  </Text>
+                </View>
               ) : null}
-            </View>
 
-            <View
-              style={[
-                styles.grupoItems,
-                { backgroundColor: colores.superficie, borderColor: colores.borde },
-              ]}
-            >
-              {detalle.items.map((it, indice) => (
-                <Fragment key={it.id}>
-                  {indice > 0 ? (
-                    <View style={[styles.itemDivisor, { backgroundColor: colores.borde }]} />
-                  ) : null}
-                  <View style={styles.detalleItem}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.detalleItemNombre, { color: colores.texto }]}>
-                        {it.nombre}
-                      </Text>
-                      <Text style={[styles.detalleItemSub, { color: colores.textoSuave }]}>
-                        {it.cantidad} × {formatearDinero(it.precioUnitario, simbolo)}
-                      </Text>
-                    </View>
-                    <Text style={[styles.detalleItemTotal, { color: colores.texto }]}>
-                      {formatearDinero(it.subtotal, simbolo)}
-                    </Text>
+              {!detalle.anulada && noAnulable ? (
+                <View style={[styles.anuladaInfo, { backgroundColor: colores.advertenciaSuave }]}>
+                  <MaterialIcons name="lock" size={18} color={colores.advertencia} />
+                  <Text style={[styles.anuladaTexto, { color: colores.advertencia }]}>
+                    La caja de esta venta ya está cerrada. No se puede anular.
+                  </Text>
+                </View>
+              ) : null}
+
+              {anulando ? (
+                <View style={styles.anularZona}>
+                  <View style={[styles.anularDivisor, { backgroundColor: colores.borde }]} />
+                  <Campo
+                    etiqueta="Motivo de la anulación"
+                    valor={motivo}
+                    onChange={setMotivo}
+                    placeholder="Ej.: venta errónea, cambio de producto…"
+                    multiline
+                    autoFocus
+                  />
+                  <View style={styles.anularBotones}>
+                    <Boton
+                      titulo="Cancelar"
+                      variante="secundario"
+                      onPress={() => setAnulando(false)}
+                      estilo={{ flex: 1 }}
+                    />
+                    <Boton
+                      titulo="Confirmar anulación"
+                      variante="peligro"
+                      cargando={guardando}
+                      bloqueado={!motivo.trim()}
+                      onPress={confirmarAnulacion}
+                      estilo={{ flex: 2 }}
+                    />
                   </View>
-                </Fragment>
-              ))}
-            </View>
-
-            <View
-              style={[
-                styles.detalleTotales,
-                { backgroundColor: colores.superficie, borderColor: colores.borde },
-              ]}
-            >
-              <View style={styles.filaDetalle}>
-                <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>Subtotal</Text>
-                <Text style={[styles.valorDetalle, { color: colores.texto }]}>
-                  {formatearDinero(detalle.subtotal, simbolo)}
-                </Text>
-              </View>
-              {detalle.descuentoPct > 0 ? (
-                <View style={styles.filaDetalle}>
-                  <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>
-                    Descuento ({detalle.descuentoPct}%)
-                  </Text>
-                  <Text style={[styles.valorDetalle, { color: colores.acento }]}>
-                    −{formatearDinero(detalle.subtotal - detalle.total, simbolo)}
-                  </Text>
                 </View>
               ) : null}
-              <View style={styles.filaDetalle}>
-                <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>Efectivo</Text>
-                <Text style={[styles.valorDetalle, { color: colores.texto }]}>
-                  {formatearDinero(detalle.montoEfectivo, simbolo)}
-                </Text>
-              </View>
-              <View style={styles.filaDetalle}>
-                <Text style={[styles.textoDetalle, { color: colores.textoSuave }]}>Digital</Text>
-                <Text style={[styles.valorDetalle, { color: colores.texto }]}>
-                  {formatearDinero(detalle.montoDigital, simbolo)}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.filaDetalle,
-                  {
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    borderTopColor: colores.borde,
-                    paddingTop: spacing.sm,
-                    marginTop: spacing.sm,
-                    marginBottom: 0,
-                  },
-                ]}
-              >
-                <Text style={[styles.textoDetalleTotal, { color: colores.texto }]}>Total</Text>
-                <Text style={[styles.valorDetalleTotal, { color: colores.acento }]}>
-                  {formatearDinero(detalle.total, simbolo)}
-                </Text>
-              </View>
-            </View>
-
-            {detalle.anulada ? (
-              <View
-                style={[styles.anuladaInfo, { backgroundColor: colores.peligroSuave }]}
-              >
-                <MaterialIcons name="info-outline" size={18} color={colores.peligro} />
-                <Text style={[styles.anuladaTexto, { color: colores.peligro }]}>
-                  {detalle.motivoAnulacion ?? 'Sin motivo registrado.'}
-                </Text>
-              </View>
-            ) : null}
-
-            {!detalle.anulada && noAnulable ? (
-              <View
-                style={[styles.anuladaInfo, { backgroundColor: colores.advertenciaSuave }]}
-              >
-                <MaterialIcons name="lock" size={18} color={colores.advertencia} />
-                <Text style={[styles.anuladaTexto, { color: colores.advertencia }]}>
-                  La caja de esta venta ya está cerrada. No se puede anular.
-                </Text>
-              </View>
-            ) : null}
-
-            {anulando ? (
-              <View style={styles.anularZona}>
-                <View style={[styles.anularDivisor, { backgroundColor: colores.borde }]} />
-                <Campo
-                  etiqueta="Motivo de la anulación"
-                  valor={motivo}
-                  onChange={setMotivo}
-                  placeholder="Ej.: venta errónea, cambio de producto…"
-                  multiline
-                  autoFocus
-                />
-                <View style={styles.anularBotones}>
-                  <Boton
-                    titulo="Cancelar"
-                    variante="secundario"
-                    onPress={() => setAnulando(false)}
-                    estilo={{ flex: 1 }}
-                  />
-                  <Boton
-                    titulo="Confirmar anulación"
-                    variante="peligro"
-                    cargando={guardando}
-                    bloqueado={!motivo.trim()}
-                    onPress={confirmarAnulacion}
-                    estilo={{ flex: 2 }}
-                  />
-                </View>
-              </View>
-            ) : null}
-          </>
-        ) : null}
-      </Hoja>
+            </>
+          ) : null}
+        </Hoja>
+      </Superficie>
     </Pantalla>
   );
 }
 
 const styles = StyleSheet.create({
-  busqueda: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
+  busqueda: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xs },
   filtros: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  lista: { paddingHorizontal: spacing.lg, gap: spacing.sm },
+  lista: { paddingHorizontal: spacing.md, paddingBottom: spacing.xxl, paddingTop: spacing.xs },
   venta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   fechaBloque: {
     width: 56,
@@ -516,7 +513,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   grupoItems: {
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderRadius: radius.lg,
     overflow: 'hidden',
   },
@@ -539,7 +536,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   detalleTotales: {
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderRadius: radius.lg,
     padding: spacing.md,
     marginTop: spacing.md,
