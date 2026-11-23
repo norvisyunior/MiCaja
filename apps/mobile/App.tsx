@@ -25,8 +25,9 @@ import RegistroScreen from './src/screens/RegistroScreen';
 import ActivacionScreen from './src/screens/ActivacionScreen';
 import TrabajadorSetupScreen from './src/screens/TrabajadorSetupScreen';
 import { NavegadorRaiz } from './src/navigation';
-import { CLAVE_ROL_ACTIVACION, leerSetting } from './src/api/config';
+import { CLAVE_VIA_ACTIVACION, leerSetting } from './src/api/config';
 import { useSyncAutomatico } from './src/sync/automatico';
+import { destinoPostActivacion } from './src/sync/postActivacion';
 import { useSync } from './src/store/sync';
 import { AvisoGlobal } from './src/components/AvisoGlobal';
 import { Boton, Gradiente } from './src/components/UI';
@@ -80,10 +81,11 @@ function Splash() {
 }
 
 function AvisoSinConexion() {
-  const errorSync = useSync((s) => s.error);
+  const errorCodigo = useSync((s) => s.errorCodigo);
   const { colores } = useTema();
   const [entendido, setEntendido] = useState(false);
-  const sinConexion = Boolean(errorSync);
+  const sinConexion =
+    errorCodigo === 'SIN_CONEXION' || errorCodigo === 'TIEMPO_AGOTADO';
 
   useEffect(() => {
     if (!sinConexion) setEntendido(false);
@@ -175,15 +177,11 @@ function Contenido() {
   }, [db, usuario]);
 
   async function trasActivacion() {
-    // La activación por invitación (admin o dependiente) configura la cuenta
-    // del trabajador; el código del negocio configura la cuenta inicial.
-    const rol = await leerSetting(db, CLAVE_ROL_ACTIVACION);
-    const usuarios = await listarUsuarios(db);
-    if (usuarios.length > 0) {
-      setEstado('login');
-      return;
-    }
-    setEstado(rol && rol !== 'propietario' ? 'trabajador' : 'setup');
+    const [via, usuarios] = await Promise.all([
+      leerSetting(db, CLAVE_VIA_ACTIVACION),
+      listarUsuarios(db),
+    ]);
+    setEstado(destinoPostActivacion(via, usuarios.length > 0));
   }
 
   if (usuario) return <NavegadorRaiz />;

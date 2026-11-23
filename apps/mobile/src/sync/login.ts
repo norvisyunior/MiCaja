@@ -21,6 +21,7 @@ import { normalizarUsuario } from '../utils/usuario';
 import {
   contarDatosLocales,
   guardarActivacion,
+  guardarSesionSinLicencia,
   restablecerDispositivo,
 } from './activacion';
 
@@ -151,7 +152,14 @@ export async function guardarLoginGlobal(
 
   if (!empresaActual && !opciones.reiniciar) {
     const datos = await contarDatosLocales(db);
-    if (datos.usuarios > 0 || datos.ventas > 0) {
+    if (
+      datos.usuarios > 0 ||
+      datos.ventas > 0 ||
+      datos.gastos > 0 ||
+      datos.movimientosCaja > 0 ||
+      datos.conteos > 0 ||
+      datos.outbox > 0
+    ) {
       throw new ErrorApi(
         'DISPOSITIVO_CON_DATOS',
         'Este dispositivo ya tiene cuentas o ventas de un negocio local. Confirma que quieres borrarlas para entrar con esta cuenta.',
@@ -160,14 +168,23 @@ export async function guardarLoginGlobal(
     }
   }
 
-  const licencia = evaluarTokenLicencia(respuesta.licencia, {
-    empresaId: respuesta.empresa.id,
-    deviceId: respuesta.dispositivo.id,
-  });
-  if (licencia.estado === 'invalida') {
+  const conLicencia = Boolean(respuesta.licencia && respuesta.token);
+  if (conLicencia) {
+    const licencia = evaluarTokenLicencia(respuesta.licencia!, {
+      empresaId: respuesta.empresa.id,
+      deviceId: respuesta.dispositivo.id,
+    });
+    if (licencia.estado === 'invalida') {
+      throw new ErrorApi(
+        'LICENCIA_INVALIDA',
+        'La licencia recibida del servidor no es válida para este dispositivo.',
+        409
+      );
+    }
+  } else if (!respuesta.token) {
     throw new ErrorApi(
-      'LICENCIA_INVALIDA',
-      'La licencia recibida del servidor no es válida para este dispositivo.',
+      'LOGIN_INCOMPLETO',
+      'El servidor no devolvió la sesión del dispositivo.',
       409
     );
   }
@@ -176,7 +193,24 @@ export async function guardarLoginGlobal(
     await restablecerDispositivo(db);
   }
 
-  await guardarActivacion(db, respuesta);
+  if (conLicencia) {
+    await guardarActivacion(db, {
+      token: respuesta.token!,
+      licencia: respuesta.licencia!,
+      empresa: respuesta.empresa,
+      dispositivo: respuesta.dispositivo,
+      venceEn: respuesta.venceEn,
+      features: respuesta.features,
+      via: respuesta.via,
+      rol: respuesta.rol,
+    });
+  } else {
+    await guardarSesionSinLicencia(db, {
+      token: respuesta.token!,
+      empresa: respuesta.empresa,
+      dispositivo: respuesta.dispositivo,
+    });
+  }
   await guardarSetting(db, CLAVE_FINGERPRINT_DISPOSITIVO, fingerprint);
   await guardarSetting(db, CLAVE_ROL_ACTIVACION, respuesta.rol);
   await guardarSetting(db, CLAVE_CODIGO_PENDIENTE, '');

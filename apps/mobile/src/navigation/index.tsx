@@ -9,21 +9,25 @@ import HistorialScreen from '../screens/HistorialScreen';
 import ResumenScreen from '../screens/ResumenScreen';
 import ConfigScreen from '../screens/ConfigScreen';
 import ProductosScreen from '../screens/ProductosScreen';
-import TurnoScreen from '../screens/TurnoScreen';
+import RentabilidadScreen from '../screens/RentabilidadScreen';
+import CierreScreen from '../screens/CierreScreen';
+import HistorialCierresScreen from '../screens/HistorialCierresScreen';
 import { useTema } from '../store/tema';
 import { fuentes } from '../theme';
 
 export type ParamListRaiz = {
   Principal: undefined;
   Productos: undefined;
-  Turno: undefined;
   Historial: undefined;
+  HistorialCierres: undefined;
 };
 
 export type ParamListTabs = {
   Inicio: undefined;
   Vender: undefined;
   Resumen: undefined;
+  Rentabilidad: undefined;
+  Cierre: undefined;
   Configuracion: undefined;
 };
 
@@ -33,6 +37,8 @@ const ICONOS: Record<keyof ParamListTabs, { activo: NombreIcono; inactivo: Nombr
   Inicio: { activo: 'home', inactivo: 'home' },
   Vender: { activo: 'shopping-cart', inactivo: 'shopping-cart' },
   Resumen: { activo: 'bar-chart', inactivo: 'bar-chart' },
+  Rentabilidad: { activo: 'trending-up', inactivo: 'trending-up' },
+  Cierre: { activo: 'receipt-long', inactivo: 'receipt-long' },
   Configuracion: { activo: 'grid-view', inactivo: 'grid-view' },
 };
 
@@ -40,6 +46,8 @@ const ETIQUETAS: Record<keyof ParamListTabs, string> = {
   Inicio: 'Inicio',
   Vender: 'Ventas',
   Resumen: 'Reportes',
+  Rentabilidad: 'Rentabilidad',
+  Cierre: 'Cierre',
   Configuracion: 'Más',
 };
 
@@ -86,6 +94,8 @@ function Tabs() {
       <Tab.Screen name="Inicio" component={HomeScreen} options={{ title: ETIQUETAS.Inicio }} />
       <Tab.Screen name="Vender" component={PosScreen} options={{ title: ETIQUETAS.Vender }} />
       <Tab.Screen name="Resumen" component={ResumenScreen} options={{ title: ETIQUETAS.Resumen }} />
+      <Tab.Screen name="Rentabilidad" component={RentabilidadScreen} options={{ title: ETIQUETAS.Rentabilidad }} />
+      <Tab.Screen name="Cierre" component={CierreScreen} options={{ title: ETIQUETAS.Cierre }} />
       <Tab.Screen name="Configuracion" component={ConfigScreen} options={{ title: ETIQUETAS.Configuracion }} />
     </Tab.Navigator>
   );
@@ -102,8 +112,8 @@ export function NavegadorRaiz() {
     >
       <Stack.Screen name="Principal" component={Tabs} />
       <Stack.Screen name="Productos" component={ProductosScreen} />
-      <Stack.Screen name="Turno" component={TurnoScreen} />
       <Stack.Screen name="Historial" component={HistorialScreen} />
+      <Stack.Screen name="HistorialCierres" component={HistorialCierresScreen} />
     </Stack.Navigator>
   );
 }

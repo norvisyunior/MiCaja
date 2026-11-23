@@ -39,7 +39,6 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
   let dispositivoOwnerBasicoId = '';
   let dispositivoOwnerProId = '';
   let dispositivoDependienteProId = '';
-  let maxBasico = 1;
 
   const usuarioBasico = `owner-b${sufijo}`;
   const usuarioAdmin = `admin-b${sufijo}`;
@@ -58,7 +57,6 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
     );
     const planBasico = planes.rows.find((fila) => fila.codigo === 'basico')!;
     const planPro = planes.rows.find((fila) => fila.codigo === 'pro')!;
-    maxBasico = planBasico.max_dispositivos ?? 1;
 
     const empresaBasico = await withAdmin((client) =>
       client.query<{ id: string }>(
@@ -183,19 +181,6 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
     );
     dispositivoOwnerBasicoId = ownerBasico.rows[0].id;
 
-    // El plan básico admite varias plazas. Se ocupan todas para comprobar que
-    // un login nuevo sin reemplazo recibe LIMITE_DISPOSITIVOS.
-    for (let plaza = 2; plaza <= maxBasico; plaza += 1) {
-      await withAdmin((client) =>
-        client.query(
-          `insert into dispositivos
-             (empresa_id, nombre, plataforma, fingerprint, estado, rol, last_seen_at)
-           values ($1, $2, 'web', $3, 'activo', 'dependiente', now())`,
-          [empresaBasicoId, `Caja Básico ${plaza}`, `extra-basico-${plaza}-${sufijo}`]
-        )
-      );
-    }
-
     const ownerPro = await withAdmin((client) =>
       client.query<{ id: string }>(
         `insert into dispositivos
@@ -230,7 +215,7 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
     await pool.end();
   });
 
-  function login(usuario: string, fingerprint: string, reemplazarA?: string) {
+  function login(usuario: string, fingerprint: string) {
     return request(app).post('/api/auth/usuario').send({
       usuario,
       pin,
@@ -238,7 +223,6 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
       nombre: 'Navegador de prueba',
       plataforma: 'web',
       appVersion: '1.0.0',
-      ...(reemplazarA ? { reemplazarA } : {}),
     });
   }
 
@@ -264,31 +248,24 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
     expect(respuesta.body.error).toBe('USUARIO_INACTIVO');
   });
 
-  it('pide reemplazo cuando el plan está completo', async () => {
+  it('entra con una instalación nueva aunque el plan esté completo', async () => {
     const respuesta = await login(usuarioBasico, `login-basico-${sufijo}`);
-    expect(respuesta.status).toBe(409);
-    expect(respuesta.body.error).toBe('LIMITE_DISPOSITIVOS');
-    expect(respuesta.body.details.maxDispositivos).toBe(maxBasico);
-    expect(respuesta.body.details.dispositivos).toHaveLength(maxBasico);
-    expect(
-      respuesta.body.details.dispositivos.map((fila: { id: string }) => fila.id)
-    ).toContain(dispositivoOwnerBasicoId);
-  });
-
-  it('solo el propietario puede reemplazar un dispositivo', async () => {
-    const respuesta = await login(usuarioAdmin, `login-admin-${sufijo}`, dispositivoOwnerBasicoId);
-    expect(respuesta.status).toBe(403);
-    expect(respuesta.body.error).toBe('ROL_INSUFICIENTE');
-  });
-
-  it('el propietario reemplaza el dispositivo y recibe licencia nueva', async () => {
-    const respuesta = await login(usuarioBasico, `login-basico-${sufijo}`, dispositivoOwnerBasicoId);
     expect(respuesta.status).toBe(200);
     expect(respuesta.body.via).toBe('login');
     expect(respuesta.body.rol).toBe('propietario');
     expect(respuesta.body.usuario.id).toBe(ids.ownerBasico);
-    expect(respuesta.body.usuario.version).toBe(1);
     expect(respuesta.body.dispositivo.id).not.toBe(dispositivoOwnerBasicoId);
+  });
+
+  it('un administrador entra con su propia instalación', async () => {
+    const respuesta = await login(usuarioAdmin, `login-admin-${sufijo}`);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.body.rol).toBe('admin');
+  });
+
+  it('el propietario recibe la licencia del negocio en su nueva instalación', async () => {
+    const respuesta = await login(usuarioBasico, `login-basico-2-${sufijo}`);
+    expect(respuesta.status).toBe(200);
     expect(respuesta.body.licencia).toBeTruthy();
     expect(JSON.stringify(respuesta.body)).not.toContain(pinHash);
 
@@ -298,14 +275,13 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
         [dispositivoOwnerBasicoId]
       )
     );
-    expect(anterior.rows[0].estado).toBe('inactivo');
+    expect(anterior.rows[0].estado).toBe('activo');
   });
 
-  it('un dependiente sin dispositivo autorizado necesita activación', async () => {
+  it('un dependiente entra con una instalación nueva sin invitación', async () => {
     const respuesta = await login(usuarioDependiente, `login-dep-nuevo-${sufijo}`);
-    expect(respuesta.status).toBe(409);
-    expect(respuesta.body.error).toBe('ACTIVACION_REQUERIDA');
-    expect(respuesta.body.details.empresa.id).toBe(empresaBasicoId);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.body.rol).toBe('dependiente');
   });
 
   it('un dependiente con dispositivo existente entra y el pull no filtra el hash', async () => {

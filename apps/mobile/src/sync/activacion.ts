@@ -15,11 +15,13 @@ import {
   CLAVE_NOMBRE_DISPOSITIVO,
   CLAVE_ROL_ACTIVACION,
   CLAVE_TOKEN_DISPOSITIVO,
+  CLAVE_VIA_ACTIVACION,
   leerSetting,
 } from '../api/config';
 import { ahoraIso, obtenerContextoLocal } from '../db/contexto';
 import { guardarSetting } from '../db/repos/settings';
-import { evaluarTokenLicencia, guardarLicenciaLocal } from '../licencias/verificar';
+import { evaluarTokenLicencia, guardarLicenciaLocal, type ResultadoLicencia } from '../licencias/verificar';
+import { useSync } from '../store/sync';
 
 export const APP_VERSION = '1.0.0';
 
@@ -33,6 +35,84 @@ export async function nombreDispositivoPorDefecto(db: SQLiteDatabase): Promise<s
   if (guardado) return guardado;
   const plataforma = plataformaActual();
   return `MiCaja ${plataforma === 'ios' ? 'iPhone' : plataforma === 'web' ? 'Web' : 'Android'}`;
+}
+
+function sinLicencia(): ResultadoLicencia {
+  return { estado: 'sin_licencia', valida: true, enGracia: false };
+}
+
+/**
+ * Una licencia pertenece al negocio, nunca al teléfono. Al crear un negocio
+ * nuevo se descarta cualquier sesión/token anterior: aunque el mismo dispositivo
+ * ya estuviera activado en otro negocio, el nuevo nace sin licencia.
+ */
+export async function reiniciarLicenciaDelNegocio(db: SQLiteDatabase): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM licencia_local`);
+    await db.runAsync(`DELETE FROM dispositivo_local`);
+    await db.runAsync(`DELETE FROM sync_meta`);
+    await db.runAsync(`DELETE FROM sync_outbox`);
+    await db.runAsync(
+      `DELETE FROM settings WHERE clave IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      CLAVE_LICENCIA_TOKEN,
+      CLAVE_LICENCIA_VERIFICADA,
+      'licencia_ultima_verificacion',
+      CLAVE_EMPRESA_SERVIDOR,
+      CLAVE_DISPOSITIVO_SERVIDOR,
+      CLAVE_TOKEN_DISPOSITIVO,
+      CLAVE_CODIGO_PENDIENTE,
+      CLAVE_ROL_ACTIVACION,
+      CLAVE_VIA_ACTIVACION,
+      'sync_aplazados',
+      'sync_pin_hashes_hecho',
+      'sync_snapshot_hecho',
+      'ultimo_sync_en'
+    );
+  });
+  useSync.setState({ licencia: sinLicencia() });
+}
+
+/**
+ * Sesión de un negocio pendiente: el dispositivo queda vinculado para poder
+ * entrar y sincronizar, pero sin licencia hasta que se active con su código.
+ */
+export async function guardarSesionSinLicencia(
+  db: SQLiteDatabase,
+  respuesta: {
+    token: string;
+    empresa: { id: string };
+    dispositivo: { id: string; nombre: string; plataforma: string };
+  }
+): Promise<void> {
+  const ahora = ahoraIso();
+  const contexto = await obtenerContextoLocal(db);
+
+  await guardarSetting(db, CLAVE_TOKEN_DISPOSITIVO, respuesta.token);
+  await guardarSetting(db, CLAVE_EMPRESA_SERVIDOR, respuesta.empresa.id);
+  await guardarSetting(db, CLAVE_DISPOSITIVO_SERVIDOR, respuesta.dispositivo.id);
+  await guardarSetting(db, CLAVE_NOMBRE_DISPOSITIVO, respuesta.dispositivo.nombre);
+  await guardarSetting(db, CLAVE_LICENCIA_TOKEN, '');
+  await guardarSetting(db, CLAVE_LICENCIA_VERIFICADA, '');
+
+  await db.runAsync(`DELETE FROM licencia_local`);
+  await db.runAsync(
+    `INSERT INTO dispositivo_local
+       (device_id, empresa_id, nombre, plataforma, app_version, activado_en, last_sync_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL)
+     ON CONFLICT(device_id) DO UPDATE SET
+       nombre = excluded.nombre,
+       plataforma = excluded.plataforma,
+       app_version = excluded.app_version,
+       activado_en = excluded.activado_en`,
+    contexto.deviceId,
+    contexto.empresaId,
+    respuesta.dispositivo.nombre,
+    respuesta.dispositivo.plataforma,
+    APP_VERSION,
+    ahora
+  );
+
+  useSync.setState({ licencia: sinLicencia() });
 }
 
 export async function guardarActivacion(
@@ -74,11 +154,16 @@ export async function guardarActivacion(
   );
 
   await guardarLicenciaLocal(db, resultado);
+  useSync.setState({ error: null, errorCodigo: null });
 }
 
 export interface DatosLocales {
   usuarios: number;
   ventas: number;
+  gastos: number;
+  movimientosCaja: number;
+  conteos: number;
+  outbox: number;
 }
 
 export async function contarDatosLocales(db: SQLiteDatabase): Promise<DatosLocales> {
@@ -86,7 +171,24 @@ export async function contarDatosLocales(db: SQLiteDatabase): Promise<DatosLocal
     `SELECT COUNT(*) AS total FROM usuarios`
   );
   const ventas = await db.getFirstAsync<{ total: number }>(`SELECT COUNT(*) AS total FROM ventas`);
-  return { usuarios: usuarios?.total ?? 0, ventas: ventas?.total ?? 0 };
+  const gastos = await db.getFirstAsync<{ total: number }>(`SELECT COUNT(*) AS total FROM gastos`);
+  const movimientosCaja = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM movimientos_caja`
+  );
+  const conteos = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM conteos_inventario`
+  );
+  const outbox = await db.getFirstAsync<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM sync_outbox`
+  );
+  return {
+    usuarios: usuarios?.total ?? 0,
+    ventas: ventas?.total ?? 0,
+    gastos: gastos?.total ?? 0,
+    movimientosCaja: movimientosCaja?.total ?? 0,
+    conteos: conteos?.total ?? 0,
+    outbox: outbox?.total ?? 0,
+  };
 }
 
 /**
@@ -99,6 +201,9 @@ export async function limpiarDatosLocales(db: SQLiteDatabase): Promise<void> {
     await db.runAsync(`DELETE FROM venta_items`);
     await db.runAsync(`DELETE FROM ventas`);
     await db.runAsync(`DELETE FROM movimientos_inventario`);
+    await db.runAsync(`DELETE FROM gastos`);
+    await db.runAsync(`DELETE FROM movimientos_caja`);
+    await db.runAsync(`DELETE FROM conteos_inventario`);
     await db.runAsync(`DELETE FROM turnos_caja`);
     await db.runAsync(`DELETE FROM productos`);
     await db.runAsync(`DELETE FROM categorias`);
@@ -107,8 +212,9 @@ export async function limpiarDatosLocales(db: SQLiteDatabase): Promise<void> {
     await db.runAsync(
       `DELETE FROM settings WHERE clave IN (
          'nombre_negocio', 'moneda', 'simbolo_moneda',
-         'sync_snapshot_hecho', 'ultimo_sync_en', 'codigo_activacion_pendiente'
-       )`
+          'sync_snapshot_hecho', 'ultimo_sync_en', 'codigo_activacion_pendiente',
+          'sync_aplazados', 'sync_pin_hashes_hecho'
+        )`
     );
   });
 }
@@ -125,6 +231,9 @@ export async function restablecerDispositivo(db: SQLiteDatabase): Promise<void> 
     await db.runAsync(`DELETE FROM venta_items`);
     await db.runAsync(`DELETE FROM ventas`);
     await db.runAsync(`DELETE FROM movimientos_inventario`);
+    await db.runAsync(`DELETE FROM gastos`);
+    await db.runAsync(`DELETE FROM movimientos_caja`);
+    await db.runAsync(`DELETE FROM conteos_inventario`);
     await db.runAsync(`DELETE FROM turnos_caja`);
     await db.runAsync(`DELETE FROM productos`);
     await db.runAsync(`DELETE FROM categorias`);
@@ -189,7 +298,14 @@ export async function activarConCodigo(
 
   if (esInvitacion) {
     const datos = await contarDatosLocales(db);
-    if (datos.usuarios > 0 || datos.ventas > 0) {
+    if (
+      datos.usuarios > 0 ||
+      datos.ventas > 0 ||
+      datos.gastos > 0 ||
+      datos.movimientosCaja > 0 ||
+      datos.conteos > 0 ||
+      datos.outbox > 0
+    ) {
       await deshacerActivacionInvitacion(db, respuesta.token);
       throw new ErrorApi(
         'DISPOSITIVO_CON_DATOS',
@@ -202,6 +318,7 @@ export async function activarConCodigo(
 
   await guardarActivacion(db, respuesta);
   await guardarSetting(db, CLAVE_ROL_ACTIVACION, rol);
+  await guardarSetting(db, CLAVE_VIA_ACTIVACION, esInvitacion ? 'invitacion' : 'codigo');
   return respuesta;
 }
 
@@ -214,4 +331,7 @@ export async function olvidarActivacionLocal(db: SQLiteDatabase): Promise<void> 
   await guardarSetting(db, CLAVE_TOKEN_DISPOSITIVO, '');
   await guardarSetting(db, CLAVE_LICENCIA_TOKEN, '');
   await guardarSetting(db, CLAVE_LICENCIA_VERIFICADA, '');
+  await guardarSetting(db, CLAVE_VIA_ACTIVACION, '');
+  await db.runAsync(`DELETE FROM licencia_local`);
+  useSync.setState({ licencia: sinLicencia() });
 }

@@ -26,6 +26,9 @@ const TABLAS_V2 = [
   'dispositivo_local',
   'licencia_local',
   'movimientos_inventario',
+  'gastos',
+  'movimientos_caja',
+  'conteos_inventario',
 ];
 
 async function leerContenidoArchivo(uri: string): Promise<string> {

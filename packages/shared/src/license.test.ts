@@ -82,7 +82,7 @@ describe('vigencia de licencia', () => {
     });
   });
 
-  it('valida empresa y dispositivo', () => {
+  it('valida la empresa e ignora el dispositivo', () => {
     expect(
       evaluateLicense(payload(), {
         empresaId: '44444444-4444-4444-8444-444444444444',
@@ -94,8 +94,8 @@ describe('vigencia de licencia', () => {
       evaluateLicense(payload(), {
         deviceId: '55555555-5555-4555-8555-555555555555',
         ahoraSegundos: AHORA,
-      }).motivo
-    ).toBe('dispositivo');
+      }).valida
+    ).toBe(true);
   });
 
   it('marca suspendida', () => {

@@ -10,9 +10,13 @@ import {
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { registrarCuenta, type RespuestaActivacion } from '../api/cliente';
+import {
+  registrarCuenta,
+  type RespuestaActivacion,
+  type RespuestaRegistro,
+} from '../api/cliente';
 import { CLAVE_CODIGO_PENDIENTE } from '../api/config';
-import { activarConCodigo } from '../sync/activacion';
+import { activarConCodigo, reiniciarLicenciaDelNegocio } from '../sync/activacion';
 import { crearUsuario, existeNombreUsuario } from '../db/repos/catalogo';
 import { guardarSetting } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';

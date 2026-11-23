@@ -42,7 +42,7 @@ function dbConTurno(deviceId: string): {
         return { valor: 'device-servidor' };
       }
       if (sql.includes('FROM turnos_caja')) {
-        const [, local, servidor] = args as [number, string, string];
+        const [, , local, servidor] = args as [string, number, string, string];
         return deviceId === local || deviceId === servidor ? TURNO : null;
       }
       return null;
@@ -72,6 +72,6 @@ describe('turnoAbierto', () => {
     expect(turno).toBeNull();
     const consulta = llamadas.find((fila) => fila.sql.includes('FROM turnos_caja'));
     expect(consulta?.sql).toContain('device_id IN');
-    expect(consulta?.args).toEqual([1, 'device-local', 'device-servidor']);
+    expect(consulta?.args).toEqual(['empresa-local', 1, 'device-local', 'device-servidor']);
   });
 });

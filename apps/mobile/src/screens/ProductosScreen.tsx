@@ -51,6 +51,7 @@ export default function ProductosScreen() {
     editar: Producto | null;
     nombre: string;
     precio: string;
+    costo: string;
     emoji: string;
     color: string;
     imagen: string | null;
@@ -64,6 +65,7 @@ export default function ProductosScreen() {
     editar: null,
     nombre: '',
     precio: '',
+    costo: '',
     emoji: '🛍️',
     color: '#3F3FB0',
     imagen: null,
@@ -101,6 +103,7 @@ export default function ProductosScreen() {
       editar: p,
       nombre: p?.nombre ?? '',
       precio: p ? String(p.precio) : '',
+      costo: p?.costo != null ? String(p.costo) : '',
       emoji: p?.emoji ?? '🛍️',
       color: p?.color ?? '#3F3FB0',
       imagen: p?.imagen ?? null,
@@ -138,6 +141,11 @@ export default function ProductosScreen() {
       mostrarAviso('Precio inválido', 'El precio debe ser mayor que cero.');
       return;
     }
+    const costo = form.costo.trim() === '' ? null : parsearMonto(form.costo);
+    if (costo !== null && costo < 0) {
+      mostrarAviso('Costo inválido', 'El costo unitario no puede ser negativo.');
+      return;
+    }
     const stock = parsearMonto(form.stock);
     const stockMinimo = parsearMonto(form.stockMinimo) || 5;
     if (stock < 0) {
@@ -148,6 +156,7 @@ export default function ProductosScreen() {
       categoriaId: form.categoriaId,
       nombre: form.nombre.trim(),
       precio,
+      costo,
       emoji: form.emoji.trim() || '🛍️',
       color: form.color,
       orden: form.editar?.orden ?? productos.length + 1,
@@ -335,6 +344,14 @@ export default function ProductosScreen() {
           teclado="numeric"
           placeholder="0.00"
           icono="payments"
+        />
+        <Campo
+          etiqueta="Costo unitario (opcional)"
+          valor={form.costo}
+          onChange={(t) => setForm((f) => ({ ...f, costo: t }))}
+          teclado="numeric"
+          placeholder="Sin costo registrado"
+          icono="local-offer"
         />
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>

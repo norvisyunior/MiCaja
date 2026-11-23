@@ -128,6 +128,7 @@ export const productoInputSchema = z.object({
   categoriaId: uuidSchema.nullable().optional(),
   nombre: z.string().trim().min(1).max(120),
   precio: z.number().finite().min(0).max(MAX_MONTO),
+  costoUnitario: z.number().finite().min(0).max(MAX_MONTO).nullable().optional(),
   emoji: z.string().max(16).default('🍽️'),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#0EA5E9'),
   imagen: z.string().max(2_000_000).nullable().optional(),
@@ -142,6 +143,7 @@ export const ventaItemInputSchema = z.object({
   productoId: uuidSchema.nullable().optional(),
   nombre: z.string().trim().min(1).max(120),
   precioUnitario: z.number().finite().min(0).max(MAX_MONTO),
+  costoUnitario: z.number().finite().min(0).max(MAX_MONTO).nullable().optional(),
   cantidad: z.number().finite().positive().max(MAX_CANTIDAD),
   subtotal: z.number().finite().min(0).max(MAX_MONTO),
 });
@@ -161,6 +163,64 @@ export const ventaInputSchema = z.object({
 });
 
 export type VentaInput = z.infer<typeof ventaInputSchema>;
+
+export const CATEGORIAS_GASTO = [
+  'transporte',
+  'servicios',
+  'salarios',
+  'electricidad',
+  'alquiler',
+  'otros',
+] as const;
+
+export const gastoInputSchema = z.object({
+  id: uuidSchema,
+  categoria: z.enum(CATEGORIAS_GASTO),
+  concepto: z.string().trim().min(1).max(120),
+  monto: z.number().finite().positive().max(MAX_MONTO),
+  fecha: z.string().datetime(),
+  formaPago: z.enum(FORMAS_PAGO).default('efectivo'),
+  version: z.number().int().min(1).max(2_147_483_647),
+  deletedAt: z.string().datetime().nullable().optional(),
+});
+
+export type GastoInput = z.infer<typeof gastoInputSchema>;
+
+export const TIPOS_MOVIMIENTO_CAJA = [
+  'entrada',
+  'retiro',
+  'gasto',
+  'otra_salida',
+] as const;
+
+export const movimientoCajaInputSchema = z.object({
+  id: uuidSchema,
+  turnoId: uuidSchema.nullable().optional(),
+  usuarioId: uuidSchema.nullable().optional(),
+  tipo: z.enum(TIPOS_MOVIMIENTO_CAJA),
+  monto: z.number().finite().positive().max(MAX_MONTO),
+  descripcion: z.string().trim().min(1).max(140),
+  gastoId: uuidSchema.nullable().optional(),
+  version: z.number().int().min(1).max(2_147_483_647),
+  deletedAt: z.string().datetime().nullable().optional(),
+});
+
+export type MovimientoCajaInput = z.infer<typeof movimientoCajaInputSchema>;
+
+export const conteoInventarioInputSchema = z.object({
+  id: uuidSchema,
+  turnoId: uuidSchema.nullable().optional(),
+  productoId: uuidSchema,
+  cantidadSistema: z.number().finite().min(0).max(MAX_CANTIDAD),
+  cantidadContada: z.number().finite().min(0).max(MAX_CANTIDAD),
+  diferencia: z.number().finite().min(-MAX_CANTIDAD).max(MAX_CANTIDAD),
+  motivo: z.string().trim().max(140).nullable().optional(),
+  usuarioId: uuidSchema.nullable().optional(),
+  version: z.number().int().min(1).max(2_147_483_647),
+  deletedAt: z.string().datetime().nullable().optional(),
+});
+
+export type ConteoInventarioInput = z.infer<typeof conteoInventarioInputSchema>;
 
 export const syncOperationSchema = z.object({
   operationId: uuidSchema,

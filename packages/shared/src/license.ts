@@ -136,9 +136,6 @@ export function evaluateLicense(
   if (opciones.empresaId && payload.empresaId !== opciones.empresaId) {
     return { valida: false, enGracia: false, vencida: false, motivo: 'empresa' };
   }
-  if (opciones.deviceId && payload.deviceId && payload.deviceId !== opciones.deviceId) {
-    return { valida: false, enGracia: false, vencida: false, motivo: 'dispositivo' };
-  }
   if (opciones.suspendida) {
     return { valida: false, enGracia: false, vencida: false, motivo: 'suspendida' };
   }

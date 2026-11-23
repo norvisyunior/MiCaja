@@ -33,21 +33,17 @@ import {
 import { exportarVentasPDF, type RangoExportacion } from '../db/exportar';
 import { exportarBackup, seleccionarArchivoRestore, validarArchivoRestore, restaurarBackup } from '../db/backup';
 import { encolarUsuarioUpsert } from '../db/sync/encolar';
-import {
-  crearInvitacion,
-  desvincularDispositivo,
-  listarDispositivosRemotos,
-  type InfoDispositivo,
-} from '../api/cliente';
+import { crearInvitacion } from '../api/cliente';
 import {
   CLAVE_URL_SERVIDOR,
   leerTokenDispositivo,
   leerUrlServidor,
   normalizarUrlServidor,
 } from '../api/config';
-import { activarConCodigo, nombreDispositivoPorDefecto, olvidarActivacionLocal } from '../sync/activacion';
+import { activarConCodigo, nombreDispositivoPorDefecto } from '../sync/activacion';
 import {
   refrescarEstadoSync,
+  reiniciarDescarga,
   reintentarRechazadas as reintentarRechazadasSync,
   sincronizar as ejecutarSync,
 } from '../sync/motor';
@@ -1457,16 +1453,12 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
   const [guardando, setGuardando] = useState(false);
   const [activando, setActivando] = useState(false);
   const [reintentando, setReintentando] = useState(false);
+  const [recargando, setRecargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dispositivos, setDispositivos] = useState<InfoDispositivo[] | null>(null);
-  const [cargandoDispositivos, setCargandoDispositivos] = useState(false);
   const [hojaInvitacion, setHojaInvitacion] = useState(false);
   const [rolInvitacion, setRolInvitacion] = useState<'dependiente' | 'admin'>('dependiente');
   const [creandoInvitacion, setCreandoInvitacion] = useState(false);
   const [codigoInvitacion, setCodigoInvitacion] = useState<string | null>(null);
-  const [pedidoDesvincular, setPedidoDesvincular] = useState<InfoDispositivo | null>(null);
-  const [codigoDesvincular, setCodigoDesvincular] = useState('');
-  const [desvinculando, setDesvinculando] = useState(false);
 
   useEffect(() => {
     Promise.all([leerUrlServidor(db), leerTokenDispositivo(db)])
@@ -1477,71 +1469,6 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
       .catch(() => setActivado(false));
     void refrescarEstadoSync(db);
   }, [db]);
-
-  async function cargarDispositivos() {
-    if (!esAdmin) return;
-    setCargandoDispositivos(true);
-    try {
-      const respuesta = await listarDispositivosRemotos(db);
-      setDispositivos(respuesta.dispositivos);
-      setError(null);
-    } catch (fallo) {
-      setError(
-        fallo instanceof Error ? fallo.message : 'No se pudo consultar los dispositivos.'
-      );
-    } finally {
-      setCargandoDispositivos(false);
-    }
-  }
-
-  useEffect(() => {
-    if (activado && esAdmin) void cargarDispositivos();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activado, esAdmin]);
-
-  async function desvincular() {
-    if (!pedidoDesvincular || desvinculando) return;
-    setDesvinculando(true);
-    setError(null);
-    try {
-      const esOtro = !pedidoDesvincular.esEste;
-      const codigoLimpio = codigoDesvincular.trim().toUpperCase();
-      if (esOtro && !codigoLimpio) {
-        setError('Escribe el código de activación para desvincular otro dispositivo.');
-        return;
-      }
-      await desvincularDispositivo(db, {
-        dispositivoId: pedidoDesvincular.id,
-        ...(esOtro ? { codigo: codigoLimpio } : {}),
-      });
-      if (pedidoDesvincular.esEste) {
-        // Este teléfono deja de estar activado: se pide un código nuevo para
-        // volver a operar. Los datos locales se conservan.
-        await olvidarActivacionLocal(db);
-        setActivado(false);
-        setDispositivos(null);
-        await refrescarEstadoSync(db);
-        mostrarAviso(
-          'Dispositivo desvinculado',
-          'Para volver a vender, activa este dispositivo con un código de activación.'
-        );
-      } else {
-        mostrarAviso(
-          'Dispositivo desvinculado',
-          `${pedidoDesvincular.nombre} ya no ocupa una plaza del plan.`
-        );
-        await cargarDispositivos();
-      }
-      setPedidoDesvincular(null);
-      setCodigoDesvincular('');
-    } catch (fallo) {
-      setError(
-        fallo instanceof Error ? fallo.message : 'No se pudo desvincular el dispositivo.'
-      );
-    } finally {
-      setDesvinculando(false);
-    }
-  }
 
   async function generarInvitacion() {
     if (creandoInvitacion) return;
@@ -1611,6 +1538,25 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
     }
   }
 
+  async function recargarDesdeLaNube() {
+    if (recargando) return;
+    setError(null);
+    setRecargando(true);
+    try {
+      await reiniciarDescarga(db);
+      const resumen = await ejecutarSync(db);
+      mostrarAviso(
+        'Datos recargados',
+        `${resumen.cambios} cambio(s) descargados desde la nube.`
+      );
+    } catch (fallo) {
+      setError(fallo instanceof Error ? fallo.message : 'No se pudo recargar.');
+    } finally {
+      setRecargando(false);
+      await refrescarEstadoSync(db);
+    }
+  }
+
   async function activar() {
     if (activando) return;
     const limpio = codigo.trim().toUpperCase();
@@ -1636,6 +1582,10 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
   }
 
   const licencia = sync.licencia;
+  const requiereActivacion =
+    licencia?.estado === 'invalida' ||
+    licencia?.estado === 'vencida' ||
+    licencia?.estado === 'sin_licencia';
   const etiquetaLicencia =
     licencia?.estado === 'activa'
       ? 'Licencia activa'
@@ -1698,6 +1648,17 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
             bloqueado={!activado}
             onPress={sincronizarAhora}
             estilo={{ marginTop: spacing.lg }}
+          />
+
+          <Boton
+            titulo="Recargar datos desde la nube"
+            icono="cloud-download"
+            variante="secundario"
+            tamanio="sm"
+            cargando={recargando}
+            bloqueado={!activado}
+            onPress={recargarDesdeLaNube}
+            estilo={{ marginTop: spacing.sm }}
           />
 
           {sync.fallidas > 0 ? (
@@ -1780,78 +1741,41 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
               )}
             </Tarjeta>
 
+            {requiereActivacion ? (
+              <>
+                <Text style={[styles.seccion, { color: colores.textoSuave }]}>
+                  {activado ? 'Activar licencia' : 'Activar dispositivo'}
+                </Text>
+                <Tarjeta>
+                  <Campo
+                    etiqueta="Código de activación"
+                    valor={codigo}
+                    onChange={(texto) => setCodigo(texto.toUpperCase())}
+                    placeholder="MICAJA-XXXX-XXXX-XXXX"
+                    icono="vpn-key"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    maxLength={23}
+                  />
+                  <Boton
+                    titulo={activado ? 'Activar licencia' : 'Activar'}
+                    icono="phonelink-lock"
+                    variante="acento"
+                    tamanio="lg"
+                    cargando={activando}
+                    onPress={activar}
+                  />
+                </Tarjeta>
+              </>
+            ) : null}
+
             {esAdmin ? (
               <>
-                <Text style={[styles.seccion, { color: colores.textoSuave }]}>Dispositivos</Text>
+                <Text style={[styles.seccion, { color: colores.textoSuave }]}>Acceso de trabajadores</Text>
                 <Tarjeta>
-                  {dispositivos === null ? (
-                    <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
-                      {cargandoDispositivos ? 'Consultando dispositivos…' : 'Sin consultar todavía.'}
-                    </Text>
-                  ) : dispositivos.length === 0 ? (
-                    <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
-                      No hay dispositivos registrados.
-                    </Text>
-                  ) : (
-                    <View style={{ gap: spacing.sm }}>
-                      {dispositivos.map((dispositivo) => (
-                        <Pressable
-                          key={dispositivo.id}
-                          onPress={() => {
-                            setPedidoDesvincular(dispositivo);
-                            setCodigoDesvincular('');
-                            setError(null);
-                          }}
-                          style={({ pressed }) => [
-                            styles.filaDispositivo,
-                            { borderColor: colores.borde },
-                            pressed && { opacity: 0.7 },
-                          ]}
-                        >
-                          <MaterialIcons
-                            name={dispositivo.esEste ? 'smartphone' : 'devices-other'}
-                            size={20}
-                            color={
-                              dispositivo.estado === 'activo'
-                                ? colores.exito
-                                : colores.textoSuave
-                            }
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.filaTitulo, { color: colores.texto }]}>
-                              {dispositivo.nombre}
-                              {dispositivo.esEste ? ' (este)' : ''}
-                            </Text>
-                            <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
-                              {dispositivo.plataforma}
-                              {dispositivo.lastSeenAt
-                                ? ` · visto ${new Date(dispositivo.lastSeenAt).toLocaleDateString()}`
-                                : ''}
-                            </Text>
-                          </View>
-                          <Badge
-                            texto={dispositivo.estado === 'activo' ? 'Activo' : 'Retirado'}
-                            color={
-                              dispositivo.estado === 'activo'
-                                ? colores.exitoSuave
-                                : colores.vidrioSuave
-                            }
-                            colorTexto={
-                              dispositivo.estado === 'activo' ? colores.exito : colores.textoSuave
-                            }
-                          />
-                        </Pressable>
-                      ))}
-                    </View>
-                  )}
-                  <Boton
-                    titulo="Actualizar lista"
-                    icono="refresh"
-                    variante="secundario"
-                    tamanio="sm"
-                    cargando={cargandoDispositivos}
-                    onPress={cargarDispositivos}
-                  />
+                  <Text style={[styles.filaSub, { color: colores.textoSuave }]}>
+                    Genera un código para que otra persona entre a este negocio con su propia cuenta.
+                  </Text>
                   <Boton
                     titulo="Invitar trabajador"
                     icono="person-add"
@@ -1863,9 +1787,6 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
                     }}
                     estilo={{ marginTop: spacing.sm }}
                   />
-                  <Text style={[styles.filaSub, { color: colores.textoSuave, marginTop: spacing.sm }]}>
-                    Toca un dispositivo para desvincularlo y liberar su plaza del plan.
-                  </Text>
                 </Tarjeta>
               </>
             ) : null}
@@ -1927,50 +1848,6 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
         )}
       </Hoja>
 
-      <Hoja
-        visible={pedidoDesvincular !== null}
-        onCerrar={() => {
-          setPedidoDesvincular(null);
-          setCodigoDesvincular('');
-        }}
-        titulo={
-          pedidoDesvincular?.esEste ? 'Desvincular este dispositivo' : 'Desvincular dispositivo'
-        }
-        subtitulo={pedidoDesvincular?.nombre}
-      >
-        {pedidoDesvincular ? (
-          <>
-            <View style={[styles.backupInfo, { backgroundColor: colores.advertenciaSuave, borderColor: colores.advertencia }]}>
-              <MaterialIcons name="warning-amber" size={20} color={colores.advertencia} />
-              <Text style={[styles.backupInfoTexto, { color: colores.texto }]}>
-                {pedidoDesvincular.esEste
-                  ? 'Este dispositivo dejará de sincronizar y liberará su plaza. Podrás activarlo de nuevo con un código.'
-                  : 'Para retirar otro dispositivo escribe el código de activación vigente del plan.'}
-              </Text>
-            </View>
-            {!pedidoDesvincular.esEste ? (
-              <Campo
-                etiqueta="Código de activación"
-                valor={codigoDesvincular}
-                onChange={(texto) => setCodigoDesvincular(texto.toUpperCase())}
-                placeholder="MICAJA-XXXX-XXXX-XXXX"
-                icono="vpn-key"
-                autoCapitalize="characters"
-                autoCorrect={false}
-                maxLength={23}
-              />
-            ) : null}
-            <Boton
-              titulo={pedidoDesvincular.esEste ? 'Desvincular este dispositivo' : 'Retirar dispositivo'}
-              icono="link-off"
-              variante="peligro"
-              tamanio="lg"
-              cargando={desvinculando}
-              onPress={desvincular}
-            />
-          </>
-        ) : null}
-      </Hoja>
     </Pantalla>
   );
 }

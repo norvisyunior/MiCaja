@@ -70,6 +70,21 @@ export function inicioMesISO(fecha = new Date()): string {
   return d.toISOString();
 }
 
+export function inicioMesAnteriorISO(fecha = new Date()): string {
+  const d = new Date(fecha);
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+export function finMesAnteriorISO(fecha = new Date()): string {
+  const d = new Date(fecha);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 export function claveDiaLocal(fecha = new Date()): string {
   const y = fecha.getFullYear();
   const m = String(fecha.getMonth() + 1).padStart(2, '0');

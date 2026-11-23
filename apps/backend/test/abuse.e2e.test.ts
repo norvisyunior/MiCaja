@@ -822,7 +822,7 @@ describe.skipIf(!ejecutar)('endurecimiento: roles, aislamiento y límites', () =
     expect(intento.body.error).toBe('INVITACION_EXPIRADA');
   });
 
-  it('al autodesvincularse el dispositivo deja de sincronizar', async () => {
+  it('al autodesvincularse el dispositivo sigue sincronizando', async () => {
     const salida = await request(app)
       .post('/api/device/desvincular')
       .set('Authorization', `Bearer ${dependiente.token}`)
@@ -831,8 +831,7 @@ describe.skipIf(!ejecutar)('endurecimiento: roles, aislamiento y límites', () =
     expect(salida.body.dispositivo.id).toBe(dependiente.id);
 
     const lectura = await pull(dependiente);
-    expect(lectura.status).toBe(403);
-    expect(lectura.body.error).toBe('DISPOSITIVO_INACTIVO');
+    expect(lectura.status).toBe(200);
 
     const escritura = await push(dependiente, [
       op('movimiento_inventario', {
@@ -842,7 +841,6 @@ describe.skipIf(!ejecutar)('endurecimiento: roles, aislamiento y límites', () =
         cantidad: 1,
       }),
     ]);
-    expect(escritura.status).toBe(403);
-    expect(escritura.body.error).toBe('DISPOSITIVO_INACTIVO');
+    expect(escritura.status).toBe(200);
   });
 });

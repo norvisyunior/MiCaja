@@ -7,11 +7,13 @@ import { ahoraIso, nuevoUuid, obtenerContextoLocal } from '../contexto';
 import { encolarOperacion } from '../outbox';
 import { encolarAnulacion } from '../sync/encolar';
 import { registrarMovimientoLocal } from './inventario';
+import { pedirSyncAhora } from '../../sync/disparador';
 
 export interface ItemVentaNuevo {
   productoId: number | null;
   nombre: string;
   precioUnitario: number;
+  costoUnitario?: number | null;
   cantidad: number;
 }
 
@@ -45,6 +47,8 @@ interface FilaVenta {
   motivo_anulacion: string | null;
   anulada_por: number | null;
   anulada_en: string | null;
+  reembolso_efectivo: number;
+  reembolso_digital: number;
   usuario_nombre?: string;
 }
 
@@ -54,6 +58,7 @@ interface FilaItem {
   producto_id: number | null;
   nombre: string;
   precio_unitario: number;
+  costo_unitario: number | null;
   cantidad: number;
   subtotal: number;
 }
@@ -64,6 +69,7 @@ const A_ITEM = (f: FilaItem): VentaItem => ({
   productoId: f.producto_id,
   nombre: f.nombre,
   precioUnitario: f.precio_unitario,
+  costoUnitario: f.costo_unitario ?? null,
   cantidad: f.cantidad,
   subtotal: f.subtotal,
 });
@@ -87,6 +93,8 @@ const A_VENTA = (f: FilaVenta, items: VentaItem[]): Venta => ({
   motivoAnulacion: f.motivo_anulacion,
   anuladaPor: f.anulada_por,
   anuladaEn: f.anulada_en,
+  reembolsoEfectivo: f.reembolso_efectivo ?? 0,
+  reembolsoDigital: f.reembolso_digital ?? 0,
   items,
   usuarioNombre: f.usuario_nombre,
 });
@@ -160,22 +168,29 @@ export async function registrarVenta(
       productoId: string | null;
       nombre: string;
       precioUnitario: number;
+      costoUnitario: number | null;
       cantidad: number;
       subtotal: number;
     }> = [];
 
     for (const item of venta.items) {
       let productoUuid: string | null = null;
+      let costoUnitario = item.costoUnitario ?? null;
 
       if (item.productoId != null) {
-        const fila = await db.getFirstAsync<{ stock: number; uuid: string | null }>(
-          `SELECT stock, uuid FROM productos WHERE id = ?`,
+        const fila = await db.getFirstAsync<{
+          stock: number;
+          uuid: string | null;
+          costo_unitario: number | null;
+        }>(
+          `SELECT stock, uuid, costo_unitario FROM productos WHERE id = ?`,
           item.productoId
         );
         if (!fila || fila.stock < item.cantidad || !fila.uuid) {
           throw new Error('STOCK_INSUFICIENTE');
         }
         productoUuid = fila.uuid;
+        costoUnitario = fila.costo_unitario ?? null;
         await db.runAsync(
           `UPDATE productos
            SET stock = stock - ?, version = version + 1, updated_at = ?
@@ -190,23 +205,26 @@ export async function registrarVenta(
           tipo: 'venta',
           cantidad: -item.cantidad,
           referenciaTipo: 'venta',
-          referenciaId: ventaUuid,
-          usuarioId: venta.usuarioId,
-          sincronizar: false,
-        });
+           referenciaId: ventaUuid,
+           usuarioId: venta.usuarioId,
+           turnoId: turno.id,
+           sincronizar: false,
+         });
       }
 
       const subtotalItem = item.precioUnitario * item.cantidad;
       await db.runAsync(
         `INSERT INTO venta_items
-           (uuid, empresa_id, venta_id, producto_id, nombre, precio_unitario, cantidad, subtotal)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (uuid, empresa_id, venta_id, producto_id, nombre, precio_unitario,
+            costo_unitario, cantidad, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         nuevoUuid(),
         contexto.empresaId,
         ventaId,
         item.productoId,
         item.nombre,
         item.precioUnitario,
+        costoUnitario,
         item.cantidad,
         subtotalItem
       );
@@ -215,6 +233,7 @@ export async function registrarVenta(
         productoId: productoUuid,
         nombre: item.nombre,
         precioUnitario: item.precioUnitario,
+        costoUnitario,
         cantidad: item.cantidad,
         subtotal: subtotalItem,
       });
@@ -259,18 +278,18 @@ export async function registrarVenta(
       motivoAnulacion: null,
       anuladaPor: null,
       anuladaEn: null,
-      items: venta.items.map((i) => ({
-        id: 0,
-        ventaId,
-        productoId: i.productoId,
-        nombre: i.nombre,
-        precioUnitario: i.precioUnitario,
-        cantidad: i.cantidad,
-        subtotal: i.precioUnitario * i.cantidad,
-      })),
+      reembolsoEfectivo: 0,
+      reembolsoDigital: 0,
+      items: (
+        await db.getAllAsync<FilaItem>(
+          `SELECT * FROM venta_items WHERE venta_id = ? ORDER BY id`,
+          ventaId
+        )
+      ).map(A_ITEM),
     };
   });
 
+  pedirSyncAhora();
   return resultado!;
 }
 
@@ -286,12 +305,15 @@ export async function listarVentas(
   db: SQLiteDatabase,
   fechaDesde: string,
   fechaHasta: string
-): Promise<Venta[]> {  const filas = await db.getAllAsync<FilaVenta>(
+): Promise<Venta[]> {
+  const contexto = await obtenerContextoLocal(db);
+  const filas = await db.getAllAsync<FilaVenta>(
     `SELECT v.*, u.nombre AS usuario_nombre
      FROM ventas v
      LEFT JOIN usuarios u ON u.id = v.usuario_id
-     WHERE v.fecha_iso >= ? AND v.fecha_iso < ?
+     WHERE v.empresa_id = ? AND v.fecha_iso >= ? AND v.fecha_iso < ?
      ORDER BY v.id DESC`,
+    contexto.empresaId,
     fechaDesde,
     fechaHasta
   );
@@ -305,11 +327,13 @@ export async function listarVentas(
 }
 
 export async function obtenerVenta(db: SQLiteDatabase, id: number): Promise<Venta | null> {
+  const contexto = await obtenerContextoLocal(db);
   const fila = await db.getFirstAsync<FilaVenta>(
     `SELECT v.*, u.nombre AS usuario_nombre
      FROM ventas v
      LEFT JOIN usuarios u ON u.id = v.usuario_id
-     WHERE v.id = ?`,
+     WHERE v.empresa_id = ? AND v.id = ?`,
+    contexto.empresaId,
     id
   );
   if (!fila) {
@@ -323,13 +347,16 @@ export async function puedeAnularVenta(
   db: SQLiteDatabase,
   ventaId: number
 ): Promise<boolean> {
+  const contexto = await obtenerContextoLocal(db);
   const venta = await db.getFirstAsync<{
     turno_id: number | null;
     usuario_id: number;
     fecha_iso: string;
     anulada: number;
   }>(
-    `SELECT turno_id, usuario_id, fecha_iso, anulada FROM ventas WHERE id = ?`,
+    `SELECT turno_id, usuario_id, fecha_iso, anulada
+     FROM ventas WHERE empresa_id = ? AND id = ?`,
+    contexto.empresaId,
     ventaId
   );
   if (!venta || venta.anulada === 1) {
@@ -360,12 +387,16 @@ export async function anularVenta(
   motivo: string,
   usuarioId: number
 ): Promise<void> {
+  const contexto = await obtenerContextoLocal(db);
   await db.withTransactionAsync(async () => {
     const venta = await db.getFirstAsync<{
       anulada: number;
       turno_id: number | null;
       uuid: string | null;
-    }>(`SELECT anulada, turno_id, uuid FROM ventas WHERE id = ?`, ventaId);
+      monto_efectivo: number;
+      monto_digital: number;
+    }>(`SELECT anulada, turno_id, uuid, monto_efectivo, monto_digital
+        FROM ventas WHERE empresa_id = ? AND id = ?`, contexto.empresaId, ventaId);
     if (!venta || venta.anulada === 1) {
       return;
     }
@@ -408,28 +439,33 @@ export async function anularVenta(
           tipo: 'anulacion',
           cantidad: item.cantidad,
           referenciaTipo: 'venta',
-          referenciaId: ventaUuid,
-          usuarioId,
-          sincronizar: false,
-        });
+           referenciaId: ventaUuid,
+           usuarioId,
+           turnoId: venta.turno_id,
+           sincronizar: false,
+         });
       }
     }
 
     await db.runAsync(
       `UPDATE ventas
        SET anulada = 1, motivo_anulacion = ?, anulada_por = ?, anulada_en = ?,
-           updated_at = ?
-       WHERE id = ?`,
-      motivo,
-      usuarioId,
-      ahora,
-      ahora,
-      ventaId
-    );
+           reembolso_efectivo = ?, reembolso_digital = ?, updated_at = ?
+       WHERE empresa_id = ? AND id = ?`,
+       motivo,
+       usuarioId,
+       ahora,
+       venta.monto_efectivo ?? 0,
+        venta.monto_digital ?? 0,
+        ahora,
+        contexto.empresaId,
+        ventaId
+      );
 
-    await encolarAnulacion(db, ventaId, usuarioId, motivo);
-  });
-}
+     await encolarAnulacion(db, ventaId, usuarioId, motivo);
+   });
+   pedirSyncAhora();
+ }
 
 export interface ResumenVentasTurno {
   ventas: number;
@@ -442,6 +478,7 @@ export async function resumenVentasTurno(
   db: SQLiteDatabase,
   turnoId: number
 ): Promise<ResumenVentasTurno> {
+  const contexto = await obtenerContextoLocal(db);
   const fila = await db.getFirstAsync<{
     ventas: number;
     total: number;
@@ -452,8 +489,9 @@ export async function resumenVentasTurno(
             COALESCE(SUM(total), 0) AS total,
             COALESCE(SUM(monto_efectivo), 0) AS efectivo,
             COALESCE(SUM(monto_digital), 0) AS digital
-     FROM ventas WHERE turno_id = ? AND anulada = 0`,
-    turnoId
+      FROM ventas WHERE empresa_id = ? AND turno_id = ? AND anulada = 0`,
+     contexto.empresaId,
+     turnoId
   );
   return {
     ventas: fila?.ventas ?? 0,
@@ -467,11 +505,14 @@ export async function listarTodasVentas(
   db: SQLiteDatabase,
   limite = 2000
 ): Promise<Venta[]> {
+  const contexto = await obtenerContextoLocal(db);
   const filas = await db.getAllAsync<FilaVenta>(
     `SELECT v.*, u.nombre AS usuario_nombre
      FROM ventas v
      LEFT JOIN usuarios u ON u.id = v.usuario_id
+     WHERE v.empresa_id = ?
      ORDER BY v.id DESC LIMIT ?`,
+    contexto.empresaId,
     limite
   );
 

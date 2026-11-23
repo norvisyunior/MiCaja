@@ -72,16 +72,6 @@ export function evaluarTokenLicencia(
     if (opciones.empresaId && payload.empresaId !== opciones.empresaId) {
       return { estado: 'invalida', valida: false, enGracia: false, motivo: 'empresa', payload, token };
     }
-    if (opciones.deviceId && payload.deviceId && payload.deviceId !== opciones.deviceId) {
-      return {
-        estado: 'invalida',
-        valida: false,
-        enGracia: false,
-        motivo: 'dispositivo',
-        payload,
-        token,
-      };
-    }
 
     const ahora = opciones.ahoraSegundos ?? Math.floor(Date.now() / 1000);
     if (ahora < payload.exp) {
@@ -127,16 +117,14 @@ export async function verificarLicenciaLocal(
       resultado.payload.licenseId
     );
     if (guardada?.estado === 'invalida') {
-      const marcada: ResultadoLicencia = {
+      // No devolver el payload: mostraría plan/vencimiento de una licencia
+      // que el servidor ya invalidó. La fila local ya está marcada.
+      return {
         estado: 'invalida',
         valida: false,
         enGracia: false,
         motivo: 'estado',
-        payload: resultado.payload,
-        token,
       };
-      await guardarLicenciaLocal(db, marcada);
-      return marcada;
     }
   }
 

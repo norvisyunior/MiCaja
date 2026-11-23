@@ -1,6 +1,12 @@
 import type { PoolClient } from 'pg';
 import { z } from 'zod';
-import { uuidSchema, ventaInputSchema } from '@micaja/shared';
+import {
+  conteoInventarioInputSchema,
+  gastoInputSchema,
+  movimientoCajaInputSchema,
+  uuidSchema,
+  ventaInputSchema,
+} from '@micaja/shared';
 import { ApiError } from '../middleware/errors';
 
 /** Claves de settings que el servidor acepta y entrega a los dispositivos. */
@@ -33,6 +39,8 @@ const anulacionSchema = z.object({
   ventaId: uuidSchema,
   usuarioId: uuidSchema,
   motivo: z.string().trim().max(200).optional(),
+  reembolsoEfectivo: montoSchema.default(0),
+  reembolsoDigital: montoSchema.default(0),
 });
 
 const movimientoSchema = z.object({
@@ -62,6 +70,8 @@ const turnoCierreSchema = z.object({
   desglose: desgloseSchema,
   dineroReal: montoSchema,
   diferencia: numeroFinito.min(-MAX_MONTO).max(MAX_MONTO),
+  efectivoEsperado: montoSchema.default(0),
+  observacion: z.string().trim().max(200).nullable().optional(),
 });
 
 const productoUpsertSchema = z.object({
@@ -79,6 +89,7 @@ const productoUpsertSchema = z.object({
    * Si no viene (clientes viejos), el stock se mantiene como esté.
    */
   stock: numeroFinito.min(0).max(MAX_STOCK).optional(),
+  costoUnitario: montoSchema.nullable().optional(),
   stockMinimo: numeroFinito.min(0).max(MAX_STOCK).default(0),
   version: versionSchema,
   deletedAt: z.string().datetime().nullable().optional(),
@@ -296,15 +307,17 @@ async function aplicarVenta(
 
   for (const item of data.items) {
     await client.query(
-      `insert into venta_items
-         (empresa_id, venta_id, producto_id, nombre, precio_unitario, cantidad, subtotal)
-       values ($1, $2, $3, $4, $5, $6, $7)`,
+       `insert into venta_items
+          (empresa_id, venta_id, producto_id, nombre, precio_unitario, costo_unitario,
+           cantidad, subtotal)
+        values ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         empresaId,
         ventaId,
         item.productoId ?? null,
         item.nombre,
         item.precioUnitario,
+        item.costoUnitario ?? null,
         item.cantidad,
         item.subtotal,
       ]
@@ -339,8 +352,8 @@ async function aplicarAnulacion(
   const data = anulacionSchema.parse(payload);
   await exigirUsuarioDeEmpresa(client, empresaId, data.usuarioId);
 
-  const venta = await client.query<{ id: string; anulada: boolean }>(
-    `select id, anulada from ventas
+  const venta = await client.query<{ id: string; anulada: boolean; turno_id: string | null }>(
+    `select id, anulada, turno_id from ventas
      where empresa_id = $1
        and (id = $2 or (dispositivo_id = $3 and local_id = $2))`,
     [empresaId, data.ventaId, deviceId]
@@ -354,12 +367,19 @@ async function aplicarAnulacion(
   }
 
   await client.query(
-    `update ventas
-     set anulada = true, motivo_anulacion = $3, anulada_por = $4, anulada_en = now(),
-         updated_at = now()
-     where empresa_id = $1 and id = $2`,
-    [empresaId, ventaId, data.motivo ?? null, data.usuarioId]
-  );
+     `update ventas
+      set anulada = true, motivo_anulacion = $3, anulada_por = $4, anulada_en = now(),
+          reembolso_efectivo = $5, reembolso_digital = $6, updated_at = now()
+      where empresa_id = $1 and id = $2`,
+     [
+       empresaId,
+       ventaId,
+       data.motivo ?? null,
+       data.usuarioId,
+       data.reembolsoEfectivo,
+       data.reembolsoDigital,
+     ]
+   );
 
   const items = await client.query<{ producto_id: string; cantidad: string }>(
     `select producto_id, cantidad from venta_items
@@ -372,9 +392,17 @@ async function aplicarAnulacion(
     await client.query(
       `insert into movimientos_inventario
          (empresa_id, producto_id, tipo, cantidad, referencia_tipo, referencia_id,
-          usuario_id, dispositivo_id)
-       values ($1, $2, 'anulacion', $3, 'venta', $4, $5, $6)`,
-      [empresaId, item.producto_id, cantidad, ventaId, data.usuarioId, deviceId]
+          usuario_id, dispositivo_id, turno_id)
+       values ($1, $2, 'anulacion', $3, 'venta', $4, $5, $6, $7)`,
+      [
+        empresaId,
+        item.producto_id,
+        cantidad,
+        ventaId,
+        data.usuarioId,
+        deviceId,
+        venta.rows[0].turno_id,
+      ]
     );
     await client.query(
       `update productos
@@ -444,6 +472,18 @@ async function aplicarTurnoApertura(
   const data = turnoAperturaSchema.parse(payload);
   await exigirUsuarioDeEmpresa(client, empresaId, data.usuarioId);
 
+  // Recuperación: si quedó un turno abierto antiguo en el servidor (por un
+  // cierre que no llegó), se cierra antes de abrir el nuevo. Si no, el índice
+  // parcial de turno abierto por dispositivo rechaza la apertura y arrastra
+  // todas las ventas posteriores.
+  await client.query(
+    `update turnos_caja
+     set estado = 'cerrado', cierre = coalesce(cierre, now()), updated_at = now()
+     where empresa_id = $1 and dispositivo_id = $2
+       and estado = 'abierto' and id <> $3`,
+    [empresaId, deviceId, data.turnoId]
+  );
+
   const insertado = await client.query(
     `insert into turnos_caja
        (id, empresa_id, dispositivo_id, usuario_id, apertura, fondo_inicial, desglose, estado)
@@ -494,21 +534,24 @@ async function aplicarTurnoCierre(
   }
 
   await client.query(
-    `update turnos_caja
-     set cierre = $3, estado = 'cerrado', ventas_count = $4, total_esperado = $5,
-         desglose = $6, dinero_real = $7, diferencia = $8, updated_at = now()
-     where empresa_id = $1 and id = $2 and dispositivo_id = $9 and estado = 'abierto'`,
-    [
-      empresaId,
-      data.turnoId,
-      data.cierre,
-      data.ventasCount,
-      data.totalEsperado,
-      JSON.stringify(data.desglose),
-      data.dineroReal,
-      data.diferencia,
-      deviceId,
-    ]
+     `update turnos_caja
+      set cierre = $3, estado = 'cerrado', ventas_count = $4, total_esperado = $5,
+          desglose = $6, dinero_real = $7, diferencia = $8,
+          efectivo_esperado = $9, observacion_diferencia = $10, updated_at = now()
+      where empresa_id = $1 and id = $2 and dispositivo_id = $11 and estado = 'abierto'`,
+     [
+       empresaId,
+       data.turnoId,
+       data.cierre,
+       data.ventasCount,
+       data.totalEsperado,
+       JSON.stringify(data.desglose),
+       data.dineroReal,
+       data.diferencia,
+       data.efectivoEsperado,
+       data.observacion ?? null,
+       deviceId,
+     ]
   );
   return { turnoId: data.turnoId, estado: 'cerrado' };
 }
@@ -523,11 +566,12 @@ async function aplicarProductoUpsert(
     await exigirCategoriaDeEmpresa(client, empresaId, data.categoriaId);
   }
   const conStock = data.stock !== undefined;
+  const conCosto = data.costoUnitario !== undefined;
   const resultado = await client.query<{ id: string; version: number }>(
     `insert into productos
        (id, empresa_id, categoria_id, nombre, precio, emoji, color, imagen, orden,
-        activo, stock_actual, stock_minimo, version, deleted_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        activo, stock_actual, stock_minimo, costo_unitario, version, deleted_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      on conflict (empresa_id, id) do update set
        categoria_id = excluded.categoria_id,
        nombre = excluded.nombre,
@@ -537,9 +581,11 @@ async function aplicarProductoUpsert(
        imagen = excluded.imagen,
        orden = excluded.orden,
        activo = excluded.activo,
-       stock_actual = case when $15 then excluded.stock_actual
+       stock_actual = case when $16 then excluded.stock_actual
                            else productos.stock_actual end,
        stock_minimo = excluded.stock_minimo,
+       costo_unitario = case when $17 then excluded.costo_unitario
+                             else productos.costo_unitario end,
        version = excluded.version,
        deleted_at = excluded.deleted_at,
        updated_at = now()
@@ -558,9 +604,11 @@ async function aplicarProductoUpsert(
       data.activo,
       data.stock ?? 0,
       data.stockMinimo,
+      data.costoUnitario ?? null,
       data.version,
       data.deletedAt ?? null,
       conStock,
+      conCosto,
     ]
   );
   if (!resultado.rowCount) {
@@ -763,6 +811,134 @@ async function aplicarSettingsUpsert(
   return resultado.rows[0];
 }
 
+async function aplicarGastoUpsert(
+  client: PoolClient,
+  empresaId: string,
+  payload: unknown
+): Promise<unknown> {
+  const data = gastoInputSchema.parse(payload);
+  const resultado = await client.query<{ id: string; version: number }>(
+    `insert into gastos
+       (id, empresa_id, categoria, concepto, monto, fecha, forma_pago, version, deleted_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     on conflict (empresa_id, id) do update set
+       categoria = excluded.categoria,
+       concepto = excluded.concepto,
+       monto = excluded.monto,
+       fecha = excluded.fecha,
+       forma_pago = excluded.forma_pago,
+       version = excluded.version,
+       deleted_at = excluded.deleted_at,
+       updated_at = now()
+     where excluded.version >= gastos.version
+     returning id, version`,
+    [
+      data.id,
+      empresaId,
+      data.categoria,
+      data.concepto,
+      data.monto,
+      data.fecha,
+      data.formaPago,
+      data.version,
+      data.deletedAt ?? null,
+    ]
+  );
+  return resultado.rows[0] ?? { id: data.id, ignorado: true };
+}
+
+async function aplicarMovimientoCajaUpsert(
+  client: PoolClient,
+  empresaId: string,
+  deviceId: string,
+  payload: unknown
+): Promise<unknown> {
+  const data = movimientoCajaInputSchema.parse(payload);
+  const resultado = await client.query<{ id: string }>(
+    `insert into movimientos_caja
+       (id, empresa_id, turno_id, usuario_id, dispositivo_id, tipo, monto,
+        descripcion, gasto_id, deleted_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     on conflict (empresa_id, id) do update set
+       tipo = excluded.tipo,
+       monto = excluded.monto,
+       descripcion = excluded.descripcion,
+       gasto_id = excluded.gasto_id,
+       deleted_at = excluded.deleted_at,
+       updated_at = now()
+     returning id`,
+    [
+      data.id,
+      empresaId,
+      data.turnoId ?? null,
+      data.usuarioId ?? null,
+      deviceId,
+      data.tipo,
+      data.monto,
+      data.descripcion,
+      data.gastoId ?? null,
+      data.deletedAt ?? null,
+    ]
+  );
+  return resultado.rows[0] ?? { id: data.id, ignorado: true };
+}
+
+async function aplicarConteoInventarioUpsert(
+  client: PoolClient,
+  empresaId: string,
+  deviceId: string,
+  payload: unknown
+): Promise<unknown> {
+  const data = conteoInventarioInputSchema.parse(payload);
+  await exigirProductosDeEmpresa(client, empresaId, [data.productoId]);
+  const resultado = await client.query<{ id: string }>(
+    `insert into conteos_inventario
+       (id, empresa_id, turno_id, producto_id, cantidad_sistema, cantidad_contada,
+        diferencia, motivo, usuario_id, deleted_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     on conflict (empresa_id, id) do update set
+       cantidad_sistema = excluded.cantidad_sistema,
+       cantidad_contada = excluded.cantidad_contada,
+       diferencia = excluded.diferencia,
+       motivo = excluded.motivo,
+       deleted_at = excluded.deleted_at,
+       updated_at = now()
+     returning id`,
+    [
+      data.id,
+      empresaId,
+      data.turnoId ?? null,
+      data.productoId,
+      data.cantidadSistema,
+      data.cantidadContada,
+      data.diferencia,
+      data.motivo ?? null,
+      data.usuarioId ?? null,
+      data.deletedAt ?? null,
+    ]
+  );
+  return resultado.rows[0] ?? { id: data.id, ignorado: true };
+}
+
+async function exigirGestorDispositivo(
+  client: PoolClient,
+  empresaId: string,
+  deviceId: string
+): Promise<void> {
+  const fila = await client.query<{ rol: string }>(
+    `select rol::text as rol from dispositivos where empresa_id = $1 and id = $2`,
+    [empresaId, deviceId]
+  );
+  const rol = fila.rows[0]?.rol;
+  if (rol !== 'propietario' && rol !== 'admin') {
+    throw new ApiError(
+      403,
+      'ROL_INSUFICIENTE',
+      'Solo un administrador puede registrar gastos.'
+    );
+  }
+}
+
 export async function aplicarOperacion(
   client: PoolClient,
   input: OperacionInput
@@ -786,6 +962,23 @@ export async function aplicarOperacion(
       return aplicarUsuarioUpsert(client, input.empresaId, input.deviceId, input.payload);
     case 'settings_upsert':
       return aplicarSettingsUpsert(client, input.empresaId, input.payload);
+    case 'gasto_upsert':
+      await exigirGestorDispositivo(client, input.empresaId, input.deviceId);
+      return aplicarGastoUpsert(client, input.empresaId, input.payload);
+    case 'movimiento_caja_upsert':
+      return aplicarMovimientoCajaUpsert(
+        client,
+        input.empresaId,
+        input.deviceId,
+        input.payload
+      );
+    case 'conteo_inventario_upsert':
+      return aplicarConteoInventarioUpsert(
+        client,
+        input.empresaId,
+        input.deviceId,
+        input.payload
+      );
     default:
       throw new ApiError(422, 'TIPO_OPERACION_DESCONOCIDO', input.tipo);
   }

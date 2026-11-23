@@ -10,59 +10,27 @@ import { requireDevice } from '../middleware/auth';
 import { ApiError } from '../middleware/errors';
 import { asyncHandler } from '../middleware/async-handler';
 import { aplicarOperacion } from '../services/sync';
-import { estadoLicenciaEfectiva } from '../services/licencias';
-
-interface DispositivoEstadoRow {
-  estado: string;
-}
+import { estadoLicenciaEfectiva, exigirLicenciaVigente } from '../services/licencias';
 
 async function verificarDispositivo(
   client: PoolClient,
   empresaId: string,
   deviceId: string
 ): Promise<void> {
-  const resultado = await client.query<DispositivoEstadoRow>(
-    `select estado from dispositivos where empresa_id = $1 and id = $2`,
-    [empresaId, deviceId]
+  // La instalación se registra sola: el dispositivo solo identifica la sesión
+  // de sincronización. No bloquea por estado ni limita cuántas hay.
+  await client.query(
+    `insert into dispositivos
+       (id, empresa_id, nombre, plataforma, app_version, fingerprint, estado, rol,
+        last_seen_at, last_sync_at)
+     values ($1, $2, 'MiCaja', 'web', '', $3, 'activo', 'dependiente', now(), now())
+     on conflict (empresa_id, id) do update set
+       estado = 'activo',
+       last_seen_at = now(),
+       last_sync_at = now(),
+       updated_at = now()`,
+    [deviceId, empresaId, deviceId]
   );
-  if (!resultado.rowCount) {
-    throw new ApiError(404, 'DISPOSITIVO_NO_ENCONTRADO');
-  }
-  if (resultado.rows[0].estado !== 'activo') {
-    throw new ApiError(403, 'DISPOSITIVO_INACTIVO');
-  }
-}
-
-/**
- * Comprueba que la licencia del negocio permita sincronizar: debe existir,
- * no estar suspendida (ni la empresa) y no haberse vencido más allá del
- * período de gracia. El servidor es la autoridad; el cliente refuerza.
- */
-async function exigirLicenciaVigente(
-  client: PoolClient,
-  empresaId: string
-): Promise<void> {
-  const licencia = await client.query<{
-    estado: string;
-    vence_en: Date;
-    grace_dias: number;
-  }>(
-    `select l.estado, l.vence_en, l.grace_dias
-     from licencias l
-     join empresas e on e.id = l.empresa_id
-     where l.empresa_id = $1 and e.estado not in ('suspendida', 'cancelada')`,
-    [empresaId]
-  );
-  if (!licencia.rowCount) {
-    throw new ApiError(404, 'LICENCIA_NO_ENCONTRADA');
-  }
-  const estado = estadoLicenciaEfectiva(licencia.rows[0]);
-  if (estado === 'suspendida') {
-    throw new ApiError(403, 'LICENCIA_SUSPENDIDA');
-  }
-  if (estado === 'vencida') {
-    throw new ApiError(403, 'LICENCIA_VENCIDA');
-  }
 }
 
 export const syncRouter = Router();
@@ -206,6 +174,8 @@ interface FilaVentaPull {
   motivo_anulacion: string | null;
   anulada_por: string | null;
   anulada_en: Date | null;
+  reembolso_efectivo: string;
+  reembolso_digital: string;
   updated_at: Date;
   updated_at_exact: string;
 }
@@ -216,8 +186,51 @@ interface FilaVentaItemPull {
   producto_id: string | null;
   nombre: string;
   precio_unitario: string;
+  costo_unitario: string | null;
   cantidad: string;
   subtotal: string;
+}
+
+interface FilaGastoPull {
+  id: string;
+  categoria: string;
+  concepto: string;
+  monto: string;
+  fecha: Date;
+  forma_pago: string;
+  version: number;
+  deleted_at: Date | null;
+  updated_at: Date;
+  updated_at_exact: string;
+}
+
+interface FilaMovimientoCajaPull {
+  id: string;
+  turno_id: string | null;
+  usuario_id: string | null;
+  tipo: string;
+  monto: string;
+  descripcion: string;
+  gasto_id: string | null;
+  version: number;
+  deleted_at: Date | null;
+  updated_at: Date;
+  updated_at_exact: string;
+}
+
+interface FilaConteoInventarioPull {
+  id: string;
+  turno_id: string | null;
+  producto_id: string;
+  cantidad_sistema: string;
+  cantidad_contada: string;
+  diferencia: string;
+  motivo: string | null;
+  usuario_id: string | null;
+  version: number;
+  deleted_at: Date | null;
+  updated_at: Date;
+  updated_at_exact: string;
 }
 
 interface FilaTurnoPull {
@@ -227,6 +240,9 @@ interface FilaTurnoPull {
   apertura: Date;
   cierre: Date | null;
   estado: string;
+  fondo_inicial: string;
+  efectivo_esperado: string;
+  observacion_diferencia: string | null;
   ventas_count: number;
   total_esperado: string;
   desglose: Record<string, number>;
@@ -319,7 +335,7 @@ syncRouter.get(
       // Las consultas van en serie: `pg` no permite varias consultas
       // simultáneas sobre el mismo cliente de una transacción.
       const productos = await client.query(
-        `select id, categoria_id, nombre, precio, emoji, color, imagen, orden,
+        `select id, categoria_id, nombre, precio, costo_unitario, emoji, color, imagen, orden,
                 activo, stock_actual, stock_minimo, version, updated_at, deleted_at,
                 ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
          from productos
@@ -391,8 +407,62 @@ syncRouter.get(
         ]
       );
 
+      const gastos = await client.query<FilaGastoPull>(
+        `select id, categoria, concepto, monto, fecha, version, deleted_at,
+                updated_at, ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
+         from gastos
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('gastos').s,
+          desdeTabla('gastos').id,
+          limite + 1,
+        ]
+      );
+
+      const movimientosCaja = await client.query<FilaMovimientoCajaPull>(
+        `select id, turno_id, usuario_id, tipo, monto, descripcion, gasto_id,
+                version, deleted_at, updated_at,
+                ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
+         from movimientos_caja
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('movimientos_caja').s,
+          desdeTabla('movimientos_caja').id,
+          limite + 1,
+        ]
+      );
+
+      const conteosInventario = await client.query<FilaConteoInventarioPull>(
+        `select id, turno_id, producto_id, cantidad_sistema, cantidad_contada,
+                diferencia, motivo, usuario_id, version, deleted_at, updated_at,
+                ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
+         from conteos_inventario
+         where empresa_id = $1
+           and (updated_at > $2::timestamptz
+                or (updated_at = $2::timestamptz and id::text > $3))
+         order by updated_at asc, id::text asc
+         limit $4`,
+        [
+          dispositivo.empresaId,
+          desdeTabla('conteos_inventario').s,
+          desdeTabla('conteos_inventario').id,
+          limite + 1,
+        ]
+      );
+
       const turnos = await client.query<FilaTurnoPull>(
         `select id, dispositivo_id, usuario_id, apertura, cierre, estado,
+                fondo_inicial, efectivo_esperado, observacion_diferencia,
                 ventas_count, total_esperado, desglose, dinero_real, diferencia,
                 updated_at, ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
          from turnos_caja
@@ -413,7 +483,7 @@ syncRouter.get(
         `select id, dispositivo_id, usuario_id, turno_id, local_id, numero,
                 fecha_cliente, subtotal, descuento_pct, total, forma_pago,
                 monto_efectivo, monto_digital, anulada, motivo_anulacion,
-                anulada_por, anulada_en, updated_at,
+                anulada_por, anulada_en, reembolso_efectivo, reembolso_digital, updated_at,
                 ${EXPRESION_UPDATED_EXACTO} as updated_at_exact
          from ventas
          where empresa_id = $1
@@ -470,13 +540,17 @@ syncRouter.get(
       const pagCategorias = paginar(categorias.rows, (fila) => fila.id);
       const pagUsuarios = paginar(usuarios.rows, (fila) => fila.id);
       const pagSettings = paginar(settings.rows, (fila) => fila.clave);
+      const pagGastos = paginar(gastos.rows, (fila) => fila.id);
+      const pagMovimientosCaja = paginar(movimientosCaja.rows, (fila) => fila.id);
+      const pagConteosInventario = paginar(conteosInventario.rows, (fila) => fila.id);
       const pagTurnos = paginar(turnos.rows, (fila) => fila.id);
       const pagVentas = paginar(ventas.rows, (fila) => fila.id);
 
       const ventasVisibles = pagVentas.visibles as FilaVentaPull[];
       const items = ventasVisibles.length
         ? await client.query<FilaVentaItemPull>(
-            `select id, venta_id, producto_id, nombre, precio_unitario, cantidad, subtotal
+            `select id, venta_id, producto_id, nombre, precio_unitario, costo_unitario,
+                    cantidad, subtotal
              from venta_items
              where empresa_id = $1 and venta_id = any($2::uuid[])
              order by created_at asc, id asc`,
@@ -502,6 +576,7 @@ syncRouter.get(
             categoriaId: fila.categoria_id,
             nombre: fila.nombre,
             precio: Number(fila.precio),
+            costoUnitario: fila.costo_unitario === null ? null : Number(fila.costo_unitario),
             emoji: fila.emoji,
             color: fila.color,
             imagen: fila.imagen,
@@ -554,6 +629,57 @@ syncRouter.get(
             version: fila.version,
           },
         })),
+        ...pagGastos.visibles.map((fila) => ({
+          tipo: 'gasto',
+          id: fila.id,
+          version: fila.version,
+          updatedAt: fila.updated_at.toISOString(),
+          data: {
+            id: fila.id,
+            categoria: fila.categoria,
+            concepto: fila.concepto,
+            monto: Number(fila.monto),
+            fecha: fila.fecha.toISOString(),
+            formaPago: fila.forma_pago,
+            version: fila.version,
+            deletedAt: fila.deleted_at?.toISOString() ?? null,
+          },
+        })),
+        ...pagMovimientosCaja.visibles.map((fila) => ({
+          tipo: 'movimiento_caja',
+          id: fila.id,
+          version: fila.version,
+          updatedAt: fila.updated_at.toISOString(),
+          data: {
+            id: fila.id,
+            turnoId: fila.turno_id,
+            usuarioId: fila.usuario_id,
+            tipo: fila.tipo,
+            monto: Number(fila.monto),
+            descripcion: fila.descripcion,
+            gastoId: fila.gasto_id,
+            version: fila.version,
+            deletedAt: fila.deleted_at?.toISOString() ?? null,
+          },
+        })),
+        ...pagConteosInventario.visibles.map((fila) => ({
+          tipo: 'conteo_inventario',
+          id: fila.id,
+          version: fila.version,
+          updatedAt: fila.updated_at.toISOString(),
+          data: {
+            id: fila.id,
+            turnoId: fila.turno_id,
+            productoId: fila.producto_id,
+            cantidadSistema: Number(fila.cantidad_sistema),
+            cantidadContada: Number(fila.cantidad_contada),
+            diferencia: Number(fila.diferencia),
+            motivo: fila.motivo,
+            usuarioId: fila.usuario_id,
+            version: fila.version,
+            deletedAt: fila.deleted_at?.toISOString() ?? null,
+          },
+        })),
         ...pagTurnos.visibles.map((fila) => ({
           tipo: 'turno',
           id: fila.id,
@@ -565,6 +691,9 @@ syncRouter.get(
             apertura: fila.apertura.toISOString(),
             cierre: fila.cierre?.toISOString() ?? null,
             estado: fila.estado,
+            fondoInicial: Number(fila.fondo_inicial),
+            efectivoEsperado: Number(fila.efectivo_esperado),
+            observacionDiferencia: fila.observacion_diferencia,
             ventasCount: fila.ventas_count,
             totalEsperado: Number(fila.total_esperado),
             desglose: fila.desglose ?? {},
@@ -594,11 +723,14 @@ syncRouter.get(
             motivoAnulacion: fila.motivo_anulacion,
             anuladaPor: fila.anulada_por,
             anuladaEn: fila.anulada_en?.toISOString() ?? null,
+            reembolsoEfectivo: Number(fila.reembolso_efectivo),
+            reembolsoDigital: Number(fila.reembolso_digital),
             items: (itemsPorVenta.get(fila.id) ?? []).map((item) => ({
               id: item.id,
               productoId: item.producto_id,
               nombre: item.nombre,
               precioUnitario: Number(item.precio_unitario),
+              costoUnitario: item.costo_unitario === null ? null : Number(item.costo_unitario),
               cantidad: Number(item.cantidad),
               subtotal: Number(item.subtotal),
             })),
@@ -611,6 +743,9 @@ syncRouter.get(
         ['categorias', pagCategorias],
         ['usuarios', pagUsuarios],
         ['settings', pagSettings],
+        ['gastos', pagGastos],
+        ['movimientos_caja', pagMovimientosCaja],
+        ['conteos_inventario', pagConteosInventario],
         ['turnos', pagTurnos],
         ['ventas', pagVentas],
       ];

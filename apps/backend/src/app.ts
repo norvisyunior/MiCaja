@@ -13,6 +13,7 @@ import { activacionRouter } from './routes/activacion';
 import { registroRouter } from './routes/registro';
 import { syncRouter } from './routes/sync';
 import { deviceRouter } from './routes/device';
+import { reportesRouter } from './routes/reportes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -47,6 +48,7 @@ export function createApp(): express.Express {
   app.use('/api', registroRouter);
   app.use('/api/sync', syncRouter);
   app.use('/api/device', deviceRouter);
+  app.use('/api/reportes', reportesRouter);
 
   app.use(notFound);
   app.use(errorHandler);

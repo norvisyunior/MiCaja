@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import type { PoolClient } from 'pg';
 import { usuarioLoginSchema } from '@micaja/shared';
 import { env } from '../config';
 import { withAdmin } from '../db';
@@ -62,37 +61,14 @@ const limitadorLoginUsuario = rateLimit({
   },
 });
 
-async function dispositivosOcupados(
-  client: PoolClient,
-  empresaId: string
-): Promise<{ id: string; nombre: string; plataforma: string; last_seen_at: Date | null }[]> {
-  const resultado = await client.query<{
-    id: string;
-    nombre: string;
-    plataforma: string;
-    last_seen_at: Date | null;
-  }>(
-    `select id, nombre, plataforma, last_seen_at
-     from dispositivos
-     where empresa_id = $1 and estado = 'activo'
-     order by created_at asc`,
-    [empresaId]
-  );
-  return resultado.rows;
-}
-
 /**
  * Login de una cuenta de negocio usando solo usuario + PIN. Es el camino de
  * recuperación cuando el dispositivo no tiene la cuenta local (instalación
  * nueva, otro navegador, datos borrados) pero ya estaba invitado o activado.
  *
  * El servidor busca al usuario globalmente, verifica su PIN sincronizado y
- * reutiliza el dispositivo por huella. Si la huella es nueva o estaba inactiva:
- * - cualquier rol ocupa una plaza libre;
- * - sin plazas, un dependiente necesita una invitación o que se libere una;
- * - solo el propietario puede reemplazar un dispositivo cuando no hay plazas.
- * Con `cambiarEmpresa` el servidor libera la huella del negocio anterior antes
- * de vincularla al nuevo, dentro de la misma transacción.
+ * registra la instalación por huella solo para auditoría. La licencia es del
+ * negocio: ni la huella ni el número de instalaciones limitan el acceso.
  */
 authUsuarioRouter.post(
   '/usuario',
@@ -156,33 +132,8 @@ authUsuarioRouter.post(
         throw new ApiError(403, 'LICENCIA_VENCIDA');
       }
 
-      const otraEmpresa = await client.query<{
-        empresa_id: string;
-        empresa_nombre: string;
-      }>(
-        `select d.empresa_id, e.nombre as empresa_nombre
-         from dispositivos d
-         join empresas e on e.id = d.empresa_id
-         where d.fingerprint = $1 and d.empresa_id <> $2
-         order by d.created_at asc
-         limit 1`,
-        [data.fingerprint, usuario.empresa_id]
-      );
-      if (otraEmpresa.rowCount && !data.cambiarEmpresa) {
-        const vinculada = otraEmpresa.rows[0];
-        throw new ApiError(
-          409,
-          'DISPOSITIVO_OTRA_EMPRESA',
-          'Este dispositivo ya está vinculado a otro negocio. Confirma el cambio para borrar sus datos locales y entrar aquí.',
-          {
-            empresa: { id: usuario.empresa_id, nombre: usuario.empresa_nombre },
-            empresaActual: {
-              id: vinculada.empresa_id,
-              nombre: vinculada.empresa_nombre,
-            },
-          }
-        );
-      }
+      // La huella solo identifica la instalación para auditoría: no ata el
+      // dispositivo a un negocio ni limita cuántas instalaciones puede haber.
 
       const existente = await client.query<DispositivoRow>(
         `select id, nombre, plataforma, estado, rol
@@ -192,99 +143,7 @@ authUsuarioRouter.post(
       );
       const dispositivoExistente = existente.rows[0];
 
-      if (dispositivoExistente?.estado === 'bloqueado') {
-        throw new ApiError(403, 'DISPOSITIVO_BLOQUEADO');
-      }
-
       let dispositivo: DispositivoRow;
-      let reemplazadoId: string | null = null;
-
-      // Un dispositivo inactivo puede reactivarse si la cuenta lo autoriza y
-      // hay una plaza libre (o el propietario decide reemplazar otra).
-      const necesitaPlaza =
-        !dispositivoExistente || dispositivoExistente.estado === 'inactivo';
-
-      if (necesitaPlaza) {
-        const ocupadas = await dispositivosOcupados(client, usuario.empresa_id);
-        const sinPlazas =
-          usuario.max_dispositivos !== null && ocupadas.length >= usuario.max_dispositivos;
-
-        if (sinPlazas) {
-          if (usuario.usuario_rol === 'dependiente') {
-            throw new ApiError(
-              409,
-              'ACTIVACION_REQUERIDA',
-              'El plan del negocio no tiene dispositivos libres. Pide a un administrador una invitación o que libere una plaza.',
-              { empresa: { id: usuario.empresa_id, nombre: usuario.empresa_nombre } }
-            );
-          }
-          if (!data.reemplazarA) {
-            throw new ApiError(
-              409,
-              'LIMITE_DISPOSITIVOS',
-              `El plan permite ${usuario.max_dispositivos} dispositivo(s) y ya están ocupados.`,
-              {
-                maxDispositivos: usuario.max_dispositivos,
-                dispositivos: ocupadas.map((fila) => ({
-                  id: fila.id,
-                  nombre: fila.nombre,
-                  plataforma: fila.plataforma,
-                  lastSeenAt: fila.last_seen_at?.toISOString() ?? null,
-                })),
-              }
-            );
-          }
-          if (usuario.usuario_rol !== 'propietario') {
-            throw new ApiError(
-              403,
-              'ROL_INSUFICIENTE',
-              'Solo el propietario puede reemplazar un dispositivo cuando el plan está completo.'
-            );
-          }
-
-          const objetivo = await client.query<DispositivoRow>(
-            `select id, nombre, plataforma, estado, rol
-             from dispositivos
-             where empresa_id = $1 and id = $2`,
-            [usuario.empresa_id, data.reemplazarA]
-          );
-          const filaObjetivo = objetivo.rows[0];
-          if (!filaObjetivo) {
-            throw new ApiError(404, 'DISPOSITIVO_NO_ENCONTRADO');
-          }
-          if (filaObjetivo.estado !== 'activo') {
-            throw new ApiError(
-              409,
-              'DISPOSITIVO_NO_ACTIVO',
-              'El dispositivo indicado ya está desvinculado.'
-            );
-          }
-
-          await client.query(
-            `update dispositivos
-             set estado = 'inactivo', licencia_firmada = null, licencia_emitida_en = null,
-                 updated_at = now()
-             where empresa_id = $1 and id = $2`,
-            [usuario.empresa_id, data.reemplazarA]
-          );
-          reemplazadoId = data.reemplazarA;
-        }
-      }
-
-      // El cambio de negocio libera la huella en el negocio anterior. Se hace
-      // solo cuando el login ya pasó todas las validaciones, dentro de la misma
-      // transacción, para no dejar al usuario sin dispositivo si algo falla.
-      let empresaAnteriorId: string | null = null;
-      if (data.cambiarEmpresa && otraEmpresa.rowCount) {
-        empresaAnteriorId = otraEmpresa.rows[0].empresa_id;
-        await client.query(
-          `update dispositivos
-           set estado = 'inactivo', licencia_firmada = null,
-               licencia_emitida_en = null, updated_at = now()
-           where fingerprint = $1 and empresa_id <> $2`,
-          [data.fingerprint, usuario.empresa_id]
-        );
-      }
 
       if (dispositivoExistente?.estado === 'activo') {
         const actualizado = await client.query<DispositivoRow>(
@@ -331,87 +190,70 @@ authUsuarioRouter.post(
         dispositivo = creado.rows[0];
       }
 
-      if (empresaAnteriorId) {
-        await registrarAuditoria(client, {
-          empresaId: empresaAnteriorId,
-          actorTipo: 'usuario',
-          actorId: usuario.usuario_id,
-          accion: 'dispositivo.cambio_empresa',
-          entidad: 'dispositivos',
-          entidadId: dispositivo.id,
-          payload: {
-            empresaDestino: usuario.empresa_id,
-            fingerprint: data.fingerprint,
-          },
-          ip: req.ip,
-        });
-      }
-
       const features =
         Array.isArray(usuario.licencia_features) && usuario.licencia_features.length > 0
           ? usuario.licencia_features
           : (usuario.plan_features ?? []);
 
-      const licenciaFirmada = firmarLicencia(
-        construirPayloadLicencia({
-          licenseId: usuario.licencia_id,
-          empresaId: usuario.empresa_id,
-          deviceId: dispositivo.id,
-          plan: usuario.plan_codigo,
-          features,
-          venceEn: usuario.vence_en,
-          graceDias: usuario.grace_dias,
-        })
-      );
+      let licenciaFirmada: string | null = null;
 
-      await client.query(
-        `update dispositivos
-         set licencia_firmada = $2, licencia_emitida_en = now()
-         where id = $1`,
-        [dispositivo.id, licenciaFirmada]
-      );
+      if (estadoLicencia === 'activa') {
+        licenciaFirmada = firmarLicencia(
+          construirPayloadLicencia({
+            licenseId: usuario.licencia_id,
+            empresaId: usuario.empresa_id,
+            plan: usuario.plan_codigo,
+            features,
+            venceEn: usuario.vence_en,
+            graceDias: usuario.grace_dias,
+          })
+        );
 
-      await client.query(
-        `update licencias set
-           estado = 'activa',
-           activada_en = coalesce(activada_en, now())
-         where id = $1`,
-        [usuario.licencia_id]
-      );
-      await client.query(
-        `update empresas set estado = 'activa'
-         where id = $1 and estado = 'pendiente'`,
-        [usuario.empresa_id]
-      );
+        await client.query(
+          `update dispositivos
+           set licencia_firmada = $2, licencia_emitida_en = now()
+           where empresa_id = $1`,
+          [usuario.empresa_id, licenciaFirmada]
+        );
 
-      await client.query(
-        `insert into licencias_eventos (licencia_id, empresa_id, tipo, payload)
-         values ($1, $2, 'activada', $3)`,
-        [
-          usuario.licencia_id,
-          usuario.empresa_id,
-          JSON.stringify({
-            deviceId: dispositivo.id,
-            nombre: dispositivo.nombre,
-            plataforma: data.plataforma,
-            via: 'login',
-            usuarioId: usuario.usuario_id,
-            ...(reemplazadoId ? { reemplazoDe: reemplazadoId } : {}),
-          }),
-        ]
-      );
+        await client.query(
+          `update licencias set
+             estado = 'activa',
+             activada_en = coalesce(activada_en, now())
+           where id = $1`,
+          [usuario.licencia_id]
+        );
+        await client.query(
+          `update empresas set estado = 'activa'
+           where id = $1 and estado = 'pendiente'`,
+          [usuario.empresa_id]
+        );
 
-      if (reemplazadoId) {
-        await registrarAuditoria(client, {
-          empresaId: usuario.empresa_id,
-          actorTipo: 'usuario',
-          actorId: usuario.usuario_id,
-          accion: 'dispositivo.reemplazado',
-          entidad: 'dispositivos',
-          entidadId: dispositivo.id,
-          payload: { reemplazado: reemplazadoId, nombre: dispositivo.nombre },
-          ip: req.ip,
-        });
+        await client.query(
+          `insert into licencias_eventos (licencia_id, empresa_id, tipo, payload)
+           values ($1, $2, 'activada', $3)`,
+          [
+            usuario.licencia_id,
+            usuario.empresa_id,
+            JSON.stringify({
+              deviceId: dispositivo.id,
+              nombre: dispositivo.nombre,
+              plataforma: data.plataforma,
+              via: 'login',
+              usuarioId: usuario.usuario_id,
+            }),
+          ]
+        );
+      } else {
+        // La licencia pertenece al negocio, no al dispositivo: un negocio
+        // pendiente puede abrir la caja, pero no recibe token ni sincroniza
+        // hasta que se active con su propio código.
+        await client.query(
+          `update dispositivos
+           set licencia_firmada = null, licencia_emitida_en = null
+           where id = $1`,
+          [dispositivo.id]
+        );
       }
 
       await registrarAuditoria(client, {
@@ -436,6 +278,7 @@ authUsuarioRouter.post(
           licenseId: usuario.licencia_id,
         }),
         licencia: licenciaFirmada,
+        estadoLicencia,
         empresa: {
           id: usuario.empresa_id,
           nombre: usuario.empresa_nombre,

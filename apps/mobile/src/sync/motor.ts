@@ -142,6 +142,7 @@ async function aplicarProducto(db: SQLiteDatabase, cambio: CambioSync): Promise<
     categoriaId: string | null;
     nombre: string;
     precio: number;
+    costoUnitario: number | null;
     emoji: string;
     color: string;
     imagen: string | null;
@@ -161,15 +162,16 @@ async function aplicarProducto(db: SQLiteDatabase, cambio: CambioSync): Promise<
     : null;
 
   await db.runAsync(
-    `INSERT INTO productos
-       (uuid, empresa_id, categoria_id, nombre, precio, emoji, color, imagen,
-        orden, activo, stock, stock_minimo, version, updated_at, deleted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(uuid) DO UPDATE SET
-       categoria_id = excluded.categoria_id,
-       nombre = excluded.nombre,
-       precio = excluded.precio,
-       emoji = excluded.emoji,
+     `INSERT INTO productos
+        (uuid, empresa_id, categoria_id, nombre, precio, costo_unitario, emoji, color, imagen,
+         orden, activo, stock, stock_minimo, version, updated_at, deleted_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(uuid) DO UPDATE SET
+        categoria_id = excluded.categoria_id,
+        nombre = excluded.nombre,
+        precio = excluded.precio,
+        costo_unitario = excluded.costo_unitario,
+        emoji = excluded.emoji,
        color = excluded.color,
        imagen = excluded.imagen,
        orden = excluded.orden,
@@ -185,6 +187,7 @@ async function aplicarProducto(db: SQLiteDatabase, cambio: CambioSync): Promise<
     categoria?.id ?? null,
     data.nombre,
     data.precio,
+    data.costoUnitario ?? null,
     data.emoji,
     data.color,
     data.imagen,
@@ -249,6 +252,9 @@ async function aplicarTurno(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
     apertura: string;
     cierre: string | null;
     estado: string;
+    fondoInicial: number;
+    efectivoEsperado: number;
+    observacionDiferencia: string | null;
     ventasCount: number;
     totalEsperado: number;
     desglose: Record<string, number>;
@@ -266,13 +272,17 @@ async function aplicarTurno(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
   const contexto = await obtenerContextoLocal(db);
   await db.runAsync(
     `INSERT INTO turnos_caja
-       (uuid, empresa_id, device_id, usuario_id, apertura, cierre, ventas_count,
-        total_esperado, desglose_json, dinero_real, diferencia, estado, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (uuid, empresa_id, device_id, usuario_id, apertura, cierre, fondo_inicial,
+        efectivo_esperado, observacion_diferencia, ventas_count, total_esperado,
+        desglose_json, dinero_real, diferencia, estado, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(uuid) DO UPDATE SET
        usuario_id = excluded.usuario_id,
        apertura = excluded.apertura,
        cierre = excluded.cierre,
+       fondo_inicial = excluded.fondo_inicial,
+       efectivo_esperado = excluded.efectivo_esperado,
+       observacion_diferencia = excluded.observacion_diferencia,
        ventas_count = excluded.ventas_count,
        total_esperado = excluded.total_esperado,
        desglose_json = excluded.desglose_json,
@@ -284,9 +294,12 @@ async function aplicarTurno(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
     contexto.empresaId,
     data.dispositivoId,
     usuario.id,
-    data.apertura,
-    data.cierre,
-    data.ventasCount,
+     data.apertura,
+     data.cierre,
+     data.fondoInicial ?? 0,
+     data.efectivoEsperado ?? 0,
+     data.observacionDiferencia ?? null,
+     data.ventasCount,
     data.totalEsperado,
     JSON.stringify(data.desglose ?? {}),
     data.dineroReal,
@@ -315,11 +328,14 @@ interface VentaSyncData {
   motivoAnulacion: string | null;
   anuladaPor: string | null;
   anuladaEn: string | null;
+  reembolsoEfectivo: number;
+  reembolsoDigital: number;
   items: Array<{
     id: string;
     productoId: string | null;
     nombre: string;
     precioUnitario: number;
+    costoUnitario: number | null;
     cantidad: number;
     subtotal: number;
   }>;
@@ -371,8 +387,9 @@ async function aplicarVenta(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
          servidor_id = ?, numero_servidor = ?, turno_id = ?, usuario_id = ?,
          fecha_iso = ?, subtotal = ?, descuento_pct = ?, total = ?,
          forma_pago = ?, monto_efectivo = ?, monto_digital = ?,
-         anulada = ?, motivo_anulacion = ?, anulada_por = ?, anulada_en = ?,
-         device_id = ?, updated_at = ?
+          anulada = ?, motivo_anulacion = ?, anulada_por = ?, anulada_en = ?,
+          reembolso_efectivo = ?, reembolso_digital = ?,
+          device_id = ?, updated_at = ?
        WHERE id = ?`,
       data.id,
       data.numero,
@@ -387,9 +404,11 @@ async function aplicarVenta(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
       data.montoDigital,
       data.anulada ? 1 : 0,
       data.motivoAnulacion,
-      anuladaPor?.id ?? null,
-      data.anuladaEn,
-      data.dispositivoId,
+       anuladaPor?.id ?? null,
+       data.anuladaEn,
+       data.reembolsoEfectivo ?? 0,
+       data.reembolsoDigital ?? 0,
+       data.dispositivoId,
       cambio.updatedAt,
       ventaId
     );
@@ -398,9 +417,9 @@ async function aplicarVenta(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
       `INSERT INTO ventas
          (uuid, empresa_id, device_id, numero, turno_id, usuario_id, fecha_iso,
           subtotal, descuento_pct, total, forma_pago, monto_efectivo, monto_digital,
-          anulada, motivo_anulacion, anulada_por, anulada_en, servidor_id,
-          numero_servidor, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           anulada, motivo_anulacion, anulada_por, anulada_en, reembolso_efectivo,
+           reembolso_digital, servidor_id, numero_servidor, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       data.localId ?? data.id,
       contexto.empresaId,
       data.dispositivoId,
@@ -416,12 +435,14 @@ async function aplicarVenta(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
       data.montoDigital,
       data.anulada ? 1 : 0,
       data.motivoAnulacion,
-      anuladaPor?.id ?? null,
-      data.anuladaEn,
-      data.id,
-      data.numero,
-      cambio.updatedAt
-    );
+       anuladaPor?.id ?? null,
+       data.anuladaEn,
+       data.reembolsoEfectivo ?? 0,
+       data.reembolsoDigital ?? 0,
+       data.id,
+       data.numero,
+       cambio.updatedAt
+     );
     ventaId = creada.lastInsertRowId;
   }
 
@@ -434,18 +455,19 @@ async function aplicarVenta(db: SQLiteDatabase, cambio: CambioSync): Promise<boo
         )
       : null;
     await db.runAsync(
-      `INSERT INTO venta_items
-         (uuid, empresa_id, venta_id, producto_id, nombre, precio_unitario,
-          cantidad, subtotal)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      item.id,
-      contexto.empresaId,
-      ventaId,
-      producto?.id ?? null,
-      item.nombre,
-      item.precioUnitario,
-      item.cantidad,
-      item.subtotal
+       `INSERT INTO venta_items
+          (uuid, empresa_id, venta_id, producto_id, nombre, precio_unitario,
+           costo_unitario, cantidad, subtotal)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       item.id,
+       contexto.empresaId,
+       ventaId,
+       producto?.id ?? null,
+       item.nombre,
+       item.precioUnitario,
+       item.costoUnitario ?? null,
+       item.cantidad,
+       item.subtotal
     );
   }
 
@@ -472,6 +494,192 @@ async function aplicarSetting(db: SQLiteDatabase, cambio: CambioSync): Promise<v
   );
 }
 
+async function aplicarGasto(db: SQLiteDatabase, cambio: CambioSync): Promise<void> {
+  const data = cambio.data as {
+    id: string;
+    categoria: string;
+    concepto: string;
+    monto: number;
+    fecha: string;
+    formaPago: string;
+    version: number;
+    deletedAt: string | null;
+  };
+  const contexto = await obtenerContextoLocal(db);
+  const valores = [
+    data.id,
+    contexto.empresaId,
+    data.categoria,
+    data.concepto,
+    data.monto,
+    data.fecha,
+    data.formaPago ?? 'efectivo',
+    data.version ?? 1,
+    data.deletedAt ?? null,
+    cambio.updatedAt ?? ahoraIso(),
+    cambio.updatedAt ?? ahoraIso(),
+  ];
+
+  try {
+    await db.runAsync(
+      `INSERT INTO gastos
+         (uuid, empresa_id, categoria, concepto, monto, fecha, forma_pago, version,
+          deleted_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(uuid) DO UPDATE SET
+         categoria = excluded.categoria,
+         concepto = excluded.concepto,
+         monto = excluded.monto,
+         fecha = excluded.fecha,
+         forma_pago = excluded.forma_pago,
+         version = excluded.version,
+         deleted_at = excluded.deleted_at,
+         updated_at = excluded.updated_at
+       WHERE excluded.version >= gastos.version`,
+      ...valores
+    );
+  } catch {
+    await db.runAsync(`DELETE FROM gastos WHERE uuid = ?`, data.id);
+    await db.runAsync(
+      `INSERT INTO gastos
+         (uuid, empresa_id, categoria, concepto, monto, fecha, forma_pago, version,
+          deleted_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ...valores
+    );
+  }
+}
+
+async function aplicarMovimientoCaja(
+  db: SQLiteDatabase,
+  cambio: CambioSync
+): Promise<void> {
+  const data = cambio.data as {
+    id: string;
+    turnoId: string | null;
+    usuarioId: string | null;
+    tipo: string;
+    monto: number;
+    descripcion: string;
+    gastoId: string | null;
+    version: number;
+    deletedAt: string | null;
+  };
+  const contexto = await obtenerContextoLocal(db);
+  const turno = data.turnoId
+    ? await db.getFirstAsync<{ id: number }>(
+        `SELECT id FROM turnos_caja WHERE uuid = ?`,
+        data.turnoId
+      )
+    : null;
+  const usuario = data.usuarioId
+    ? await db.getFirstAsync<{ id: number }>(
+        `SELECT id FROM usuarios WHERE uuid = ?`,
+        data.usuarioId
+      )
+    : null;
+  const gasto = data.gastoId
+    ? await db.getFirstAsync<{ id: number }>(
+        `SELECT id FROM gastos WHERE uuid = ?`,
+        data.gastoId
+      )
+    : null;
+
+  await db.runAsync(
+    `INSERT INTO movimientos_caja
+       (uuid, empresa_id, turno_id, usuario_id, dispositivo_id, tipo, monto,
+        descripcion, gasto_id, version, deleted_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(uuid) DO UPDATE SET
+       tipo = excluded.tipo,
+       monto = excluded.monto,
+       descripcion = excluded.descripcion,
+       gasto_id = excluded.gasto_id,
+       version = excluded.version,
+       deleted_at = excluded.deleted_at,
+       updated_at = excluded.updated_at
+     WHERE excluded.version >= movimientos_caja.version`,
+    data.id,
+    contexto.empresaId,
+    turno?.id ?? null,
+    usuario?.id ?? null,
+    contexto.deviceId,
+    data.tipo,
+    data.monto,
+    data.descripcion,
+    gasto?.id ?? null,
+    data.version ?? 1,
+    data.deletedAt ?? null,
+    cambio.updatedAt ?? ahoraIso(),
+    cambio.updatedAt ?? ahoraIso()
+  );
+}
+
+async function aplicarConteoInventario(
+  db: SQLiteDatabase,
+  cambio: CambioSync
+): Promise<void> {
+  const data = cambio.data as {
+    id: string;
+    turnoId: string | null;
+    productoId: string;
+    cantidadSistema: number;
+    cantidadContada: number;
+    diferencia: number;
+    motivo: string | null;
+    usuarioId: string | null;
+    version: number;
+    deletedAt: string | null;
+  };
+  const contexto = await obtenerContextoLocal(db);
+  const turno = data.turnoId
+    ? await db.getFirstAsync<{ id: number }>(
+        `SELECT id FROM turnos_caja WHERE uuid = ?`,
+        data.turnoId
+      )
+    : null;
+  const producto = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM productos WHERE uuid = ?`,
+    data.productoId
+  );
+  if (!producto) return;
+  const usuario = data.usuarioId
+    ? await db.getFirstAsync<{ id: number }>(
+        `SELECT id FROM usuarios WHERE uuid = ?`,
+        data.usuarioId
+      )
+    : null;
+
+  await db.runAsync(
+    `INSERT INTO conteos_inventario
+       (uuid, empresa_id, turno_id, producto_id, cantidad_sistema, cantidad_contada,
+        diferencia, motivo, usuario_id, version, deleted_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(uuid) DO UPDATE SET
+       cantidad_sistema = excluded.cantidad_sistema,
+       cantidad_contada = excluded.cantidad_contada,
+       diferencia = excluded.diferencia,
+       motivo = excluded.motivo,
+       version = excluded.version,
+       deleted_at = excluded.deleted_at,
+       updated_at = excluded.updated_at
+     WHERE excluded.version >= conteos_inventario.version`,
+    data.id,
+    contexto.empresaId,
+    turno?.id ?? null,
+    producto.id,
+    data.cantidadSistema,
+    data.cantidadContada,
+    data.diferencia,
+    data.motivo ?? null,
+    usuario?.id ?? null,
+    data.version ?? 1,
+    data.deletedAt ?? null,
+    cambio.updatedAt ?? ahoraIso(),
+    cambio.updatedAt ?? ahoraIso()
+  );
+}
+
 async function aplicarCambios(
   db: SQLiteDatabase,
   cambios: CambioSync[]
@@ -489,28 +697,50 @@ async function aplicarCambios(
 
   // El orden respeta las llaves foráneas locales: usuarios y categorías
   // primero, luego productos, turnos y ventas (que referencian a los
-  // anteriores). Una página entera se aplica en una transacción para que un
-  // error no deje el historial a medias.
-  await db.withTransactionAsync(async () => {
-    for (const cambio of porTipo.get('usuario') ?? []) {
-      await aplicarUsuario(db, cambio);
+  // anteriores). Cada cambio se aplica por separado para que un fallo aislado
+  // no revierta toda la página ni deje la SQLite_web con statements abiertos.
+  const aplicar = async (cambio: CambioSync): Promise<boolean> => {
+    switch (cambio.tipo) {
+      case 'usuario':
+        await aplicarUsuario(db, cambio);
+        return true;
+      case 'categoria':
+        await aplicarCategoria(db, cambio);
+        return true;
+      case 'producto':
+        await aplicarProducto(db, cambio);
+        return true;
+      case 'turno':
+        return aplicarTurno(db, cambio);
+      case 'venta':
+        return aplicarVenta(db, cambio);
+      case 'setting':
+        await aplicarSetting(db, cambio);
+        return true;
+      case 'gasto':
+        await aplicarGasto(db, cambio);
+        return true;
+      case 'movimiento_caja':
+        await aplicarMovimientoCaja(db, cambio);
+        return true;
+      case 'conteo_inventario':
+        await aplicarConteoInventario(db, cambio);
+        return true;
+      default:
+        return true;
     }
-    for (const cambio of porTipo.get('categoria') ?? []) {
-      await aplicarCategoria(db, cambio);
+  };
+
+  for (const [tipo, lista] of porTipo) {
+    for (const cambio of lista) {
+      try {
+        if (!(await aplicar(cambio))) aplazados.push(cambio);
+      } catch (error) {
+        console.error('[MiCaja pull] error aplicando cambio', tipo, cambio.id, error);
+        throw error;
+      }
     }
-    for (const cambio of porTipo.get('producto') ?? []) {
-      await aplicarProducto(db, cambio);
-    }
-    for (const cambio of porTipo.get('turno') ?? []) {
-      if (!(await aplicarTurno(db, cambio))) aplazados.push(cambio);
-    }
-    for (const cambio of porTipo.get('venta') ?? []) {
-      if (!(await aplicarVenta(db, cambio))) aplazados.push(cambio);
-    }
-    for (const cambio of porTipo.get('setting') ?? []) {
-      await aplicarSetting(db, cambio);
-    }
-  });
+  }
 
   return aplazados;
 }
@@ -600,9 +830,18 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
     );
   }
 
-  useSync.setState({ sincronizando: true, error: null });
+  useSync.setState({ sincronizando: true, error: null, errorCodigo: null });
+  let fase = 'inicio';
 
   try {
+    fase = 'reparar';
+    // Recuperación automática: repara ventas rechazadas por un turno viejo,
+    // reencola las operaciones rechazadas y deja que el servidor cierre el
+    // turno abierto huérfano al recibir la nueva apertura.
+    await repararVentasDeOtraTerminal(db);
+    await reencolarRechazadas(db);
+
+    fase = 'snapshot';
     // Primer empuje: una instalación que se activa con datos previos (o que
     // usó la app antes de que existiera la sync) debe subir su foto inicial
     // (usuarios/categorías/productos/settings) antes que turnos y ventas,
@@ -625,6 +864,7 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
     let rechazadas = 0;
 
     if (operaciones.length > 0) {
+      fase = 'push';
       const respuesta = await pushOperaciones(db, deviceId, operaciones);
       const resultados = new Map(
         respuesta.results.map((resultado) => [resultado.operationId, resultado])
@@ -665,6 +905,7 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
       }
     }
 
+    fase = 'pull';
     // El servidor pagina el pull por tabla. Se recorre hasta terminar para que
     // una instalación nueva o un cambio de negocio cargue TODO el catálogo y el
     // historial, no solo la primera página. El cursor es opaco y avanzar sin
@@ -714,6 +955,7 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
 
     await guardarSetting(db, CLAVE_ULTIMO_SYNC, ahoraIso());
     await refrescarEstadoSync(db);
+    useSync.setState({ conectado: true });
 
     return {
       enviadas: operaciones.length,
@@ -731,14 +973,22 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
         'LICENCIA_SUSPENDIDA',
         'LICENCIA_VENCIDA',
         'LICENCIA_NO_ENCONTRADA',
-        'DISPOSITIVO_INACTIVO',
       ].includes(error.codigo)
     ) {
       await invalidarLicenciaLocal(db);
     }
+    if (
+      error instanceof ErrorApi &&
+      ['SIN_CONEXION', 'TIEMPO_AGOTADO'].includes(error.codigo)
+    ) {
+      useSync.setState({ conectado: false });
+    }
     const mensaje =
       error instanceof Error ? error.message : 'No se pudo sincronizar con la nube.';
-    useSync.setState({ error: mensaje });
+    const detalle = `[${fase}] ${mensaje}`;
+    const codigo = error instanceof ErrorApi ? error.codigo : null;
+    console.error('[MiCaja sync]', fase, error);
+    useSync.setState({ error: detalle, errorCodigo: codigo });
     throw error;
   } finally {
     useSync.setState({ sincronizando: false });
@@ -835,4 +1085,10 @@ export async function reintentarRechazadas(db: SQLiteDatabase): Promise<ResumenS
   await repararVentasDeOtraTerminal(db);
   await reencolarRechazadas(db);
   return sincronizar(db);
+}
+
+/** Fuerza una descarga completa del negocio en la próxima sincronización. */
+export async function reiniciarDescarga(db: SQLiteDatabase): Promise<void> {
+  await db.runAsync(`DELETE FROM sync_meta WHERE entidad = 'pull'`);
+  await db.runAsync(`DELETE FROM settings WHERE clave = ?`, CLAVE_APLAZADOS);
 }

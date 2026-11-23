@@ -7,12 +7,15 @@ interface EstadoSync {
   fallidas: number;
   ultimaSync: string | null;
   error: string | null;
+  errorCodigo: string | null;
   licencia: ResultadoLicencia | null;
+  conectado: boolean | null;
   fijarSincronizando: (valor: boolean) => void;
   fijarPendientes: (pendientes: number, fallidas: number) => void;
   fijarUltimaSync: (fecha: string | null) => void;
   fijarError: (error: string | null) => void;
   fijarLicencia: (licencia: ResultadoLicencia | null) => void;
+  fijarConectado: (conectado: boolean | null) => void;
 }
 
 export const useSync = create<EstadoSync>((set) => ({
@@ -21,10 +24,13 @@ export const useSync = create<EstadoSync>((set) => ({
   fallidas: 0,
   ultimaSync: null,
   error: null,
+  errorCodigo: null,
   licencia: null,
+  conectado: null,
   fijarSincronizando: (sincronizando) => set({ sincronizando }),
   fijarPendientes: (pendientes, fallidas) => set({ pendientes, fallidas }),
   fijarUltimaSync: (ultimaSync) => set({ ultimaSync }),
   fijarError: (error) => set({ error }),
   fijarLicencia: (licencia) => set({ licencia }),
+  fijarConectado: (conectado) => set({ conectado }),
 }));

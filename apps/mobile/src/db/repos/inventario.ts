@@ -18,6 +18,7 @@ export interface MovimientoLocalInput {
   referenciaTipo?: string | null;
   referenciaId?: string | null;
   usuarioId?: number | null;
+  turnoId?: number | null;
   sincronizar?: boolean;
   movimientoId?: string;
 }
@@ -32,8 +33,8 @@ export async function registrarMovimientoLocal(
   await db.runAsync(
     `INSERT INTO movimientos_inventario
        (id, empresa_id, device_id, producto_id, producto_uuid, tipo, cantidad,
-        referencia_tipo, referencia_id, usuario_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        referencia_tipo, referencia_id, usuario_id, turno_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     movimientoId,
     contexto.empresaId,
     contexto.deviceId,
@@ -43,8 +44,9 @@ export async function registrarMovimientoLocal(
     input.cantidad,
     input.referenciaTipo ?? null,
     input.referenciaId ?? null,
-    input.usuarioId ?? null,
-    ahoraIso()
+     input.usuarioId ?? null,
+     input.turnoId ?? null,
+     ahoraIso()
   );
 
   if (input.sincronizar !== false) {

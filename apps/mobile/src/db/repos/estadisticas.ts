@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { obtenerContextoLocal } from '../contexto';
 
 export interface ResumenDia {
   ventas: number;
@@ -29,13 +30,15 @@ export interface TopProducto {
   total: number;
 }
 
-const RANGO_VALIDO = 'anulada = 0 AND fecha_iso >= ? AND fecha_iso < ?';
+const RANGO_VALIDO =
+  'empresa_id = ? AND anulada = 0 AND fecha_iso >= ? AND fecha_iso < ?';
 
 export async function resumenDia(
   db: SQLiteDatabase,
   desdeISO: string,
   hastaISO: string
 ): Promise<ResumenDia> {
+  const contexto = await obtenerContextoLocal(db);
   const resumen = await db.getFirstAsync<{
     ventas: number;
     ingresos: number;
@@ -48,10 +51,11 @@ export async function resumenDia(
             COALESCE(AVG(total), 0) AS ticket,
             COALESCE(SUM(monto_efectivo), 0) AS efectivo,
             COALESCE(SUM(monto_digital), 0) AS digital
-     FROM ventas WHERE ${RANGO_VALIDO}`,
-    desdeISO,
-    hastaISO
-  );
+      FROM ventas WHERE ${RANGO_VALIDO}`,
+     contexto.empresaId,
+     desdeISO,
+     hastaISO
+   );
 
   const top = await db.getFirstAsync<{
     nombre: string;
@@ -65,13 +69,14 @@ export async function resumenDia(
      FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN productos p ON p.id = vi.producto_id
-     WHERE v.anulada = 0 AND v.fecha_iso >= ? AND v.fecha_iso < ?
-     GROUP BY vi.nombre, p.emoji, p.imagen
-     ORDER BY cantidad DESC
-     LIMIT 1`,
-    desdeISO,
-    hastaISO
-  );
+      WHERE v.empresa_id = ? AND v.anulada = 0 AND v.fecha_iso >= ? AND v.fecha_iso < ?
+      GROUP BY vi.nombre, p.emoji, p.imagen
+      ORDER BY cantidad DESC
+      LIMIT 1`,
+     contexto.empresaId,
+     desdeISO,
+     hastaISO
+   );
 
   return {
     ventas: resumen?.ventas ?? 0,
@@ -90,16 +95,18 @@ export async function ventasPorDia(
   desdeISO: string,
   hastaISO: string
 ): Promise<VentaPorDia[]> {
+  const contexto = await obtenerContextoLocal(db);
   return db.getAllAsync<VentaPorDia>(
     `SELECT date(fecha_iso, 'localtime') AS dia,
             COUNT(*) AS ventas,
             COALESCE(SUM(total), 0) AS total
      FROM ventas WHERE ${RANGO_VALIDO}
      GROUP BY date(fecha_iso, 'localtime')
-     ORDER BY dia`,
-    desdeISO,
-    hastaISO
-  );
+      ORDER BY dia`,
+     contexto.empresaId,
+     desdeISO,
+     hastaISO
+   );
 }
 
 export async function ventasPorForma(
@@ -107,16 +114,18 @@ export async function ventasPorForma(
   desdeISO: string,
   hastaISO: string
 ): Promise<VentaPorForma[]> {
+  const contexto = await obtenerContextoLocal(db);
   return db.getAllAsync<VentaPorForma>(
     `SELECT forma_pago AS formaPago,
             COUNT(*) AS ventas,
             COALESCE(SUM(total), 0) AS total
      FROM ventas WHERE ${RANGO_VALIDO}
      GROUP BY forma_pago
-     ORDER BY total DESC`,
-    desdeISO,
-    hastaISO
-  );
+      ORDER BY total DESC`,
+     contexto.empresaId,
+     desdeISO,
+     hastaISO
+   );
 }
 
 export async function topProductos(
@@ -125,18 +134,20 @@ export async function topProductos(
   hastaISO: string,
   limite = 5
 ): Promise<TopProducto[]> {
+  const contexto = await obtenerContextoLocal(db);
   return db.getAllAsync<TopProducto>(
     `SELECT vi.nombre, COALESCE(p.emoji, '🛍️') AS emoji, p.imagen,
             SUM(vi.cantidad) AS cantidad, SUM(vi.subtotal) AS total
      FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id
      LEFT JOIN productos p ON p.id = vi.producto_id
-     WHERE v.anulada = 0 AND v.fecha_iso >= ? AND v.fecha_iso < ?
-     GROUP BY vi.nombre, p.emoji, p.imagen
-     ORDER BY cantidad DESC
-     LIMIT ?`,
-    desdeISO,
-    hastaISO,
-    limite
+      WHERE v.empresa_id = ? AND v.anulada = 0 AND v.fecha_iso >= ? AND v.fecha_iso < ?
+      GROUP BY vi.nombre, p.emoji, p.imagen
+      ORDER BY cantidad DESC
+      LIMIT ?`,
+     contexto.empresaId,
+     desdeISO,
+     hastaISO,
+     limite
   );
 }

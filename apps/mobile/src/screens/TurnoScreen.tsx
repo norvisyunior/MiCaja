@@ -6,6 +6,7 @@ import type { NavigationProp } from '@react-navigation/native';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { TurnoCaja } from '../types';
 import { cerrarTurno, listarTurnos, turnoAbierto, turnoAbiertoOCrear } from '../db/repos/turnos';
+import { calcularResumenCierre } from '../db/repos/cierre';
 import { resumenVentasTurno, type ResumenVentasTurno } from '../db/repos/ventas';
 import { evaluarBloqueoOperativo } from '../licencias/verificar';
 import { AvisoLicencia } from '../components/AvisoLicencia';
@@ -32,6 +33,7 @@ import {
   TarjetaAviso,
 } from '../components/UI';
 import { fuentes, radius, spacing, typography } from '../theme';
+import { pedirSyncAhora } from '../sync/disparador';
 
 export default function TurnoScreen() {
   const db = useSQLiteContext();
@@ -96,9 +98,22 @@ export default function TurnoScreen() {
     const dineroReal = parsearMonto(dineroTexto);
     setGuardando(true);
     try {
-      const res = await cerrarTurno(db, turno.id, dineroReal, new Date().toISOString());
+      const cierre = await calcularResumenCierre(db, turno.id);
+      const res = await cerrarTurno(
+        db,
+        turno.id,
+        dineroReal,
+        new Date().toISOString(),
+        {
+          cantidadVentas: cierre.cantidadVentas,
+          totalVendido: cierre.totalVendido,
+          efectivoEsperado: cierre.efectivoEsperado,
+          desglose: cierre.desglose,
+        }
+      );
       setArqueando(false);
       if (res) setResultado(res);
+      pedirSyncAhora();
       await cargar();
     } catch {
       mostrarAviso('Error', 'No se pudo cerrar el turno.');

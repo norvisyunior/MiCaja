@@ -21,7 +21,6 @@ describe('firma de licencias', () => {
     const payload = construirPayloadLicencia({
       licenseId: '11111111-1111-4111-8111-111111111111',
       empresaId: '22222222-2222-4222-8222-222222222222',
-      deviceId: '33333333-3333-4333-8333-333333333333',
       plan: 'pro',
       features: ['ventas', 'inventario'],
       venceEn: new Date('2030-01-01T00:00:00.000Z'),
@@ -30,6 +29,7 @@ describe('firma de licencias', () => {
 
     const token = firmarLicenciaConClave(payload, privada);
     expect(verificarLicenciaConClave(token, publica)).toBe(true);
+    expect(payload.deviceId).toBeNull();
     expect(decodeLicenseToken(token)).toEqual(payload);
   });
 

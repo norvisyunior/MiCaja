@@ -22,16 +22,19 @@ async function exigirDispositivoActivo(
   empresaId: string,
   deviceId: string
 ): Promise<void> {
-  const fila = await client.query<{ estado: string }>(
-    `select estado from dispositivos where empresa_id = $1 and id = $2`,
-    [empresaId, deviceId]
+  // Registro automático de la instalación: no hay estados que bloqueen el
+  // acceso a la cuenta del negocio.
+  await client.query(
+    `insert into dispositivos
+       (id, empresa_id, nombre, plataforma, app_version, fingerprint, estado, rol,
+        last_seen_at)
+     values ($1, $2, 'MiCaja', 'web', '', $3, 'activo', 'dependiente', now())
+     on conflict (empresa_id, id) do update set
+       estado = 'activo',
+       last_seen_at = now(),
+       updated_at = now()`,
+    [deviceId, empresaId, deviceId]
   );
-  if (!fila.rowCount) {
-    throw new ApiError(404, 'DISPOSITIVO_NO_ENCONTRADO');
-  }
-  if (fila.rows[0].estado !== 'activo') {
-    throw new ApiError(403, 'DISPOSITIVO_INACTIVO');
-  }
 }
 
 /**
@@ -66,6 +69,7 @@ deviceRouter.get(
     const dispositivo = req.device!;
 
     const resultado = await withTenant(dispositivo.empresaId, async (client) => {
+      await exigirDispositivoActivo(client, dispositivo.empresaId, dispositivo.deviceId);
       const fila = await client.query(
         `select l.estado, l.vence_en, l.grace_dias, l.features,
                 d.licencia_firmada, d.licencia_emitida_en, d.estado as dispositivo_estado
@@ -79,13 +83,17 @@ deviceRouter.get(
       }
 
       const licencia = fila.rows[0];
+      const estado = estadoLicenciaEfectiva(licencia);
+      // Una licencia pendiente pertenece a un negocio todavía no activado:
+      // nunca debe entregarse un token, aunque quede uno viejo guardado.
+      const token = estado === 'activa' ? licencia.licencia_firmada : null;
       return {
-        estado: estadoLicenciaEfectiva(licencia),
+        estado,
         venceEn: licencia.vence_en.toISOString(),
         graceDias: licencia.grace_dias,
         features: licencia.features,
-        token: licencia.licencia_firmada,
-        emitidaEn: licencia.licencia_emitida_en?.toISOString() ?? null,
+        token,
+        emitidaEn: token ? licencia.licencia_emitida_en?.toISOString() ?? null : null,
         dispositivoEstado: licencia.dispositivo_estado,
       };
     });

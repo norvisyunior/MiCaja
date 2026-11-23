@@ -11,6 +11,7 @@ import { obtenerSettings } from '../db/repos/settings';
 import { useSesion } from '../store/sesion';
 import { useSync } from '../store/sync';
 import { useTema } from '../store/tema';
+import { useConexionBackend } from '../sync/conexion';
 import { sincronizarSilencioso } from '../sync/motor';
 import {
   AccionRapida,
@@ -50,8 +51,13 @@ export default function HomeScreen() {
   const pendientes = useSync((s) => s.pendientes);
   const fallidas = useSync((s) => s.fallidas);
   const errorSync = useSync((s) => s.error);
+  const conectado = useSync((s) => s.conectado);
   const { colores } = useTema();
   const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
+
+  useConexionBackend(db, true);
+  const enLinea = conectado === true;
+  const sinConexion = conectado === false;
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [turno, setTurno] = useState<TurnoCaja | null>(null);
@@ -136,6 +142,60 @@ export default function HomeScreen() {
           >
             <View style={styles.saludoFila}>
               <View style={{ flex: 1 }}>
+                <Pressable
+                  onPress={() => setSyncAbierto(true)}
+                  hitSlop={6}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    enLinea
+                      ? 'Conectado al servidor'
+                      : sinConexion
+                        ? 'Sin conexión al servidor, trabajando offline'
+                        : 'Comprobando conexión con el servidor'
+                  }
+                  style={({ pressed }) => [
+                    styles.conexion,
+                    {
+                      backgroundColor: enLinea
+                        ? colores.exitoSuave
+                        : sinConexion
+                          ? colores.peligroSuave
+                          : colores.superficieSuave,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.conexionPunto,
+                      {
+                        backgroundColor: enLinea
+                          ? colores.exito
+                          : sinConexion
+                            ? colores.peligro
+                            : colores.textoSuave,
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.conexionTexto,
+                      {
+                        color: enLinea
+                          ? colores.exito
+                          : sinConexion
+                            ? colores.peligro
+                            : colores.textoSuave,
+                      },
+                    ]}
+                  >
+                    {enLinea
+                      ? 'En línea'
+                      : sinConexion
+                        ? 'Sin conexión · Modo offline'
+                        : 'Comprobando conexión…'}
+                  </Text>
+                </Pressable>
                 <Text style={[styles.saludo, { color: colores.texto }]}>
                   {saludo}, {usuario.nombre.split(' ')[0]}
                 </Text>
@@ -279,7 +339,7 @@ export default function HomeScreen() {
                   titulo={turno ? 'Cerrar' : 'Abrir'}
                   variante={turno ? 'suave' : 'primario'}
                   tamanio="sm"
-                  onPress={() => navigation.navigate('Turno')}
+                  onPress={() => navigation.navigate('Cierre')}
                   estilo={styles.miniBoton}
                 />
               </Tarjeta>
@@ -326,12 +386,18 @@ export default function HomeScreen() {
               <View
                 style={[
                   styles.piePunto,
-                  { backgroundColor: errorSync ? colores.peligro : colores.exito },
+                  {
+                    backgroundColor: sinConexion
+                      ? colores.peligro
+                      : enLinea
+                        ? colores.exito
+                        : colores.advertencia,
+                  },
                 ]}
               />
               <Text style={[styles.pieTexto, { color: colores.textoSuave }]}>
                 {settings?.nombreNegocio ?? 'Mi Negocio'} · {settings?.moneda ?? 'CUP'} ·{' '}
-                {errorSync ? 'Sin conexión' : 'En línea'}
+                {sinConexion ? 'Sin conexión' : enLinea ? 'En línea' : 'Comprobando…'}
               </Text>
             </View>
           </Animated.View>
@@ -390,18 +456,28 @@ export default function HomeScreen() {
               <View
                 style={[
                   styles.syncIcono,
-                  { backgroundColor: errorSync ? colores.peligroSuave : colores.superficie },
+                  { backgroundColor: sinConexion ? colores.peligroSuave : colores.superficie },
                 ]}
               >
                 <MaterialIcons
-                  name={errorSync ? 'cloud-off' : 'cloud-done'}
+                  name={sinConexion ? 'cloud-off' : enLinea ? 'cloud-done' : 'cloud-sync'}
                   size={26}
-                  color={errorSync ? colores.peligro : colores.primario}
+                  color={
+                    sinConexion
+                      ? colores.peligro
+                      : enLinea
+                        ? colores.primario
+                        : colores.textoSuave
+                  }
                 />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.syncTitulo, { color: colores.texto }]}>
-                  {errorSync ? 'Sin conexión' : 'Todo actualizado'}
+                  {sinConexion
+                    ? 'Sin conexión'
+                    : enLinea
+                      ? 'En línea'
+                      : 'Comprobando conexión'}
                 </Text>
                 <Text style={[styles.syncSub, { color: colores.textoSuave }]}>
                   {ultimaSync
@@ -425,7 +501,7 @@ export default function HomeScreen() {
               <View style={styles.syncFila}>
                 <Text style={[styles.syncFilaLabel, { color: colores.textoSuave }]}>Modo</Text>
                 <Text style={[styles.syncFilaValor, { color: colores.texto }]}>
-                  {errorSync ? 'Sin conexión' : 'En línea'}
+                  {sinConexion ? 'Sin conexión' : enLinea ? 'En línea' : 'Comprobando…'}
                 </Text>
               </View>
             </View>
@@ -456,6 +532,18 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginTop: spacing.xs,
   },
+  conexion: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: radius.full,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  conexionPunto: { width: 6, height: 6, borderRadius: radius.full },
+  conexionTexto: { fontSize: typography.micro, fontFamily: fuentes.semibold },
   saludo: {
     fontSize: 21,
     fontFamily: fuentes.display,

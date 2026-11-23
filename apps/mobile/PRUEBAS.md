@@ -92,7 +92,7 @@ npm run typecheck
 Con el backend corriendo en desarrollo (`cd apps/backend && npm run dev`) y Supabase configurado:
 
 - [ ] Desde **Ajustes → Sincronización**, guardar la URL del servidor y activar el dispositivo con un código de activación.
-- [ ] Activar el mismo código en un segundo dispositivo: debe rechazarlo si agotó su límite de usos.
+- [ ] Activar el mismo código en un segundo dispositivo: debe funcionar mientras el código no expire; todos los usuarios del negocio comparten la misma vigencia.
 - [ ] **Adopción de instalación previa:** activar un dispositivo con usuarios/productos/turnos creados antes del código y sincronizar. El snapshot inicial (usuarios → categorías → productos → settings) debe subir primero y los turnos/ventas posteriores deben aplicarse sin errores de llave foránea en `sync_operations`.
 - [ ] Si el servidor rechazó operaciones, **Ajustes → Sincronización** muestra *"N con error"* y el botón **Reintentar las N con error**: al pulsarlo se reencolan con un `operation_id` nuevo y se sincronizan.
 - [ ] Stock tras adoptar: el inventario del servidor debe terminar igual al local (el upsert de producto lleva el stock compensado por operaciones pendientes).
@@ -101,20 +101,50 @@ Con el backend corriendo en desarrollo (`cd apps/backend && npm run dev`) y Supa
 - [ ] **Settings en todos los roles:** cambiar nombre/moneda desde un dispositivo `propietario`, `admin` y `dependiente`; en los tres casos el cambio debe llegar a la nube y verse en el resto de dispositivos tras el `pull`.
 - [ ] Editar un producto offline en un dispositivo y en otro: el cambio con mayor versión gana y el stock se reconcilia.
 - [ ] **Dispositivo sin activar:** en una instalación nueva, configurar el negocio sin conexión y comprobar que la venta y los turnos quedan bloqueados con el aviso *Dispositivo sin activar* hasta introducir el código.
-- [ ] **Gestión de dispositivos** (Ajustes → Sincronización, solo admin): la lista muestra los dispositivos del negocio, marca el actual y permite desvincular. El propio dispositivo se retira sin código; retirar otro exige el código de activación vigente.
-- [ ] **Límite del plan:** con el plan básico (3 dispositivos) activar un cuarto dispositivo: debe ofrecer retirar un dispositivo existente en lugar de fallar; tras elegirlo, el anterior queda inactivo y el nuevo opera.
+- [ ] **Sin gestión de dispositivos:** Ajustes → Sincronización ya no muestra lista ni borrado de terminales; la licencia depende solo del negocio.
+- [ ] **Sin límite de plazas:** activar tantas instalaciones como se quiera en el mismo negocio con el mismo código vigente; todas reciben el mismo token y vencimiento.
 - [ ] **Invitación de trabajador:** desde un dispositivo activo, *Invitar trabajador* genera un código (`MICAJA-…`). En una instalación nueva, activar con ese código pide crear la cuenta del trabajador (nombre, usuario y PIN) en lugar de los datos del negocio; al sincronizar, el catálogo del negocio aparece y el trabajador entra con rol dependiente.
 - [ ] Reutilizar una invitación (o esperar su caducidad) debe devolver un error claro, no activar un segundo dispositivo.
 - [ ] **Login global:** en una instalación nueva (o tras borrar datos), entrar con `usuario` + PIN de una cuenta existente. Debe validar contra el servidor, registrar/reutilizar el dispositivo, traer empresa/licencia y abrir la app sin pedir código de activación.
-- [ ] **Usuario único:** crear otro negocio e intentar usar un `usuario` ya existente: debe rechazarse por el índice global. Tras un login global válido, el mismo usuario debe poder entrar desde otro navegador/dispositivo (respetando plazas y rol).
-- [ ] **Misma huella:** cerrar sesión o borrar la cuenta local y volver a entrar con el mismo navegador no debe crear un dispositivo duplicado ni pedir reemplazo; la huella guardada debe reutilizarse.
+- [ ] **Usuario único:** crear otro negocio e intentar usar un `usuario` ya existente: debe rechazarse por el índice global. Tras un login global válido, el mismo usuario debe poder entrar desde otro navegador/dispositivo.
+- [ ] **Misma huella:** cerrar sesión o borrar la cuenta local y volver a entrar con el mismo navegador reutiliza la instalación; la huella ya no ata el dispositivo a un negocio.
 - [ ] **PIN incorrecto:** el login global debe responder credenciales inválidas; repetir hasta superar el límite debe devolver `DEMASIADOS_INTENTOS`. Un bloqueo local por intentos no debe saltarse con la nube.
-- [ ] **Dependiente sin plaza:** un usuario `dependiente` desde una huella nueva debe recibir *activación requerida*; `propietario`/`admin` pueden ocupar una plaza libre y solo el propietario puede reemplazar un dispositivo cuando el plan está lleno.
+- [ ] **Dependiente desde huella nueva:** entra con usuario + PIN como cualquier otro rol; la licencia del negocio cubre a todos sus usuarios.
 - [ ] **Hash, no PIN:** crear/editar un usuario y sincronizar; en `usuarios.password_hash` debe quedar `sha256it$…`, el `pull` no debe devolverlo y la red nunca debe llevar el PIN en claro.
-- [ ] **Conflicto de negocio:** con ventas/usuarios locales de otro negocio, el login global debe rechazarse y pedir borrar datos o restaurar respaldo; no debe mezclar catálogos.
-- [ ] **Auto-desvinculación:** en *Dispositivos*, elegir el dispositivo actual y desvincularlo: la app conserva los datos, deja de sincronizar y vuelve a pedir un código de activación (la caja queda bloqueada como *sin activar*). Reactivarlo con un código del mismo negocio restaura la operación sin duplicar datos.
-- [ ] **Un negocio por teléfono:** intentar activar un dispositivo que ya pertenece a otro negocio debe rechazarse con un mensaje que pida borrar los datos o restaurar un respaldo.
+- [ ] **Conflicto de negocio:** con ventas/usuarios locales de otro negocio, el login global pide confirmar y limpiar/restaurar los datos antes de entrar; no debe mezclar catálogos.
+- [ ] **Activación tras borrar datos:** borrar los datos locales, activar con el código del negocio y entrar con usuario + PIN: el pull descarga catálogo e historial completos.
+- [ ] **Misma instalación en otro negocio:** activar con el código de otro negocio ya no se rechaza por la huella; los datos locales se limpian al cambiar de negocio.
 - [ ] Marcar una licencia como vencida en el servidor y sincronizar: la app muestra el aviso de licencia vencida e impide vender, abrir caja y cerrar turno.
 - [ ] **Suspensión desde el servidor:** suspender la licencia por API y sincronizar: el push/pull devuelve `LICENCIA_SUSPENDIDA`, la app invalida la licencia local y bloquea la caja; al reactivarla y sincronizar, vuelve a operar.
 - [ ] Con licencia vencida: el historial, los reportes y los datos siguen accesibles.
 - [ ] Renovar la licencia y sincronizar: desaparece el aviso y la caja vuelve a operar.
+
+### Rentabilidad
+- [ ] Guardar un costo unitario en un producto y verificar que vuelve a aparecer al editarlo.
+- [ ] Vender ese producto y comprobar que el costo queda congelado en la línea de venta: cambiar el costo del producto después no altera reportes pasados.
+- [ ] En Reportes, abrir **Ver rentabilidad** solo con rol admin; un dependiente no debe ver la opción ni la pantalla.
+- [ ] Probar los períodos Hoy, Semana, Mes y uno personalizado; el reporte y la lista de gastos deben cambiar con el rango.
+- [ ] Verificar ganancia neta = ventas netas − costo de lo vendido − gastos, y que el margen use ventas netas.
+- [ ] Crear, editar y eliminar un gasto; el total debe actualizarse al instante y el cambio debe llegar a otro dispositivo tras sincronizar.
+- [ ] Sin conexión: comprobar que se muestra el último reporte guardado con el aviso "Último reporte guardado" y que los gastos locales siguen disponibles.
+- [ ] Con líneas sin costo registrado, confirmar el aviso de ganancia posiblemente sobreestimada.
+
+### Pestaña Gestión y cierre guiado
+- [ ] En la barra inferior debe aparecer la pestaña **Gestión**, con las secciones **Rentabilidad** y **Cierre del día**.
+- [ ] Vender un producto con costo y abrir Rentabilidad: la venta debe aparecer de inmediato aunque falte conexión.
+- [ ] Verificar los períodos Hoy, 7 días, Este mes, Mes anterior y personalizado.
+- [ ] Registrar un gasto en efectivo y comprobar que sale de la caja y descuenta la ganancia una sola vez.
+- [ ] Abrir caja con efectivo inicial, registrar entrada, retiro y gasto en efectivo; el efectivo esperado debe calcularse con la fórmula completa.
+- [ ] Contar efectivo, comprobar sobrante/faltante y guardar una observación.
+- [ ] Revisar el resumen de ventas por forma de pago y las anulaciones/devoluciones.
+- [ ] Ver el inventario teórico, contar un producto opcionalmente y aplicar la diferencia como ajuste auditado.
+- [ ] Confirmar el cierre dos veces: la segunda no debe alterar el historial.
+- [ ] Sin conexión: comprobar aviso de operaciones pendientes y que el cierre se sube al sincronizar.
+
+### Ajustes finales de pestañas y caja
+- [ ] El menú inferior debe mostrar pestañas separadas **Rentabilidad** y **Cierre**, sin pestaña **Gestión**.
+- [ ] El historial de cierres NO debe aparecer en la pantalla de Cierre; se abre solo desde **Rentabilidad → Historial de cierres** con rol admin.
+- [ ] Al abrir caja, el efectivo inicial es obligatorio; debe aparecer el modal **Día listo para comenzar a vender** con botón **Nueva venta**.
+- [ ] En el cierre solo deben aparecer: efectivo inicial, ventas cobradas en efectivo, devoluciones en efectivo y efectivo esperado. Gastos, entradas y retiros NO aparecen allí.
+- [ ] Gastos y movimientos de caja (entradas/retiros) se gestionan solo desde **Rentabilidad** y no alteran el efectivo esperado del cierre.
+- [ ] En inventario, una venta de 1 unidad debe mostrar `−1` una sola vez, sin duplicarlo como salida adicional.

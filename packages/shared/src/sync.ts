@@ -8,6 +8,9 @@ export const SYNC_OPERATION_TYPES = [
   'categoria_upsert',
   'usuario_upsert',
   'settings_upsert',
+  'gasto_upsert',
+  'movimiento_caja_upsert',
+  'conteo_inventario_upsert',
 ] as const;
 
 export type SyncOperationType = (typeof SYNC_OPERATION_TYPES)[number];
@@ -67,4 +70,7 @@ export const SYNC_CONFLICT_POLICIES: Record<SyncOperationType, string> = {
   categoria_upsert: 'gana la versión mayor; empate gana fecha_servidor',
   usuario_upsert: 'gana la versión mayor; empate gana fecha_servidor',
   settings_upsert: 'gana la versión mayor; empate gana fecha_servidor',
+  gasto_upsert: 'gana la versión mayor; borrado lógico con deletedAt',
+  movimiento_caja_upsert: 'idempotente por id; borrado lógico con deletedAt',
+  conteo_inventario_upsert: 'idempotente por id; borrado lógico con deletedAt',
 };

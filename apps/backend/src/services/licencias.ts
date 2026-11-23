@@ -57,6 +57,40 @@ export function verificarLicenciaConClave(token: string, clavePublicaBase64: str
   }
 }
 
+export async function exigirLicenciaVigente(
+  client: PoolClient,
+  empresaId: string
+): Promise<void> {
+  const licencia = await client.query<{
+    estado: string;
+    vence_en: Date;
+    grace_dias: number;
+  }>(
+    `select l.estado, l.vence_en, l.grace_dias
+     from licencias l
+     join empresas e on e.id = l.empresa_id
+     where l.empresa_id = $1 and e.estado not in ('suspendida', 'cancelada')`,
+    [empresaId]
+  );
+  if (!licencia.rowCount) {
+    throw new ApiError(404, 'LICENCIA_NO_ENCONTRADA');
+  }
+  const estado = estadoLicenciaEfectiva(licencia.rows[0]);
+  if (estado === 'pendiente') {
+    throw new ApiError(
+      403,
+      'LICENCIA_PENDIENTE',
+      'La licencia de este negocio todavía no está activada.'
+    );
+  }
+  if (estado === 'suspendida') {
+    throw new ApiError(403, 'LICENCIA_SUSPENDIDA');
+  }
+  if (estado === 'vencida') {
+    throw new ApiError(403, 'LICENCIA_VENCIDA');
+  }
+}
+
 export function firmarLicencia(payload: LicensePayload): string {
   if (!env.LICENSE_PRIVATE_KEY) {
     throw new ApiError(
@@ -71,7 +105,7 @@ export function firmarLicencia(payload: LicensePayload): string {
 export function construirPayloadLicencia(input: {
   licenseId: string;
   empresaId: string;
-  deviceId: string;
+  deviceId?: string | null;
   plan: string;
   features: string[];
   venceEn: Date;
@@ -82,7 +116,7 @@ export function construirPayloadLicencia(input: {
     v: LICENSE_VERSION,
     licenseId: input.licenseId,
     empresaId: input.empresaId,
-    deviceId: input.deviceId,
+    deviceId: input.deviceId ?? null,
     plan: input.plan,
     features: input.features as LicensePayload['features'],
     iat: Math.floor(Date.now() / 1000),
@@ -111,10 +145,10 @@ export function estadoLicenciaEfectiva(licencia: {
 }
 
 /**
- * Re-firma la licencia de todos los dispositivos activos de una empresa con
- * los datos actuales (plan, features, vence_en, grace). Debe llamarse dentro
- * de la transacción que cambia la licencia para que el pull entregue tokens
- * actualizados y no obsoletos.
+ * La licencia pertenece al negocio, no a la terminal: se firma una sola vez
+ * con el `empresaId` como único vínculo y el mismo token se comparte con todas
+ * las instalaciones del negocio. Debe llamarse dentro de la transacción que
+ * cambia la licencia para que el pull entregue tokens actualizados.
  */
 export async function refirmarLicenciasEmpresa(
   client: PoolClient,
@@ -130,9 +164,9 @@ export async function refirmarLicenciasEmpresa(
   }>(
     `select l.id, p.codigo as plan_codigo, l.features, p.features as plan_features,
             l.vence_en, l.grace_dias
-     from licencias l
-     join planes p on p.id = l.plan_id
-     where l.empresa_id = $1`,
+      from licencias l
+      join planes p on p.id = l.plan_id
+      where l.empresa_id = $1 and l.estado = 'activa'`,
     [empresaId]
   );
   const fila = licencia.rows[0];
@@ -143,29 +177,22 @@ export async function refirmarLicenciasEmpresa(
       ? fila.features
       : fila.plan_features ?? [];
 
-  const dispositivos = await client.query<{ id: string }>(
-    `select id from dispositivos where empresa_id = $1 and estado = 'activo'`,
-    [empresaId]
+  const token = firmarLicencia(
+    construirPayloadLicencia({
+      licenseId: fila.id,
+      empresaId,
+      plan: fila.plan_codigo,
+      features: features as string[],
+      venceEn: fila.vence_en,
+      graceDias: fila.grace_dias,
+    })
   );
 
-  for (const dispositivo of dispositivos.rows) {
-    const token = firmarLicencia(
-      construirPayloadLicencia({
-        licenseId: fila.id,
-        empresaId,
-        deviceId: dispositivo.id,
-        plan: fila.plan_codigo,
-        features: features as string[],
-        venceEn: fila.vence_en,
-        graceDias: fila.grace_dias,
-      })
-    );
-    await client.query(
-      `update dispositivos
-       set licencia_firmada = $2, licencia_emitida_en = now()
-       where id = $1`,
-      [dispositivo.id, token]
-    );
-  }
-  return dispositivos.rowCount ?? 0;
+  const resultado = await client.query(
+    `update dispositivos
+     set licencia_firmada = $2, licencia_emitida_en = now()
+     where empresa_id = $1`,
+    [empresaId, token]
+  );
+  return resultado.rowCount ?? 0;
 }

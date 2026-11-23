@@ -10,7 +10,10 @@ export type SyncOperationType =
   | 'producto_upsert'
   | 'categoria_upsert'
   | 'usuario_upsert'
-  | 'settings_upsert';
+  | 'settings_upsert'
+  | 'gasto_upsert'
+  | 'movimiento_caja_upsert'
+  | 'conteo_inventario_upsert';
 
 export type PrioridadOutbox = 1 | 2 | 3;
 

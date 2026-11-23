@@ -13,6 +13,26 @@ export class ErrorApi extends Error {
   }
 }
 
+export async function verificarServidor(db: SQLiteDatabase): Promise<boolean> {
+  const controlador = new AbortController();
+  const temporizador = setTimeout(() => controlador.abort(), 5_000);
+
+  try {
+    const base = await leerUrlServidor(db);
+    const respuesta = await fetch(`${base}/health`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      signal: controlador.signal,
+    });
+    return respuesta.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(temporizador);
+  }
+}
+
 export interface RespuestaRegistro {
   empresa: { id: string; nombre: string };
   licencia: {
@@ -45,7 +65,16 @@ export interface UsuarioRemotoLogin {
   version: number;
 }
 
-export interface RespuestaLoginUsuario extends RespuestaActivacion {
+/**
+ * El login entrega sesión y licencia solo si el NEGOCIO ya está activado.
+ * Un negocio pendiente puede entrar a la caja, pero `licencia`/`token`
+ * vienen vacíos y la app debe mostrarlo sin licencia hasta su activación.
+ */
+export interface RespuestaLoginUsuario
+  extends Omit<RespuestaActivacion, 'token' | 'licencia'> {
+  token?: string;
+  licencia?: string;
+  estadoLicencia?: string;
   via: 'login';
   rol: 'propietario' | 'admin' | 'dependiente';
   usuario: UsuarioRemotoLogin;
@@ -104,6 +133,45 @@ export interface RespuestaLicencia {
   token: string | null;
   emitidaEn: string | null;
   dispositivoEstado: string;
+}
+
+export interface RentabilidadCategoria {
+  categoria: string;
+  total: number;
+  cantidad: number;
+}
+
+export interface RentabilidadProducto {
+  productoId: string | null;
+  nombre: string;
+  cantidad: number;
+  ventas: number;
+  costo: number;
+  ganancia: number;
+  margenPct: number | null;
+  sinCosto: boolean;
+}
+
+export interface ReporteRentabilidad {
+  desde: string;
+  hasta: string;
+  ventas: {
+    cantidad: number;
+    total: number;
+    subtotal: number;
+    ticketPromedio: number;
+  };
+  costoVentas: number;
+  gananciaBruta: number;
+  gastos: {
+    total: number;
+    porCategoria: RentabilidadCategoria[];
+  };
+  gananciaNeta: number;
+  margenPct: number | null;
+  lineasSinCosto: number;
+  ventasSinCosto: number;
+  ranking: RentabilidadProducto[];
 }
 
 interface ErrorServidor {
@@ -319,6 +387,19 @@ export async function pullCambios(
 
 export async function obtenerLicenciaRemota(db: SQLiteDatabase): Promise<RespuestaLicencia> {
   return solicitar<RespuestaLicencia>(db, '/api/device/licencia', { method: 'GET' });
+}
+
+export async function obtenerRentabilidad(
+  db: SQLiteDatabase,
+  desde: string,
+  hasta: string
+): Promise<ReporteRentabilidad> {
+  const params = new URLSearchParams({ desde, hasta });
+  return solicitar<ReporteRentabilidad>(
+    db,
+    `/api/reportes/rentabilidad?${params.toString()}`,
+    { method: 'GET' }
+  );
 }
 
 export async function enviarHeartbeat(

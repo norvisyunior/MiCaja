@@ -175,7 +175,7 @@ export default function ActivacionScreen({
                     </Text>
                   </View>
                   <Boton
-                    titulo="Continuar"
+                    titulo={activado.via === 'invitacion' ? 'Continuar' : 'Iniciar sesión'}
                     icono="arrow-forward"
                     tamanio="lg"
                     onPress={onActivado}

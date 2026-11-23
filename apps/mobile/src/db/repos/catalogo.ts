@@ -21,6 +21,7 @@ interface FilaProducto {
   categoria_id: number | null;
   nombre: string;
   precio: number;
+  costo_unitario: number | null;
   emoji: string;
   color: string;
   imagen: string | null;
@@ -38,6 +39,7 @@ const A_PRODUCTO = (f: FilaProducto): Producto => ({
   categoriaId: f.categoria_id,
   nombre: f.nombre,
   precio: f.precio,
+  costo: f.costo_unitario ?? null,
   emoji: f.emoji,
   color: f.color,
   imagen: f.imagen ?? null,
@@ -50,17 +52,21 @@ const A_PRODUCTO = (f: FilaProducto): Producto => ({
 });
 
 export async function listarProductosActivos(db: SQLiteDatabase): Promise<Producto[]> {
+  const contexto = await obtenerContextoLocal(db);
   const filas = await db.getAllAsync<FilaProducto>(
     `SELECT * FROM productos
-     WHERE activo = 1 AND deleted_at IS NULL
-     ORDER BY orden, nombre`
+     WHERE empresa_id = ? AND activo = 1 AND deleted_at IS NULL
+     ORDER BY orden, nombre`,
+    contexto.empresaId
   );
   return filas.map(A_PRODUCTO);
 }
 
 export async function listarProductos(db: SQLiteDatabase): Promise<Producto[]> {
+  const contexto = await obtenerContextoLocal(db);
   const filas = await db.getAllAsync<FilaProducto>(
-    `SELECT * FROM productos WHERE deleted_at IS NULL ORDER BY orden, nombre`
+    `SELECT * FROM productos WHERE empresa_id = ? AND deleted_at IS NULL ORDER BY orden, nombre`,
+    contexto.empresaId
   );
   return filas.map(A_PRODUCTO);
 }
@@ -77,16 +83,17 @@ export async function crearProducto(
     const ahora = ahoraIso();
 
     const res = await db.runAsync(
-      `INSERT INTO productos
-         (uuid, empresa_id, categoria_id, nombre, precio, emoji, color, imagen,
-          orden, activo, stock, stock_minimo, updated_at, deleted_at, version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`,
-      uuid,
-      contexto.empresaId,
-      p.categoriaId,
-      p.nombre,
-      p.precio,
-      p.emoji,
+       `INSERT INTO productos
+          (uuid, empresa_id, categoria_id, nombre, precio, costo_unitario, emoji, color, imagen,
+           orden, activo, stock, stock_minimo, updated_at, deleted_at, version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`,
+       uuid,
+       contexto.empresaId,
+       p.categoriaId,
+       p.nombre,
+       p.precio,
+       p.costo,
+       p.emoji,
       p.color,
       p.imagen,
       p.orden,
@@ -135,22 +142,23 @@ export async function actualizarProducto(
 
     await db.runAsync(
       `UPDATE productos SET
-         uuid = ?, categoria_id = ?, nombre = ?, precio = ?, emoji = ?, color = ?,
+          uuid = ?, categoria_id = ?, nombre = ?, precio = ?, costo_unitario = ?, emoji = ?, color = ?,
          imagen = ?, orden = ?, activo = ?, stock = ?, stock_minimo = ?,
          version = ?, updated_at = ?
        WHERE id = ?`,
       uuid,
-      p.categoriaId,
-      p.nombre,
-      p.precio,
-      p.emoji,
-      p.color,
-      p.imagen,
-      p.orden,
-      p.activo ? 1 : 0,
-      p.stock,
-      p.stockMinimo,
-      version,
+       p.categoriaId,
+       p.nombre,
+       p.precio,
+       p.costo,
+       p.emoji,
+       p.color,
+       p.imagen,
+       p.orden,
+       p.activo ? 1 : 0,
+       p.stock,
+       p.stockMinimo,
+       version,
       ahora,
       p.id
     );
@@ -218,8 +226,10 @@ const A_CATEGORIA = (f: FilaCategoria): Categoria => ({
 });
 
 export async function listarCategorias(db: SQLiteDatabase): Promise<Categoria[]> {
+  const contexto = await obtenerContextoLocal(db);
   const filas = await db.getAllAsync<FilaCategoria>(
-    `SELECT * FROM categorias WHERE deleted_at IS NULL ORDER BY orden, nombre`
+    `SELECT * FROM categorias WHERE empresa_id = ? AND deleted_at IS NULL ORDER BY orden, nombre`,
+    contexto.empresaId
   );
   return filas.map(A_CATEGORIA);
 }
@@ -358,17 +368,21 @@ export interface NuevoUsuario {
 }
 
 export async function listarUsuariosActivos(db: SQLiteDatabase): Promise<Usuario[]> {
+  const contexto = await obtenerContextoLocal(db);
   const filas = await db.getAllAsync<FilaUsuario>(
     `SELECT * FROM usuarios
-     WHERE activo = 1 AND deleted_at IS NULL
-     ORDER BY id`
+     WHERE empresa_id = ? AND activo = 1 AND deleted_at IS NULL
+     ORDER BY id`,
+    contexto.empresaId
   );
   return filas.map(A_USUARIO);
 }
 
 export async function listarUsuarios(db: SQLiteDatabase): Promise<Usuario[]> {
+  const contexto = await obtenerContextoLocal(db);
   const filas = await db.getAllAsync<FilaUsuario>(
-    `SELECT * FROM usuarios WHERE deleted_at IS NULL ORDER BY id`
+    `SELECT * FROM usuarios WHERE empresa_id = ? AND deleted_at IS NULL ORDER BY id`,
+    contexto.empresaId
   );
   return filas.map(A_USUARIO);
 }
@@ -377,8 +391,10 @@ export async function obtenerUsuario(
   db: SQLiteDatabase,
   id: number
 ): Promise<Usuario | null> {
+  const contexto = await obtenerContextoLocal(db);
   const fila = await db.getFirstAsync<FilaUsuario>(
-    `SELECT * FROM usuarios WHERE id = ? AND deleted_at IS NULL`,
+    `SELECT * FROM usuarios WHERE empresa_id = ? AND id = ? AND deleted_at IS NULL`,
+    contexto.empresaId,
     id
   );
   return fila ? A_USUARIO(fila) : null;

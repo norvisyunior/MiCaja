@@ -11,6 +11,7 @@ export const CLAVE_NOMBRE_DISPOSITIVO = 'nombre_dispositivo';
 export const CLAVE_ULTIMO_SYNC = 'ultimo_sync_en';
 export const CLAVE_CLAVE_PUBLICA_LICENCIA = 'licencia_clave_publica';
 export const CLAVE_ROL_ACTIVACION = 'activacion_rol';
+export const CLAVE_VIA_ACTIVACION = 'activacion_via';
 export const CLAVE_CODIGO_PENDIENTE = 'codigo_activacion_pendiente';
 export const CLAVE_FINGERPRINT_DISPOSITIVO = 'fingerprint_dispositivo';
 

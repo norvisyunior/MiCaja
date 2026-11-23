@@ -8,17 +8,17 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import type { Settings } from '../types';
 import {
   resumenDia,
-  ventasPorDia,
-  ventasPorForma,
   topProductos,
   type ResumenDia,
   type VentaPorDia,
   type VentaPorForma,
   type TopProducto,
 } from '../db/repos/estadisticas';
+import { listarVentas } from '../db/repos/ventas';
 import { obtenerSettings } from '../db/repos/settings';
 import { useTema } from '../store/tema';
 import { useSync } from '../store/sync';
+import { useSesion } from '../store/sesion';
 import {
   Boton,
   Encabezado,
@@ -31,7 +31,14 @@ import {
 import { Barras, BarraApilada } from '../components/Graficos';
 import { fuentes, radius, spacing, typography } from '../theme';
 import { NOMBRES_FORMA_PAGO } from '../utils/calculos';
-import { formatearDinero, inicioDiaISO, finDiaISO, inicioSemanaISO, inicioMesISO } from '../utils/fechas';
+import {
+  formatearDinero,
+  inicioDiaISO,
+  finDiaISO,
+  inicioSemanaISO,
+  inicioMesISO,
+  claveDiaLocal,
+} from '../utils/fechas';
 import type { ParamListRaiz, ParamListTabs } from '../navigation';
 
 type Rango = 'hoy' | 'semana' | 'mes';
@@ -55,6 +62,7 @@ const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
 export default function ResumenScreen() {
   const db = useSQLiteContext();
   const ultimaSync = useSync((s) => s.ultimaSync);
+  const usuario = useSesion((s) => s.usuario);
   const { colores } = useTema();
   const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
 
@@ -77,18 +85,41 @@ export default function ResumenScreen() {
               ? ([inicioSemanaISO(), finDiaISO()] as const)
               : ([inicioMesISO(), finDiaISO()] as const);
 
-        const [conf, r, dias, formas, top] = await Promise.all([
+        const [conf, r, ventas, top] = await Promise.all([
           obtenerSettings(db),
           resumenDia(db, desde, hasta),
-          ventasPorDia(db, desde, hasta),
-          ventasPorForma(db, desde, hasta),
+          listarVentas(db, desde, hasta),
           topProductos(db, desde, hasta, 5),
         ]);
         if (!activo) return;
+
+        const validas = ventas.filter((v) => !v.anulada);
+        const diasMap = new Map<string, VentaPorDia>();
+        const formasMap = new Map<string, VentaPorForma>();
+        for (const venta of validas) {
+          const dia = claveDiaLocal(new Date(venta.fechaIso));
+          const diaFila = diasMap.get(dia) ?? { dia, ventas: 0, total: 0 };
+          diaFila.ventas += 1;
+          diaFila.total += venta.total;
+          diasMap.set(dia, diaFila);
+
+          const forma = venta.formaPago;
+          const formaFila = formasMap.get(forma) ?? {
+            formaPago: forma,
+            ventas: 0,
+            total: 0,
+          };
+          formaFila.ventas += 1;
+          formaFila.total += venta.total;
+          formasMap.set(forma, formaFila);
+        }
+
         setSettings(conf);
         setResumen(r);
-        setPorDia(dias);
-        setPorForma(formas);
+        setPorDia([...diasMap.values()].sort((a, b) => a.dia.localeCompare(b.dia)));
+        setPorForma(
+          [...formasMap.values()].sort((a, b) => b.total - a.total)
+        );
         setTops(top);
         setCargando(false);
       })().catch(() => activo && setCargando(false));
@@ -239,6 +270,16 @@ export default function ResumenScreen() {
             )}
           </Tarjeta>
 
+          {usuario?.rol === 'admin' ? (
+            <Boton
+              titulo="Ver rentabilidad"
+              icono="trending-up"
+              variante="secundario"
+              tamanio="md"
+              onPress={() => navigation.navigate('Rentabilidad')}
+            />
+          ) : null}
+
           <View style={styles.acciones}>
             <Boton
               titulo="Ver historial"
@@ -253,7 +294,7 @@ export default function ResumenScreen() {
               icono="lock-outline"
               variante="primario"
               tamanio="md"
-              onPress={() => navigation.navigate('Turno')}
+              onPress={() => navigation.navigate('Cierre')}
               estilo={{ flex: 1 }}
             />
           </View>

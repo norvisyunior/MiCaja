@@ -6,6 +6,7 @@ import {
   bloqueoPorEstado,
   evaluarTokenLicencia,
   licenciaPermite,
+  verificarLicenciaLocal,
   type ResultadoLicencia,
 } from './verificar';
 import type { PayloadLicencia } from './token';
@@ -133,18 +134,17 @@ describe('evaluarTokenLicencia', () => {
     expect(r.motivo).toBe('empresa');
   });
 
-  it('rechaza una licencia de otro dispositivo', () => {
+  it('acepta la misma licencia desde cualquier instalación del negocio', () => {
     const token = firmar(payloadCon({}));
     const r = evaluarTokenLicencia(token, {
       clavePublica: spki(par.publicKey),
       deviceId: 'otro-dispositivo',
       ahoraSegundos: AHORA,
     });
-    expect(r.estado).toBe('invalida');
-    expect(r.motivo).toBe('dispositivo');
+    expect(r.estado).toBe('activa');
   });
 
-  it('no comprueba dispositivo si la licencia no está vinculada', () => {
+  it('ignora el deviceId aunque la licencia antigua lo lleve', () => {
     const token = firmar(payloadCon({ deviceId: null }));
     const r = evaluarTokenLicencia(token, {
       clavePublica: spki(par.publicKey),
@@ -227,6 +227,34 @@ describe('licenciaPermite', () => {
     const invalida = r({ estado: 'invalida', valida: false });
     expect(licenciaPermite(vencida, 'ventas')).toBe(false);
     expect(licenciaPermite(invalida, 'ventas')).toBe(false);
+  });
+});
+
+describe('verificarLicenciaLocal', () => {
+  it('no arrastra el plan ni el vencimiento de una licencia invalidada', async () => {
+    const ahora = Math.floor(Date.now() / 1000);
+    const payload = payloadCon({ iat: ahora - 60, exp: ahora + 86_400 });
+    const valores = new Map([
+      ['licencia_token', firmar(payload)],
+      ['empresa_servidor_id', payload.empresaId],
+      ['device_servidor_id', 'otro-dispositivo'],
+      ['licencia_clave_publica', spki(par.publicKey)],
+    ]);
+    const db = {
+      getFirstAsync: async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM settings')) {
+          return { valor: valores.get(String(params)) ?? '' };
+        }
+        if (sql.includes('FROM licencia_local')) return { estado: 'invalida' };
+        return null;
+      },
+      runAsync: async () => undefined,
+    };
+
+    const resultado = await verificarLicenciaLocal(db as never);
+    expect(resultado.estado).toBe('invalida');
+    expect(resultado.payload).toBeUndefined();
+    expect(resultado.token).toBeUndefined();
   });
 });
 

@@ -5,7 +5,7 @@ import { imagenArchivoADataUri } from '../utils/imagenes';
 import { crearPinHash, esPinHasheado } from '../utils/pin';
 import { generarUsuarioDesdeNombre, normalizarUsuario } from '../utils/usuario';
 
-export const DATABASE_VERSION = 8;
+export const DATABASE_VERSION = 10;
 
 async function existeTabla(db: SQLiteDatabase, tabla: string): Promise<boolean> {
   const fila = await db.getFirstAsync<{ n: number }>(
@@ -315,6 +315,132 @@ export async function asegurarEstructuraV8(db: SQLiteDatabase): Promise<void> {
 }
 
 /**
+ * Estructura v9: costo unitario (congelado en cada línea de venta) y gastos
+ * operativos. Ninguna columna se rellena con valores inventados.
+ */
+export async function asegurarEstructuraV9(db: SQLiteDatabase): Promise<void> {
+  await agregarColumnas(db, 'productos', [['costo_unitario', 'REAL']]);
+  await agregarColumnas(db, 'venta_items', [['costo_unitario', 'REAL']]);
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS gastos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT NOT NULL UNIQUE,
+      empresa_id TEXT NOT NULL,
+      categoria TEXT NOT NULL CHECK (categoria IN ('transporte','servicios','salarios','alquiler','otros')),
+      concepto TEXT NOT NULL,
+      monto REAL NOT NULL,
+      fecha TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      deleted_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_gastos_empresa_fecha ON gastos(empresa_id, fecha);
+  `);
+}
+
+/**
+ * Estructura v10: caja, cierre guiado y conteo físico. Todo aditivo; los
+ * cierres anteriores conservan sus totales aunque no tengan los nuevos campos.
+ */
+export async function asegurarEstructuraV10(db: SQLiteDatabase): Promise<void> {
+  await agregarColumnas(db, 'movimientos_caja', [
+    ['version', 'INTEGER NOT NULL DEFAULT 1'],
+  ]);
+  await agregarColumnas(db, 'conteos_inventario', [
+    ['version', 'INTEGER NOT NULL DEFAULT 1'],
+  ]);
+  await agregarColumnas(db, 'turnos_caja', [
+    ['fondo_inicial', 'REAL NOT NULL DEFAULT 0'],
+    ['efectivo_esperado', 'REAL NOT NULL DEFAULT 0'],
+    ['observacion_diferencia', 'TEXT'],
+  ]);
+  await agregarColumnas(db, 'ventas', [
+    ['reembolso_efectivo', 'REAL NOT NULL DEFAULT 0'],
+    ['reembolso_digital', 'REAL NOT NULL DEFAULT 0'],
+  ]);
+  await agregarColumnas(db, 'movimientos_inventario', [
+    ['turno_id', 'INTEGER'],
+  ]);
+
+  const definicionGastos = await db.getFirstAsync<{ sql: string }>(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gastos'`
+  );
+  if (definicionGastos && !definicionGastos.sql.includes("'electricidad'")) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS gastos_v10 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT NOT NULL UNIQUE,
+        empresa_id TEXT NOT NULL,
+        categoria TEXT NOT NULL CHECK (categoria IN ('transporte','servicios','salarios','electricidad','alquiler','otros')),
+        concepto TEXT NOT NULL,
+        monto REAL NOT NULL,
+        fecha TEXT NOT NULL,
+        forma_pago TEXT NOT NULL DEFAULT 'efectivo',
+        movimiento_caja_id INTEGER,
+        version INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO gastos_v10
+        (id, uuid, empresa_id, categoria, concepto, monto, fecha, forma_pago,
+         movimiento_caja_id, version, deleted_at, created_at, updated_at)
+      SELECT id, uuid, empresa_id, categoria, concepto, monto, fecha, 'efectivo',
+             NULL, version, deleted_at, created_at, updated_at
+      FROM gastos;
+      DROP TABLE gastos;
+      ALTER TABLE gastos_v10 RENAME TO gastos;
+    `);
+  } else {
+    await agregarColumnas(db, 'gastos', [
+      ['forma_pago', "TEXT NOT NULL DEFAULT 'efectivo'"],
+      ['movimiento_caja_id', 'INTEGER'],
+    ]);
+  }
+
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS movimientos_caja (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT NOT NULL UNIQUE,
+      empresa_id TEXT NOT NULL,
+      turno_id INTEGER,
+      usuario_id INTEGER,
+      dispositivo_id TEXT,
+      tipo TEXT NOT NULL CHECK (tipo IN ('entrada','retiro','gasto','otra_salida')),
+      monto REAL NOT NULL,
+      descripcion TEXT NOT NULL,
+      gasto_id INTEGER,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_movimientos_caja_turno
+      ON movimientos_caja(turno_id, deleted_at);
+    CREATE TABLE IF NOT EXISTS conteos_inventario (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT NOT NULL UNIQUE,
+      empresa_id TEXT NOT NULL,
+      turno_id INTEGER,
+      producto_id INTEGER NOT NULL,
+      cantidad_sistema REAL NOT NULL,
+      cantidad_contada REAL NOT NULL,
+      diferencia REAL NOT NULL,
+      motivo TEXT,
+      usuario_id INTEGER,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_conteos_inventario_turno
+      ON conteos_inventario(turno_id, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_gastos_empresa_fecha ON gastos(empresa_id, fecha);
+  `);
+}
+
+/**
  * Garantiza que todas las cuentas tengan un nombre de usuario único.
  * Se ejecuta al migrar bases antiguas y al restaurar un backup, de modo que
  * nadie se quede sin poder iniciar sesión.
@@ -418,6 +544,8 @@ export async function migrarBase(db: SQLiteDatabase) {
   if (versionActual >= DATABASE_VERSION) {
     await asegurarEstructuraV7(db);
     await asegurarEstructuraV8(db);
+    await asegurarEstructuraV9(db);
+    await asegurarEstructuraV10(db);
     return;
   }
 
@@ -540,6 +668,8 @@ export async function migrarBase(db: SQLiteDatabase) {
 
     await asegurarEstructuraV7(db);
     await asegurarEstructuraV8(db);
+    await asegurarEstructuraV9(db);
+    await asegurarEstructuraV10(db);
     await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION}`);
   }
 }

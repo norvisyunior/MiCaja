@@ -22,6 +22,7 @@ import {
   Superficie,
 } from '../components/UI';
 import { PantallaCodigoRecuperacion } from '../components/CodigoRecuperacion';
+import { reiniciarLicenciaDelNegocio } from '../sync/activacion';
 import { fuentes, radius, spacing, typography } from '../theme';
 import { esPinValido } from '../utils/pin';
 import {
@@ -81,6 +82,7 @@ export default function SetupScreen({ onCancelar }: { onCancelar?: () => void })
         setError('Ese nombre de usuario ya está en uso.');
         return;
       }
+      await reiniciarLicenciaDelNegocio(db);
       await guardarSetting(db, 'nombre_negocio', negocio);
       const { id, codigoRecuperacion: codigo } = await crearUsuario(db, {
         nombre: admin,

@@ -10,6 +10,9 @@ interface FilaTurno {
   usuario_id: number;
   apertura: string;
   cierre: string | null;
+  fondo_inicial: number;
+  efectivo_esperado: number;
+  observacion_diferencia: string | null;
   ventas_count: number;
   total_esperado: number;
   desglose_json: string;
@@ -24,6 +27,9 @@ const A_TURNO = (f: FilaTurno): TurnoCaja => ({
   usuarioId: f.usuario_id,
   apertura: f.apertura,
   cierre: f.cierre,
+  fondoInicial: f.fondo_inicial ?? 0,
+  efectivoEsperado: f.efectivo_esperado ?? 0,
+  observacionDiferencia: f.observacion_diferencia,
   ventasCount: f.ventas_count,
   totalEsperado: f.total_esperado,
   desglose: JSON.parse(f.desglose_json) as Partial<Record<FormaPago, number>>,
@@ -48,17 +54,20 @@ async function dispositivosPropios(db: SQLiteDatabase): Promise<[string, string]
 export async function turnoAbiertoOCrear(
   db: SQLiteDatabase,
   usuarioId: number,
-  ahora: Date
+  ahora: Date,
+  fondoInicial = 0
 ): Promise<number | null> {
   let turnoId: number | null = null;
+  const contexto = await obtenerContextoLocal(db);
 
   await db.withTransactionAsync(async () => {
     const [dispositivoLocal, dispositivoServidor] = await dispositivosPropios(db);
     const fila = await db.getFirstAsync<FilaTurno>(
       `SELECT * FROM turnos_caja
-       WHERE estado = 'abierto' AND usuario_id = ?
+       WHERE empresa_id = ? AND estado = 'abierto' AND usuario_id = ?
          AND device_id IN (?, ?)
        ORDER BY id DESC LIMIT 1`,
+      contexto.empresaId,
       usuarioId,
       dispositivoLocal,
       dispositivoServidor
@@ -68,16 +77,16 @@ export async function turnoAbiertoOCrear(
       return;
     }
 
-    const contexto = await obtenerContextoLocal(db);
     const res = await db.runAsync(
-      `INSERT INTO turnos_caja
-         (uuid, empresa_id, device_id, usuario_id, apertura, estado, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'abierto', ?)`,
+       `INSERT INTO turnos_caja
+          (uuid, empresa_id, device_id, usuario_id, apertura, fondo_inicial, estado, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'abierto', ?)`,
       nuevoUuid(),
       contexto.empresaId,
       contexto.deviceId,
       usuarioId,
       ahora.toISOString(),
+      fondoInicial,
       ahoraIso()
     );
     turnoId = res.lastInsertRowId;
@@ -92,11 +101,13 @@ export async function turnoAbierto(
   usuarioId: number
 ): Promise<TurnoCaja | null> {
   const [dispositivoLocal, dispositivoServidor] = await dispositivosPropios(db);
+  const contexto = await obtenerContextoLocal(db);
   const fila = await db.getFirstAsync<FilaTurno>(
     `SELECT * FROM turnos_caja
-     WHERE estado = 'abierto' AND usuario_id = ?
+     WHERE empresa_id = ? AND estado = 'abierto' AND usuario_id = ?
        AND device_id IN (?, ?)
      ORDER BY id DESC LIMIT 1`,
+    contexto.empresaId,
     usuarioId,
     dispositivoLocal,
     dispositivoServidor
@@ -104,75 +115,52 @@ export async function turnoAbierto(
   return fila ? A_TURNO(fila) : null;
 }
 
+export interface DatosCierre {
+  cantidadVentas: number;
+  totalVendido: number;
+  efectivoEsperado: number;
+  desglose: Record<string, number>;
+}
+
 export async function cerrarTurno(
   db: SQLiteDatabase,
   turnoId: number,
   dineroReal: number,
-  cierre: string
+  cierre: string,
+  datos: DatosCierre,
+  observacion: string | null = null
 ): Promise<TurnoCaja | null> {
   let resultado: TurnoCaja | null = null;
 
+  const contexto = await obtenerContextoLocal(db);
   await db.withTransactionAsync(async () => {
     const fila = await db.getFirstAsync<FilaTurno>(
-      `SELECT * FROM turnos_caja WHERE id = ?`,
+      `SELECT * FROM turnos_caja WHERE empresa_id = ? AND id = ?`,
+      contexto.empresaId,
       turnoId
     );
     if (!fila || fila.estado !== 'abierto') {
       return;
     }
 
-    const resumen = await db.getFirstAsync<{
-      ventas: number;
-      total: number;
-    }>(
-      `SELECT COUNT(*) AS ventas, COALESCE(SUM(total), 0) AS total
-       FROM ventas WHERE turno_id = ? AND anulada = 0`,
-      turnoId
-    );
-
-    const formas = await db.getAllAsync<{
-      forma_pago: string;
-      total: number;
-      efectivo: number;
-      digital: number;
-    }>(
-      `SELECT forma_pago,
-              COALESCE(SUM(total), 0) AS total,
-              COALESCE(SUM(monto_efectivo), 0) AS efectivo,
-              COALESCE(SUM(monto_digital), 0) AS digital
-       FROM ventas WHERE turno_id = ? AND anulada = 0
-       GROUP BY forma_pago`,
-      turnoId
-    );
-
-    const desglose: Record<string, number> = {};
-    let totalEfectivo = 0;
-    let totalDigital = 0;
-    for (const f of formas) {
-      desglose[f.forma_pago] = f.total;
-      totalEfectivo += f.efectivo;
-      totalDigital += f.digital;
-    }
-    desglose['efectivo_total'] = totalEfectivo;
-    desglose['digital_total'] = totalDigital;
-
-    const totalEsperado = resumen?.total ?? 0;
-    // El arqueo se compara contra el efectivo esperado, no contra el total
-    // vendido: el dinero digital no está físicamente en la caja.
-    const diferencia = dineroReal - totalEfectivo;
+    const diferencia = dineroReal - datos.efectivoEsperado;
 
     await db.runAsync(
       `UPDATE turnos_caja
        SET cierre = ?, ventas_count = ?, total_esperado = ?, desglose_json = ?,
-           dinero_real = ?, diferencia = ?, estado = 'cerrado', updated_at = ?
-       WHERE id = ?`,
+           dinero_real = ?, diferencia = ?, efectivo_esperado = ?,
+           observacion_diferencia = ?, estado = 'cerrado', updated_at = ?
+        WHERE empresa_id = ? AND id = ? AND estado = 'abierto'`,
       cierre,
-      resumen?.ventas ?? 0,
-      totalEsperado,
-      JSON.stringify(desglose),
+      datos.cantidadVentas,
+      datos.totalVendido,
+      JSON.stringify(datos.desglose),
       dineroReal,
       diferencia,
+      datos.efectivoEsperado,
+      observacion,
       ahoraIso(),
+      contexto.empresaId,
       turnoId
     );
 
@@ -181,11 +169,13 @@ export async function cerrarTurno(
     resultado = A_TURNO({
       ...fila,
       cierre,
-      ventas_count: resumen?.ventas ?? 0,
-      total_esperado: totalEsperado,
-      desglose_json: JSON.stringify(desglose),
+      ventas_count: datos.cantidadVentas,
+      total_esperado: datos.totalVendido,
+      desglose_json: JSON.stringify(datos.desglose),
       dinero_real: dineroReal,
       diferencia,
+      efectivo_esperado: datos.efectivoEsperado,
+      observacion_diferencia: observacion,
       estado: 'cerrado',
     });
   });
@@ -197,8 +187,10 @@ export async function listarTurnos(
   db: SQLiteDatabase,
   limite = 50
 ): Promise<TurnoCaja[]> {
+  const contexto = await obtenerContextoLocal(db);
   const filas = await db.getAllAsync<FilaTurno>(
-    `SELECT * FROM turnos_caja ORDER BY id DESC LIMIT ?`,
+    `SELECT * FROM turnos_caja WHERE empresa_id = ? ORDER BY id DESC LIMIT ?`,
+    contexto.empresaId,
     limite
   );
   return filas.map(A_TURNO);

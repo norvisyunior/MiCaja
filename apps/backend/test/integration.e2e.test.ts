@@ -115,7 +115,7 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
       .toString('base64');
 
     expect(verificarLicenciaConClave(activar.body.licencia, publica)).toBe(true);
-    expect(decodeLicenseToken(activar.body.licencia).deviceId).toBe(deviceId);
+    expect(decodeLicenseToken(activar.body.licencia).deviceId).toBeNull();
 
     const reactivar = await request(app).post('/api/activar').send({
       codigo: codigoActivacion,
@@ -553,55 +553,44 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     return licencia.id as string;
   }
 
-  it('gestiona dispositivos: límite, reemplazo y desvinculación', async () => {
+  it('la licencia permite varias instalaciones y el código es reutilizable', async () => {
     const adminToken = await entrarComoAdmin();
     const licenciaId = await licenciaDeEmpresa(adminToken, empresaId);
 
-    async function nuevoCodigo(): Promise<string> {
-      const generado = await request(app)
-        .post(`/api/admin/licencias/${licenciaId}/codigo`)
-        .set('Authorization', `Bearer ${adminToken}`);
-      expect(generado.status).toBe(201);
-      return generado.body.codigo as string;
-    }
+    const generado = await request(app)
+      .post(`/api/admin/licencias/${licenciaId}/codigo`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(generado.status).toBe(201);
+    const codigo = generado.body.codigo as string;
 
-    async function activar(fingerprint: string, codigo: string, reemplazarA?: string) {
+    async function activar(fingerprint: string) {
       return request(app).post('/api/activar').send({
         codigo,
         fingerprint,
         nombre: `Caja ${fingerprint}`,
         plataforma: 'android',
         appVersion: '1.0.0',
-        ...(reemplazarA ? { reemplazarA } : {}),
       });
     }
 
-    // El plan pro permite 5 dispositivos; uno ya está activo. Ocupar el resto.
-    const segundo = await activar(`fingerprint-d2-${sufijo}`, await nuevoCodigo());
-    expect(segundo.status).toBe(201);
-    const tercero = await activar(`fingerprint-d3-${sufijo}`, await nuevoCodigo());
-    expect(tercero.status).toBe(201);
-    const cuarto = await activar(`fingerprint-d4-${sufijo}`, await nuevoCodigo());
-    expect(cuarto.status).toBe(201);
-    const quinto = await activar(`fingerprint-d5-${sufijo}`, await nuevoCodigo());
-    expect(quinto.status).toBe(201);
+    // El mismo código sirve para todas las instalaciones mientras esté vigente.
+    const respuestas: Array<{ body: { token: string } }> = [];
+    for (let n = 2; n <= 6; n += 1) {
+      const respuesta = await activar(`fingerprint-d${n}-${sufijo}`);
+      expect(respuesta.status).toBe(201);
+      respuestas.push(respuesta);
+    }
 
-    // Sexto dispositivo: el límite se rechaza y el servidor informa qué
-    // dispositivos ocupan las plazas.
-    const sexto = await activar(`fingerprint-d6-${sufijo}`, await nuevoCodigo());
-    expect(sexto.status).toBe(409);
-    expect(sexto.body.error).toBe('LIMITE_DISPOSITIVOS');
-    expect(sexto.body.details.dispositivos).toHaveLength(5);
-
-    // Reemplazo: se retira el segundo dispositivo y entra el nuevo en su
-    // lugar, sin superar el límite y sin borrar nada del negocio.
-    const reemplazo = await activar(
-      `fingerprint-d6-${sufijo}`,
-      await nuevoCodigo(),
-      segundo.body.dispositivo.id
+    const tokens = await Promise.all(
+      respuestas.map(async (respuesta) => {
+        const licencia = await request(app)
+          .get('/api/device/licencia')
+          .set('Authorization', `Bearer ${respuesta.body.token}`);
+        expect(licencia.status).toBe(200);
+        return licencia.body.token as string;
+      })
     );
-    expect(reemplazo.status).toBe(201);
-    expect(reemplazo.body.dispositivo.id).not.toBe(segundo.body.dispositivo.id);
+    expect(new Set(tokens).size).toBe(1);
 
     const lista = await request(app)
       .get('/api/device/dispositivos')
@@ -610,61 +599,34 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     const activos = lista.body.dispositivos.filter(
       (d: { estado: string }) => d.estado === 'activo'
     );
-    expect(activos).toHaveLength(5);
-    const reemplazado = lista.body.dispositivos.find(
-      (d: { id: string }) => d.id === segundo.body.dispositivo.id
-    );
-    expect(reemplazado.estado).toBe('inactivo');
-    expect(reemplazado.emitidaEn).toBeNull();
+    expect(activos.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(activos.map((d: { emitidaEn: string | null }) => d.emitidaEn)).size).toBe(1);
 
-    // Desvincular otro dispositivo exige el código de activación.
-    const codigoVigente = await nuevoCodigo();
+    // Desvincular sigue siendo una operación administrativa del negocio.
+    const tercero = activos.find((d: { esEste: boolean }) => !d.esEste);
     const sinCodigo = await request(app)
       .post('/api/device/desvincular')
       .set('Authorization', `Bearer ${deviceToken}`)
-      .send({ dispositivoId: tercero.body.dispositivo.id });
+      .send({ dispositivoId: tercero.id });
     expect(sinCodigo.status).toBe(403);
     expect(sinCodigo.body.error).toBe('CODIGO_REQUERIDO');
 
     const conCodigo = await request(app)
       .post('/api/device/desvincular')
       .set('Authorization', `Bearer ${deviceToken}`)
-      .send({
-        dispositivoId: tercero.body.dispositivo.id,
-        codigo: codigoVigente,
-      });
+      .send({ dispositivoId: tercero.id, codigo });
     expect(conCodigo.status).toBe(200);
-    expect(conCodigo.body.dispositivo.id).toBe(tercero.body.dispositivo.id);
+    expect(conCodigo.body.dispositivo.id).toBe(tercero.id);
 
     const conCodigoInvalido = await request(app)
       .post('/api/device/desvincular')
       .set('Authorization', `Bearer ${deviceToken}`)
-      .send({
-        dispositivoId: tercero.body.dispositivo.id,
-        codigo: 'MICAJA-AAAA-AAAA-AAAA',
-      });
+      .send({ dispositivoId: tercero.id, codigo: 'MICAJA-AAAA-AAAA-AAAA' });
     expect(conCodigoInvalido.status).toBe(403);
     expect(conCodigoInvalido.body.error).toBe('CODIGO_INVALIDO');
   });
 
   it('invita un trabajador y activa su dispositivo con rol limitado', async () => {
-    // Asegura una plaza libre tras la prueba anterior.
-    const adminToken = await entrarComoAdmin();
-    const licenciaId = await licenciaDeEmpresa(adminToken, empresaId);
-    const codigo = (
-      await request(app)
-        .post(`/api/admin/licencias/${licenciaId}/codigo`)
-        .set('Authorization', `Bearer ${adminToken}`)
-    ).body.codigo as string;
-    await request(app)
-      .post('/api/device/desvincular')
-      .set('Authorization', `Bearer ${deviceToken}`)
-      .send({ dispositivoId: (await request(app)
-        .get('/api/device/dispositivos')
-        .set('Authorization', `Bearer ${deviceToken}`)).body.dispositivos.find(
-        (d: { estado: string; esEste: boolean }) => d.estado === 'inactivo' && !d.esEste
-      )?.id, codigo });
-
     const invitacion = await request(app)
       .post('/api/device/invitaciones')
       .set('Authorization', `Bearer ${deviceToken}`)
@@ -703,7 +665,7 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     expect(pullTrabajador.body.licencia.estado).toBe('activa');
   });
 
-  it('impide activar un dispositivo que ya pertenece a otro negocio', async () => {
+  it('permite activar la misma instalación en otro negocio', async () => {
     const adminToken = await entrarComoAdmin();
 
     const creada = await request(app)
@@ -717,7 +679,8 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     expect(creada.status).toBe(201);
     empresaCruzadaId = creada.body.empresa.id;
 
-    // `fingerprint-<sufijo>` ya está registrada en la empresa principal.
+    // `fingerprint-<sufijo>` ya está registrada en la empresa principal, pero
+    // la huella ya no ata la instalación a un negocio.
     const intento = await request(app).post('/api/activar').send({
       codigo: creada.body.codigoActivacion,
       fingerprint: `fingerprint-${sufijo}`,
@@ -725,8 +688,16 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
       plataforma: 'android',
       appVersion: '1.0.0',
     });
-    expect(intento.status).toBe(409);
-    expect(intento.body.error).toBe('DISPOSITIVO_OTRA_EMPRESA');
+    expect(intento.status).toBe(201);
+    expect(intento.body.empresa.id).toBe(empresaCruzadaId);
+
+    const cruzada = await withAdmin((client) =>
+      client.query<{ total: number }>(
+        `select count(*)::int as total from dispositivos where empresa_id = $1`,
+        [empresaCruzadaId]
+      )
+    );
+    expect(cruzada.rows[0].total).toBe(1);
   });
 
   it('suspende la licencia y el servidor corta la sincronización', async () => {

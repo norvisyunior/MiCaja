@@ -56,6 +56,7 @@ interface FilaProductoOutbox {
   categoria_uuid: string | null;
   nombre: string;
   precio: number;
+  costo_unitario: number | null;
   emoji: string;
   color: string;
   imagen: string | null;
@@ -95,6 +96,9 @@ interface FilaTurnoOutbox {
   usuario_uuid: string | null;
   apertura: string;
   cierre: string | null;
+  fondo_inicial: number;
+  efectivo_esperado: number;
+  observacion_diferencia: string | null;
   ventas_count: number;
   total_esperado: number;
   desglose_json: string;
@@ -178,8 +182,11 @@ async function stockParaServidor(
     } else {
       const mov = payload as PayloadMovimiento;
       if (mov.productoId === productoUuid) {
-        // El servidor aplica: salida/venta restan, el resto suma (valor absoluto).
-        if (mov.tipo === 'salida' || mov.tipo === 'venta') {
+        // El servidor aplica: salida/venta restan, entrada/inicial suman y
+        // ajuste usa el valor firmado (puede ser negativo).
+        if (mov.tipo === 'ajuste') {
+          delta += mov.cantidad;
+        } else if (mov.tipo === 'salida' || mov.tipo === 'venta') {
           delta -= Math.abs(mov.cantidad);
         } else {
           delta += Math.abs(mov.cantidad);
@@ -213,7 +220,7 @@ export async function encolarProductoUpsert(
   prioridad: 1 | 2 = 1
 ): Promise<void> {
   const fila = await db.getFirstAsync<FilaProductoOutbox>(
-    `SELECT p.id, p.uuid, p.nombre, p.precio, p.emoji, p.color, p.imagen,
+    `SELECT p.id, p.uuid, p.nombre, p.precio, p.costo_unitario, p.emoji, p.color, p.imagen,
             p.orden, p.activo, p.stock, p.stock_minimo, p.version, p.deleted_at,
             c.uuid AS categoria_uuid
      FROM productos p
@@ -233,6 +240,7 @@ export async function encolarProductoUpsert(
       categoriaId: fila.categoria_uuid,
       nombre: fila.nombre,
       precio: fila.precio,
+      costoUnitario: fila.costo_unitario ?? null,
       emoji: fila.emoji,
       color: fila.color,
       imagen: fila.imagen,
@@ -343,6 +351,7 @@ export async function encolarTurnoApertura(
 ): Promise<void> {
   const fila = await db.getFirstAsync<FilaTurnoOutbox>(
     `SELECT t.uuid, u.uuid AS usuario_uuid, t.apertura, t.cierre,
+            t.fondo_inicial, t.efectivo_esperado, t.observacion_diferencia,
             t.ventas_count, t.total_esperado, t.desglose_json,
             t.dinero_real, t.diferencia, t.estado
      FROM turnos_caja t
@@ -362,7 +371,7 @@ export async function encolarTurnoApertura(
       turnoId: fila.uuid,
       usuarioId: fila.usuario_uuid,
       apertura: fila.apertura,
-      fondoInicial: 0,
+      fondoInicial: fila.fondo_inicial ?? 0,
       desglose: {},
     },
   });
@@ -374,6 +383,7 @@ export async function encolarTurnoCierre(
 ): Promise<void> {
   const fila = await db.getFirstAsync<FilaTurnoOutbox>(
     `SELECT t.uuid, u.uuid AS usuario_uuid, t.apertura, t.cierre,
+            t.fondo_inicial, t.efectivo_esperado, t.observacion_diferencia,
             t.ventas_count, t.total_esperado, t.desglose_json,
             t.dinero_real, t.diferencia, t.estado
      FROM turnos_caja t
@@ -398,6 +408,8 @@ export async function encolarTurnoCierre(
       desglose: JSON.parse(fila.desglose_json) as Record<string, number>,
       dineroReal: fila.dinero_real,
       diferencia: fila.diferencia,
+      efectivoEsperado: fila.efectivo_esperado ?? 0,
+      observacion: fila.observacion_diferencia,
     },
   });
 }
@@ -408,8 +420,14 @@ export async function encolarAnulacion(
   usuarioId: number,
   motivo: string
 ): Promise<void> {
-  const venta = await db.getFirstAsync<{ uuid: string | null; servidor_id: string | null }>(
-    `SELECT uuid, servidor_id FROM ventas WHERE id = ?`,
+  const venta = await db.getFirstAsync<{
+    uuid: string | null;
+    servidor_id: string | null;
+    reembolso_efectivo: number;
+    reembolso_digital: number;
+  }>(
+    `SELECT uuid, servidor_id, reembolso_efectivo, reembolso_digital
+     FROM ventas WHERE id = ?`,
     ventaId
   );
   const usuario = await db.getFirstAsync<{ uuid: string | null }>(
@@ -427,6 +445,8 @@ export async function encolarAnulacion(
       ventaId: venta.servidor_id ?? venta.uuid,
       usuarioId: usuario.uuid,
       motivo,
+      reembolsoEfectivo: venta.reembolso_efectivo ?? 0,
+      reembolsoDigital: venta.reembolso_digital ?? 0,
     },
   });
 }
@@ -554,4 +574,148 @@ export async function encolarPinHashesPendientes(db: SQLiteDatabase): Promise<nu
     ahoraIso()
   );
   return encoladas;
+}
+
+interface FilaGastoOutbox {
+  uuid: string;
+  categoria: string;
+  concepto: string;
+  monto: number;
+  fecha: string;
+  forma_pago: string;
+  version: number;
+  deleted_at: string | null;
+}
+
+export async function encolarGastoUpsert(
+  db: SQLiteDatabase,
+  gastoId: number
+): Promise<void> {
+  const fila = await db.getFirstAsync<FilaGastoOutbox>(
+    `SELECT uuid, categoria, concepto, monto, fecha, forma_pago, version, deleted_at
+     FROM gastos WHERE id = ?`,
+    gastoId
+  );
+  if (!fila) return;
+
+  await encolarOperacion(db, {
+    tipo: 'gasto_upsert',
+    entidad: 'gastos',
+    entidadUuid: fila.uuid,
+    payload: {
+      id: fila.uuid,
+      categoria: fila.categoria,
+      concepto: fila.concepto,
+      monto: fila.monto,
+      fecha: fila.fecha,
+      formaPago: fila.forma_pago,
+      version: fila.version,
+      deletedAt: fila.deleted_at,
+    },
+  });
+}
+
+async function uuidLocal(
+  db: SQLiteDatabase,
+  tabla: 'turnos_caja' | 'usuarios' | 'productos',
+  id: number | null
+): Promise<string | null> {
+  if (id == null) return null;
+  const fila = await db.getFirstAsync<{ uuid: string | null }>(
+    `SELECT uuid FROM ${tabla} WHERE id = ?`,
+    id
+  );
+  return fila?.uuid ?? null;
+}
+
+interface FilaMovimientoCajaOutbox {
+  uuid: string;
+  turno_id: number | null;
+  usuario_id: number | null;
+  tipo: string;
+  monto: number;
+  descripcion: string;
+  gasto_id: number | null;
+  version: number;
+  deleted_at: string | null;
+}
+
+export async function encolarMovimientoCajaUpsert(
+  db: SQLiteDatabase,
+  movimientoId: number
+): Promise<void> {
+  const fila = await db.getFirstAsync<FilaMovimientoCajaOutbox>(
+    `SELECT uuid, turno_id, usuario_id, tipo, monto, descripcion, gasto_id,
+            version, deleted_at
+     FROM movimientos_caja WHERE id = ?`,
+    movimientoId
+  );
+  if (!fila) return;
+
+  await encolarOperacion(db, {
+    tipo: 'movimiento_caja_upsert',
+    entidad: 'movimientos_caja',
+    entidadUuid: fila.uuid,
+    payload: {
+      id: fila.uuid,
+      turnoId: await uuidLocal(db, 'turnos_caja', fila.turno_id),
+      usuarioId: await uuidLocal(db, 'usuarios', fila.usuario_id),
+      tipo: fila.tipo,
+      monto: fila.monto,
+      descripcion: fila.descripcion,
+      gastoId:
+        fila.gasto_id == null
+          ? null
+          : (await db.getFirstAsync<{ uuid: string }>(
+              `SELECT uuid FROM gastos WHERE id = ?`,
+              fila.gasto_id
+            ))?.uuid ?? null,
+      version: fila.version,
+      deletedAt: fila.deleted_at,
+    },
+  });
+}
+
+interface FilaConteoOutbox {
+  uuid: string;
+  turno_id: number | null;
+  producto_id: number;
+  cantidad_sistema: number;
+  cantidad_contada: number;
+  diferencia: number;
+  motivo: string | null;
+  usuario_id: number | null;
+  version: number;
+  deleted_at: string | null;
+}
+
+export async function encolarConteoInventarioUpsert(
+  db: SQLiteDatabase,
+  conteoId: number
+): Promise<void> {
+  const fila = await db.getFirstAsync<FilaConteoOutbox>(
+    `SELECT uuid, turno_id, producto_id, cantidad_sistema, cantidad_contada,
+            diferencia, motivo, usuario_id, version, deleted_at
+     FROM conteos_inventario WHERE id = ?`,
+    conteoId
+  );
+  if (!fila) return;
+
+  await encolarOperacion(db, {
+    tipo: 'conteo_inventario_upsert',
+    entidad: 'conteos_inventario',
+    entidadUuid: fila.uuid,
+    payload: {
+      id: fila.uuid,
+      turnoId: await uuidLocal(db, 'turnos_caja', fila.turno_id),
+      productoId: await uuidLocal(db, 'productos', fila.producto_id),
+      cantidadSistema: fila.cantidad_sistema,
+      cantidadContada: fila.cantidad_contada,
+      diferencia: fila.diferencia,
+      motivo: fila.motivo,
+      usuarioId: await uuidLocal(db, 'usuarios', fila.usuario_id),
+      version: fila.version,
+      deletedAt: fila.deleted_at,
+    },
+  });
 }
