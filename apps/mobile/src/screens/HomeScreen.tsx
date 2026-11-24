@@ -39,7 +39,7 @@ import type { ParamListRaiz, ParamListTabs } from '../navigation';
 interface Acceso {
   icono: NombreIcono;
   etiqueta: string;
-  destino: 'Vender' | 'Productos' | 'Resumen' | 'Configuracion' | 'Sincronizar';
+  destino: 'Historial' | 'Vender' | 'Productos' | 'Resumen' | 'Configuracion' | 'Sincronizar';
   soloAdmin?: boolean;
 }
 
@@ -99,7 +99,7 @@ export default function HomeScreen() {
   const proporcionEfectivo = cobrado > 0 ? (efectivo / cobrado) * 100 : 0;
 
   const accesos = ([
-    { icono: 'point-of-sale', etiqueta: 'Ventas', destino: 'Vender' },
+    { icono: 'history', etiqueta: 'Historial', destino: 'Historial' },
     { icono: 'warehouse', etiqueta: 'Inventario', destino: 'Productos' },
     { icono: 'sync', etiqueta: 'Sincronización', destino: 'Sincronizar' },
   ] as Acceso[]);

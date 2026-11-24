@@ -76,7 +76,7 @@ import {
 } from '../utils/usuario';
 import { esPinValido } from '../utils/pin';
 import { ContenidoCodigoRecuperacion } from '../components/CodigoRecuperacion';
-import type { ParamListRaiz } from '../navigation';
+import type { ParamListRaiz, ParamListTabs } from '../navigation';
 
 type Vista = 'menu' | 'categorias' | 'usuarios' | 'negocio' | 'sync';
 
@@ -129,7 +129,7 @@ export default function ConfigScreen() {
   const usuario = useSesion((s) => s.usuario)!;
   const cerrar = useSesion((s) => s.cerrar);
   const { colores, modo, alternar } = useTema();
-  const navigation = useNavigation<NavigationProp<ParamListRaiz>>();
+  const navigation = useNavigation<NavigationProp<ParamListRaiz & ParamListTabs>>();
   const mostrarAviso = useAvisos((s) => s.mostrar);
   const sync = useSync();
 
@@ -160,6 +160,42 @@ export default function ConfigScreen() {
   }
 
   const esAdmin = usuario.rol === 'admin';
+
+  const destinos: {
+    titulo: string;
+    sub: string;
+    icono: ReactNode;
+    colorFondo: string;
+    colorIcono: string;
+    destino: keyof (ParamListRaiz & ParamListTabs);
+    soloAdmin?: boolean;
+  }[] = [
+    {
+      titulo: 'Reportes',
+      sub: 'Ventas diarias, semanales y mensuales',
+      icono: <MaterialIcons name="bar-chart" size={22} color={colores.info} />,
+      colorFondo: colores.infoSuave,
+      colorIcono: colores.info,
+      destino: 'Resumen',
+    },
+    {
+      titulo: 'Rentabilidad',
+      sub: 'Ganancias, costos y gastos',
+      icono: <MaterialIcons name="trending-up" size={22} color={colores.exito} />,
+      colorFondo: colores.exitoSuave,
+      colorIcono: colores.exito,
+      destino: 'Rentabilidad',
+      soloAdmin: true,
+    },
+    {
+      titulo: 'Cierre',
+      sub: 'Arqueo, inventario y cierre del día',
+      icono: <MaterialIcons name="receipt-long" size={22} color={colores.advertencia} />,
+      colorFondo: colores.advertenciaSuave,
+      colorIcono: colores.advertencia,
+      destino: 'Cierre',
+    },
+  ];
 
   return (
     <Pantalla>
@@ -213,8 +249,45 @@ export default function ConfigScreen() {
               </View>
             </View>
           </View>
-          <MaterialIcons name="chevron-right" size={18} color={colores.textoSuave} />
+          <Pressable
+            onPress={() =>
+              mostrarAviso('Cerrar sesión', '¿Seguro que deseas salir?', [
+                { texto: 'Cancelar', estilo: 'cancel' },
+                { texto: 'Salir', estilo: 'peligro', onPress: cerrar },
+              ])
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar sesión"
+            style={({ pressed }) => [
+              styles.perfilSalir,
+              {
+                backgroundColor: colores.peligroSuave,
+                borderColor: `${colores.peligro}33`,
+                opacity: pressed ? 0.75 : 1,
+              },
+            ]}
+          >
+            <MaterialIcons name="logout" size={17} color={colores.peligro} />
+            <Text style={[styles.perfilSalirTexto, { color: colores.peligro }]}>Salir</Text>
+          </Pressable>
         </View>
+
+        <Text style={[styles.seccion, { color: colores.textoSuave }]}>Navegación</Text>
+        <Grupo>
+          {destinos
+            .filter((destino) => !destino.soloAdmin || esAdmin)
+            .map((destino) => (
+              <Fila
+                key={destino.destino}
+                icono={destino.icono}
+                colorIcono={destino.colorIcono}
+                colorFondo={destino.colorFondo}
+                titulo={destino.titulo}
+                sub={destino.sub}
+                onPress={() => navigation.navigate(destino.destino)}
+              />
+            ))}
+        </Grupo>
 
         {esAdmin ? (
           <>
@@ -2107,6 +2180,21 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontFamily: fuentes.semibold,
     letterSpacing: 0.2,
+  },
+  perfilSalir: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    marginLeft: 4,
+  },
+  perfilSalirTexto: {
+    fontSize: typography.micro,
+    fontFamily: fuentes.semibold,
+    letterSpacing: 0.1,
   },
   seccionTitulo: {
     flexDirection: 'row',

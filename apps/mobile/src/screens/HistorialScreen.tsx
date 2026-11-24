@@ -57,7 +57,7 @@ function rango(filtro: Filtro): [string, string] {
   }
 }
 
-export default function HistorialScreen() {
+export default function HistorialScreen({ esPestania = false }: { esPestania?: boolean } = {}) {
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario)!;
   const ultimaSync = useSync((s) => s.ultimaSync);
@@ -150,7 +150,7 @@ export default function HistorialScreen() {
       <Encabezado
         titulo="Historial"
         subtitulo={`${ventasValidas} ${ventasValidas === 1 ? 'venta' : 'ventas'} · ${formatearDinero(totalFiltrado, simbolo)}`}
-        onAtras={() => navigation.goBack()}
+        onAtras={esPestania ? undefined : () => navigation.goBack()}
       />
       <Superficie>
         <View style={styles.busqueda}>
