@@ -25,6 +25,7 @@ interface EmpresaListRow {
   licencia_id: string | null;
   licencia_estado: string | null;
   vence_en: Date | null;
+  grace_dias: number | null;
   plan_codigo: string | null;
   dispositivos: number;
 }
@@ -54,7 +55,7 @@ empresasRouter.get(
         `select e.id, e.nombre, e.propietario, e.email, e.telefono, e.estado,
                 e.plan_id, e.created_at, e.updated_at,
                 l.id as licencia_id, l.estado as licencia_estado, l.vence_en,
-                p.codigo as plan_codigo,
+                l.grace_dias, p.codigo as plan_codigo,
                 (select count(*) from dispositivos d
                  where d.empresa_id = e.id and d.estado = 'activo')::int as dispositivos
          from empresas e

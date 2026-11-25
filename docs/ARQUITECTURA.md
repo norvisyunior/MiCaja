@@ -36,14 +36,23 @@ Monorepo con cada pieza en su carpeta independiente:
 MiCaja/
 ├── apps/
 │   ├── mobile/                      # App Expo React Native (App.tsx, src/, assets/)
-│   └── backend/                     # API Express + TypeScript + supabase/migrations/
+│   ├── backend/                     # API Express + TypeScript + supabase/migrations/
+│   └── admin/                       # Panel React + Vite + TypeScript
 ├── packages/
 │   └── shared/                      # Contratos: tipos, Zod, formato de licencia y sync
 ├── docs/                            # Arquitectura, modelo, operación
 └── .github/workflows/               # CI: build del APK vía EAS
 ```
 
-`apps/backend/` y `packages/shared/` tienen su propio `package.json`; el paquete compartido se consume con `file:../../packages/shared`. La app móvil no depende de `@micaja/shared` (incluye su propia copia de tipos en `apps/mobile/src/types`).
+`apps/backend/` y `packages/shared/` tienen su propio `package.json`; el paquete compartido se consume con `file:../../packages/shared`. La app móvil no depende de `@micaja/shared` (incluye su propia copia de tipos en `apps/mobile/src/types`). El panel admin consume la API con JWT de administrador y se sirve como SPA desde Vercel.
+
+### Panel admin
+
+- `apps/admin` usa `VITE_API_URL` (por defecto `http://localhost:4000`) y guarda el JWT en `localStorage`.
+- Rutas: resumen, empresas, ficha de empresa, licencias y ficha de licencia.
+- Acciones: alta de empresa con código, edición de datos, activación directa, generación de códigos, renovación por código y suspensión/reactivación.
+- La activación directa (`POST /api/admin/licencias/:id/activar`) no requiere canje: fija vigencia, activa la empresa pendiente y re-firma los tokens de las terminales.
+- Endpoints de apoyo: `GET /api/admin/resumen`, `GET /api/admin/planes` y `GET /api/admin/licencias/:id/eventos`.
 
 ## 3. Flujos principales
 
@@ -168,7 +177,7 @@ La app incluye la clave pública SPKI (base64) y verifica con Ed25519 usando `tw
 | 4. Adaptación móvil | Completada: migración local v7, bienvenida, registro y activación desde la app |
 | 5. Sincronización multidispositivo | Completada: outbox local, push/pull idempotente y reconciliación de stock por movimientos |
 | 6. Licencias en la app | Completada: verificación Ed25519 local y bloqueo de ventas y turnos al vencer o invalidarse |
-| 7. Panel admin | Pendiente |
+| 7. Panel admin | Completado: `apps/admin` con resumen, empresas, licencias, códigos, activación directa y auditoría visible |
 | 8. Login global | Completado: `usuario` único global, PIN hasheado en servidor, login por huella, reemplazo de dispositivos y fallback offline-first, con pruebas E2E |
 | 9. Pruebas integrales | Completada la base: pruebas de unidad de app, backend y contratos, más E2E contra PostgreSQL local (activación, sync, registro, dispositivos, invitaciones, login global y suspensión) |
 | 10. Producción | Pendiente |

@@ -28,6 +28,7 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
   let empresaId = '';
   let empresaRegistroId = '';
   let empresaCruzadaId = '';
+  let empresaPanelId = '';
   let deviceId = '';
   let deviceToken = '';
   let codigoActivacion = '';
@@ -63,6 +64,11 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     if (empresaCruzadaId) {
       await withAdmin((client) =>
         client.query(`delete from empresas where id = $1`, [empresaCruzadaId])
+      );
+    }
+    if (empresaPanelId) {
+      await withAdmin((client) =>
+        client.query(`delete from empresas where id = $1`, [empresaPanelId])
       );
     }
     if (adminId) {
@@ -127,6 +133,12 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     expect(reactivar.status).toBe(201);
     expect(reactivar.body.dispositivo.id).toBe(deviceId);
     expect(verificarLicenciaConClave(reactivar.body.licencia, publica)).toBe(true);
+
+    const licenciaActivada = await request(app)
+      .get(`/api/admin/licencias/${crear.body.licencia.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(licenciaActivada.status).toBe(200);
+    expect(licenciaActivada.body.licencia.codigo_usado_en).toBeTruthy();
 
     const ahora = new Date().toISOString();
     const operaciones = [
@@ -778,5 +790,97 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
       .set('Authorization', `Bearer ${deviceToken}`);
     expect(dispositivo.body.estado).toBe('vencida');
     expect(dispositivo.body.token).toBeNull();
+  });
+
+  it('lista planes, resume la plataforma y activa una licencia directamente', async () => {
+    const adminToken = await entrarComoAdmin();
+
+    const planes = await request(app)
+      .get('/api/admin/planes')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(planes.status).toBe(200);
+    expect(planes.body.planes.some((plan: { codigo: string }) => plan.codigo === 'basico')).toBe(
+      true
+    );
+
+    const creada = await request(app)
+      .post('/api/admin/empresas')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        nombre: `Empresa Panel ${sufijo}`,
+        propietario: 'Propietario Panel',
+        planCodigo: 'basico',
+      });
+    expect(creada.status).toBe(201);
+    empresaPanelId = creada.body.empresa.id;
+    const licenciaId = creada.body.licencia.id as string;
+
+    const inicial = await request(app)
+      .get(`/api/admin/licencias/${licenciaId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(inicial.status).toBe(200);
+    expect(inicial.body.licencia.estado).toBe('pendiente');
+    expect(inicial.body.licencia.empresa_estado).toBe('pendiente');
+
+    const venceEn = new Date(Date.now() + 180 * 86_400_000).toISOString();
+    const activada = await request(app)
+      .post(`/api/admin/licencias/${licenciaId}/activar`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ venceEn, graceDias: 10 });
+    expect(activada.status).toBe(200);
+    expect(activada.body.licencia.estado).toBe('activa');
+    expect(new Date(activada.body.licencia.vence_en).toISOString()).toBe(venceEn);
+    expect(activada.body.licencia.grace_dias).toBe(10);
+    expect(activada.body.licencia.activada_en).toBeTruthy();
+
+    const empresa = await request(app)
+      .get(`/api/admin/empresas/${empresaPanelId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(empresa.status).toBe(200);
+    expect(empresa.body.empresa.estado).toBe('activa');
+    expect(empresa.body.empresa.licencia_estado).toBe('activa');
+
+    const eventos = await request(app)
+      .get(`/api/admin/licencias/${licenciaId}/eventos`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(eventos.status).toBe(200);
+    expect(
+      eventos.body.eventos.some(
+        (evento: { tipo: string; payload: { via?: string } }) =>
+          evento.tipo === 'activada' && evento.payload.via === 'panel'
+      )
+    ).toBe(true);
+
+    const resumen = await request(app)
+      .get('/api/admin/resumen')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(resumen.status).toBe(200);
+    expect(resumen.body.conteos.empresas_total).toBeGreaterThanOrEqual(1);
+    expect(resumen.body.conteos.licencias_activas).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(resumen.body.atencion)).toBe(true);
+    expect(Array.isArray(resumen.body.eventos)).toBe(true);
+
+    // El código sigue disponible tras la activación directa para registrar
+    // terminales sin volver a tocar la vigencia.
+    const codigo = await request(app)
+      .post(`/api/admin/licencias/${licenciaId}/codigo`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(codigo.status).toBe(201);
+    const activarDispositivo = await request(app).post('/api/activar').send({
+      codigo: codigo.body.codigo,
+      fingerprint: `fingerprint-panel-${sufijo}`,
+      nombre: 'Caja Panel',
+      plataforma: 'android',
+      appVersion: '1.0.0',
+    });
+    expect(activarDispositivo.status).toBe(201);
+    expect(activarDispositivo.body.empresa.id).toBe(empresaPanelId);
+
+    const invalido = await request(app)
+      .post(`/api/admin/licencias/${licenciaId}/activar`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ venceEn: new Date(Date.now() - 86_400_000).toISOString() });
+    expect(invalido.status).toBe(400);
+    expect(invalido.body.error).toBe('VENCIMIENTO_INVALIDO');
   });
 });

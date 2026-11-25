@@ -50,10 +50,24 @@ npx expo start
 npm run backend        # API de licencias/sync en http://localhost:4000
 npm run mobile         # App Expo (Metro en http://localhost:8081)
 npm run mobile:tunnel  # App Expo con túnel (para teléfono fuera de tu red Wi-Fi)
+npm run admin          # Panel admin en http://localhost:5173
+npm run admin:build    # Build de producción del panel admin
 npm run tunel          # Túnel ngrok solo del backend (URL para Ajustes › Sincronización)
-npm run test           # Pruebas de las 3 partes (móvil, backend, shared)
-npm run typecheck      # TypeScript de las 3 partes
+npm run test           # Pruebas de móvil, backend, shared y admin
+npm run typecheck      # TypeScript de los 4 paquetes
 ```
+
+### Panel de administración
+
+El panel vive en `apps/admin` (React + Vite). Antes de arrancarlo por primera vez:
+
+```bash
+cd apps/admin
+npm install
+npm run dev
+```
+
+Necesita la API en marcha y una cuenta creada con `npm run seed:admin --prefix apps/backend -- admin@micaja.app 'UnaClaveSegura123'`. La URL de la API se configura con `VITE_API_URL` (por defecto `http://localhost:4000`).
 
 ## 📱 Uso rápido
 
@@ -81,7 +95,8 @@ apps/
 │       ├── theme/        # Paleta de colores, gradientes, tipografías y medidas
 │       ├── types/        # Tipos TypeScript compartidos
 │       └── utils/        # Utilidades (cálculos, fechas, PDF)
-└── backend/         # API Node/Express de licencias y sincronización
+├── backend/         # API Node/Express de licencias y sincronización
+└── admin/           # Panel React + Vite para gestionar empresas y licencias
 packages/
 └── shared/          # Contratos compartidos (tipos, Zod, licencias)
 ```

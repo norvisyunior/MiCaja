@@ -9,6 +9,8 @@ import { authRouter } from './routes/auth';
 import { authUsuarioRouter } from './routes/auth-usuario';
 import { empresasRouter } from './routes/empresas';
 import { licenciasRouter } from './routes/licencias';
+import { planesRouter } from './routes/planes';
+import { resumenRouter } from './routes/resumen';
 import { activacionRouter } from './routes/activacion';
 import { registroRouter } from './routes/registro';
 import { syncRouter } from './routes/sync';
@@ -43,6 +45,8 @@ export function createApp(): express.Express {
   app.use('/api/admin/auth', authRouter);
   app.use('/api/admin/empresas', empresasRouter);
   app.use('/api/admin/licencias', licenciasRouter);
+  app.use('/api/admin/planes', planesRouter);
+  app.use('/api/admin/resumen', resumenRouter);
   app.use('/api/auth', authUsuarioRouter);
   app.use('/api', activacionRouter);
   app.use('/api', registroRouter);

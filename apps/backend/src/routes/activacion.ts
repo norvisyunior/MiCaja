@@ -221,9 +221,10 @@ activacionRouter.post(
       await client.query(
         `update licencias set
            estado = 'activa',
-           activada_en = coalesce(activada_en, now())
+           activada_en = coalesce(activada_en, now()),
+           codigo_usado_en = case when $2 then codigo_usado_en else now() end
          where id = $1`,
-        [licencia.id]
+        [licencia.id, viaInvitacion]
       );
 
       await client.query(
