@@ -125,12 +125,10 @@ authUsuarioRouter.post(
         vence_en: usuario.vence_en,
         grace_dias: usuario.grace_dias,
       });
-      if (estadoLicencia === 'suspendida') {
-        throw new ApiError(403, 'LICENCIA_SUSPENDIDA');
-      }
-      if (estadoLicencia === 'vencida') {
-        throw new ApiError(403, 'LICENCIA_VENCIDA');
-      }
+      // La licencia NUNCA bloquea la autenticación: el usuario debe poder
+      // entrar para ver el aviso, consultar sus datos y renovar en
+      // Ajustes › Sincronización. El bloqueo sigue vigente en las operaciones
+      // (exigirLicenciaVigente en sync y reportes, y el guard de caja local).
 
       // La huella solo identifica la instalación para auditoría: no ata el
       // dispositivo a un negocio ni limita cuántas instalaciones puede haber.

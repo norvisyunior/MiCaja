@@ -6,6 +6,7 @@ import {
   CLAVE_DISPOSITIVO_SERVIDOR,
   CLAVE_LICENCIA_TOKEN,
   CLAVE_LICENCIA_VERIFICADA,
+  CLAVE_ESTADO_LICENCIA_SERVIDOR,
   leerSetting,
 } from '../api/config';
 import { ahoraIso } from '../db/contexto';
@@ -86,11 +87,29 @@ export function evaluarTokenLicencia(
   }
 }
 
+/**
+ * Estado de una instalación sin token firmado. El servidor comunica el motivo
+ * (vencida, suspendida, cancelada) para que la app siga mostrando el aviso
+ * correcto; el acceso a la app y a los datos nunca depende de él.
+ */
+export function licenciaSinToken(estadoServidor?: string | null): ResultadoLicencia {
+  if (estadoServidor === 'vencida') {
+    return { estado: 'vencida', valida: false, enGracia: false, motivo: 'vencida' };
+  }
+  if (estadoServidor === 'suspendida' || estadoServidor === 'cancelada') {
+    return { estado: 'invalida', valida: false, enGracia: false, motivo: 'estado' };
+  }
+  return { estado: 'sin_licencia', valida: true, enGracia: false };
+}
+
 export async function verificarLicenciaLocal(
   db: SQLiteDatabase
 ): Promise<ResultadoLicencia> {
   const token = await leerSetting(db, CLAVE_LICENCIA_TOKEN);
-  if (!token) return { estado: 'sin_licencia', valida: true, enGracia: false };
+  if (!token) {
+    const estadoServidor = await leerSetting(db, CLAVE_ESTADO_LICENCIA_SERVIDOR);
+    return licenciaSinToken(estadoServidor);
+  }
 
   const [empresaId, deviceId, clavePublica] = await Promise.all([
     leerSetting(db, CLAVE_EMPRESA_SERVIDOR),

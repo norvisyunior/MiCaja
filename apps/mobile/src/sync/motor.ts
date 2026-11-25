@@ -2,12 +2,14 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   ErrorApi,
   pullCambios,
+  pullConsulta,
   pushOperaciones,
   type CambioSync,
   type OperacionSync,
 } from '../api/cliente';
 import {
   CLAVE_DISPOSITIVO_SERVIDOR,
+  CLAVE_ESTADO_LICENCIA_SERVIDOR,
   CLAVE_LICENCIA_TOKEN,
   CLAVE_ULTIMO_SYNC,
   leerIdsServidor,
@@ -30,10 +32,12 @@ import {
   SETTINGS_SINCRONIZABLES,
   encolarPinHashesPendientes,
   encolarSnapshotInicial,
+  marcarSnapshotInicialHecho,
 } from '../db/sync/encolar';
 import {
   evaluarTokenLicencia,
   guardarLicenciaLocal,
+  licenciaSinToken,
   verificarLicenciaLocal,
 } from '../licencias/verificar';
 import { useSync } from '../store/sync';
@@ -750,20 +754,19 @@ async function aplicarCambios(
  * Se marca la licencia local como inválida para que el bloqueo operativo
  * entre en acción hasta que el dispositivo se re-active o se re-negocie.
  */
-async function invalidarLicenciaLocal(db: SQLiteDatabase): Promise<void> {
+async function invalidarLicenciaLocal(
+  db: SQLiteDatabase,
+  estadoServidor?: string
+): Promise<void> {
   try {
     await db.runAsync(
       `UPDATE licencia_local SET estado = 'invalida', ultima_verificacion = ?`,
       ahoraIso()
     );
-    useSync.setState({
-      licencia: {
-        estado: 'invalida',
-        valida: false,
-        enGracia: false,
-        motivo: 'estado',
-      },
-    });
+    await guardarSetting(db, CLAVE_LICENCIA_TOKEN, '');
+    const estado = estadoServidor === 'vencida' ? 'vencida' : 'suspendida';
+    await guardarSetting(db, CLAVE_ESTADO_LICENCIA_SERVIDOR, estado);
+    useSync.setState({ licencia: licenciaSinToken(estado) });
   } catch {
     // Nunca romper la sincronización por esto; el bloqueo se recalcula igual.
   }
@@ -780,6 +783,7 @@ async function guardarLicenciaRemota(
     if (actual !== licencia.token) {
       await guardarSetting(db, CLAVE_LICENCIA_TOKEN, licencia.token);
     }
+    await guardarSetting(db, CLAVE_ESTADO_LICENCIA_SERVIDOR, '');
 
     const { empresaId, deviceId } = await leerIdsServidor(db);
     const resultado = evaluarTokenLicencia(licencia.token, { empresaId, deviceId });
@@ -792,7 +796,7 @@ async function guardarLicenciaRemota(
   if (
     ['suspendida', 'vencida', 'cancelada'].includes(licencia.estado)
   ) {
-    await invalidarLicenciaLocal(db);
+    await invalidarLicenciaLocal(db, licencia.estado);
   }
 }
 
@@ -830,11 +834,24 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
     );
   }
 
-  useSync.setState({ sincronizando: true, error: null, errorCodigo: null });
+  const estadoLocal = await verificarLicenciaLocal(db);
+  const modoConsulta = estadoLocal.estado === 'vencida';
+
+  useSync.setState({
+    sincronizando: true,
+    error: null,
+    errorCodigo: null,
+    modoConsulta,
+  });
   let fase = 'inicio';
 
   try {
-    fase = 'reparar';
+    let aplicadas = 0;
+    let rechazadas = 0;
+    let operaciones: OperacionSync[] = [];
+
+    if (!modoConsulta) {
+      fase = 'reparar';
     // Recuperación automática: repara ventas rechazadas por un turno viejo,
     // reencola las operaciones rechazadas y deja que el servidor cierre el
     // turno abierto huérfano al recibir la nueva apertura.
@@ -849,21 +866,18 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
     await encolarSnapshotInicial(db);
     await encolarPinHashesPendientes(db);
 
-    const pendientes = await listarOutboxPendientes(db, 50);
-    const operaciones: OperacionSync[] = pendientes.map((fila) => {
-      const timestamp = Date.parse(fila.created_at);
-      return {
-        operationId: fila.operation_id,
-        tipo: fila.tipo,
-        timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
-        payload: JSON.parse(fila.payload) as unknown,
-      };
-    });
+      const pendientes = await listarOutboxPendientes(db, 50);
+      operaciones = pendientes.map((fila) => {
+        const timestamp = Date.parse(fila.created_at);
+        return {
+          operationId: fila.operation_id,
+          tipo: fila.tipo,
+          timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+          payload: JSON.parse(fila.payload) as unknown,
+        };
+      });
 
-    let aplicadas = 0;
-    let rechazadas = 0;
-
-    if (operaciones.length > 0) {
+      if (operaciones.length > 0) {
       fase = 'push';
       const respuesta = await pushOperaciones(db, deviceId, operaciones);
       const resultados = new Map(
@@ -904,6 +918,7 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
         }
       }
     }
+    }
 
     fase = 'pull';
     // El servidor pagina el pull por tabla. Se recorre hasta terminar para que
@@ -922,7 +937,9 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
     const MAX_PAGINAS = 50;
 
     while (hayMas && vueltas < MAX_PAGINAS) {
-      const pull = await pullCambios(db, deviceId, cursor);
+      const pull = modoConsulta
+        ? await pullConsulta(db, deviceId, cursor)
+        : await pullCambios(db, deviceId, cursor);
 
       // Primero los cambios de esta página y después los que quedaron
       // aplazados por una dependencia que ya pudo llegar.
@@ -937,7 +954,11 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
         await guardarCursorPull(db, pull.cursor);
       }
 
-      await guardarLicenciaRemota(db, pull.licencia);
+      if (!modoConsulta) {
+        await guardarLicenciaRemota(db, pull.licencia);
+      } else if (pull.soloLectura) {
+        useSync.setState({ modoConsulta: true });
+      }
 
       hayMas = pull.hayMas === true;
       vueltas += 1;
@@ -954,6 +975,9 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
     await guardarAplazados(db, aplazados);
 
     await guardarSetting(db, CLAVE_ULTIMO_SYNC, ahoraIso());
+    if (!modoConsulta) {
+      await marcarSnapshotInicialHecho(db);
+    }
     await refrescarEstadoSync(db);
     useSync.setState({ conectado: true });
 
@@ -975,7 +999,16 @@ export async function sincronizar(db: SQLiteDatabase): Promise<ResumenSync> {
         'LICENCIA_NO_ENCONTRADA',
       ].includes(error.codigo)
     ) {
-      await invalidarLicenciaLocal(db);
+      await invalidarLicenciaLocal(
+        db,
+        error.codigo === 'LICENCIA_VENCIDA' ? 'vencida' : 'suspendida'
+      );
+    }
+    if (error instanceof ErrorApi && error.codigo === 'LICENCIA_NO_VENCIDA') {
+      // La licencia se renovó mientras la app estaba abierta: el próximo
+      // intento ya usará el pull normal y recibirá el token firmado.
+      await refrescarEstadoSync(db);
+      useSync.setState({ modoConsulta: false });
     }
     if (
       error instanceof ErrorApi &&

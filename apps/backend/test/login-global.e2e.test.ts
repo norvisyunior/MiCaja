@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
 import { pool, withAdmin } from '../src/db';
+import { generarCodigoActivacion, hashCodigoActivacion } from '../src/services/licencias';
 
 function sha256(valor: string): string {
   return crypto.createHash('sha256').update(valor).digest('hex');
@@ -32,10 +33,13 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
     inactivoBasico: crypto.randomUUID(),
     ownerPro: crypto.randomUUID(),
     dependientePro: crypto.randomUUID(),
+    ownerVencido: crypto.randomUUID(),
+    productoVencido: crypto.randomUUID(),
   };
 
   let empresaBasicoId = '';
   let empresaProId = '';
+  let empresaVencidoId = '';
   let dispositivoOwnerBasicoId = '';
   let dispositivoOwnerProId = '';
   let dispositivoDependienteProId = '';
@@ -46,6 +50,7 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
   const usuarioInactivo = `inactivo-b${sufijo}`;
   const usuarioPro = `owner-p${sufijo}`;
   const usuarioDependientePro = `dep-p${sufijo}`;
+  const usuarioVencido = `owner-v${sufijo}`;
 
   beforeAll(async () => {
     if (!ejecutar) return;
@@ -78,6 +83,16 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
     );
     empresaProId = empresaPro.rows[0].id;
 
+    const empresaVencido = await withAdmin((client) =>
+      client.query<{ id: string }>(
+        `insert into empresas (nombre, propietario, estado, plan_id)
+         values ($1, 'Propietario Vencido', 'activa', $2)
+         returning id`,
+        [`Empresa Vencida ${sufijo}`, planBasico.id]
+      )
+    );
+    empresaVencidoId = empresaVencido.rows[0].id;
+
     const venceEn = new Date(Date.now() + 30 * 86_400_000);
     for (const [empresaId, planId] of [
       [empresaBasicoId, planBasico.id],
@@ -92,6 +107,22 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
         )
       );
     }
+
+    await withAdmin((client) =>
+      client.query(
+        `insert into licencias
+           (empresa_id, plan_id, estado, vence_en, grace_dias, features)
+         values ($1, $2, 'vencida', $3, 0, '["ventas"]'::jsonb)`,
+        [empresaVencidoId, planBasico.id, new Date(Date.now() - 86_400_000)]
+      )
+    );
+    await withAdmin((client) =>
+      client.query(
+        `insert into productos (id, empresa_id, nombre, precio, stock_actual)
+         values ($1, $2, 'Producto vencido', 5, 3)`,
+        [ids.productoVencido, empresaVencidoId]
+      )
+    );
 
     const usuarios: Array<{
       id: string;
@@ -147,6 +178,14 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
         nombre: 'Dependiente Pro',
         usuario: usuarioDependientePro,
         rol: 'dependiente',
+        activo: true,
+      },
+      {
+        id: ids.ownerVencido,
+        empresaId: empresaVencidoId,
+        nombre: 'Owner Vencido',
+        usuario: usuarioVencido,
+        rol: 'propietario',
         activo: true,
       },
     ];
@@ -207,7 +246,7 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
   afterAll(async () => {
     if (!ejecutar) return;
 
-    for (const empresaId of [empresaBasicoId, empresaProId].filter(Boolean)) {
+    for (const empresaId of [empresaBasicoId, empresaProId, empresaVencidoId].filter(Boolean)) {
       await withAdmin((client) =>
         client.query(`delete from empresas where id = $1`, [empresaId])
       );
@@ -246,6 +285,91 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
     const respuesta = await login(usuarioInactivo, `login-inactivo-${sufijo}`);
     expect(respuesta.status).toBe(403);
     expect(respuesta.body.error).toBe('USUARIO_INACTIVO');
+  });
+
+  it('entra con la licencia vencida y consulta sus datos sin poder escribir', async () => {
+    const respuesta = await login(usuarioVencido, `login-vencido-${sufijo}`);
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.body.token).toBeTruthy();
+    expect(respuesta.body.licencia).toBeNull();
+    expect(respuesta.body.estadoLicencia).toBe('vencida');
+    expect(respuesta.body.usuario.id).toBe(ids.ownerVencido);
+
+    const consulta = await request(app)
+      .get('/api/sync/pull-consulta')
+      .query({ deviceId: respuesta.body.dispositivo.id })
+      .set('Authorization', `Bearer ${respuesta.body.token}`);
+    expect(consulta.status).toBe(200);
+    expect(consulta.body.soloLectura).toBe(true);
+    expect(consulta.body.licencia.token).toBeNull();
+    expect(
+      consulta.body.cambios.some(
+        (cambio: { tipo: string; id: string }) =>
+          cambio.tipo === 'producto' && cambio.id === ids.productoVencido
+      )
+    ).toBe(true);
+
+    const normal = await request(app)
+      .get('/api/sync/pull')
+      .query({ deviceId: respuesta.body.dispositivo.id })
+      .set('Authorization', `Bearer ${respuesta.body.token}`);
+    expect(normal.status).toBe(403);
+    expect(normal.body.error).toBe('LICENCIA_VENCIDA');
+
+    const escritura = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${respuesta.body.token}`)
+      .send({
+        deviceId: respuesta.body.dispositivo.id,
+        operations: [
+          {
+            operationId: crypto.randomUUID(),
+            tipo: 'producto',
+            timestamp: Date.now(),
+            payload: { nombre: 'No debería entrar' },
+          },
+        ],
+      });
+    expect(escritura.status).toBe(403);
+    expect(escritura.body.error).toBe('LICENCIA_VENCIDA');
+  });
+
+  it('renueva con un código nuevo y recupera la sincronización normal', async () => {
+    const codigo = generarCodigoActivacion();
+    const venceEn = new Date(Date.now() + 30 * 86_400_000);
+    await withAdmin((client) =>
+      client.query(
+        `update licencias set
+           vence_en = $2,
+           codigo_activacion_hash = $3,
+           codigo_expira_en = $4,
+           codigo_usado_en = null
+         where empresa_id = $1`,
+        [
+          empresaVencidoId,
+          venceEn,
+          hashCodigoActivacion(codigo),
+          new Date(Date.now() + 7 * 86_400_000),
+        ]
+      )
+    );
+
+    const renovacion = await request(app).post('/api/activar').send({
+      codigo,
+      fingerprint: `renovacion-${sufijo}`,
+      nombre: 'Caja renovada',
+      plataforma: 'web',
+      appVersion: '1.0.0',
+    });
+    expect(renovacion.status).toBe(201);
+    expect(renovacion.body.licencia).toBeTruthy();
+
+    const sincronizar = await request(app)
+      .get('/api/sync/pull')
+      .query({ deviceId: renovacion.body.dispositivo.id })
+      .set('Authorization', `Bearer ${renovacion.body.token}`);
+    expect(sincronizar.status).toBe(200);
+    expect(sincronizar.body.licencia.token).toBeTruthy();
   });
 
   it('entra con una instalación nueva aunque el plan esté completo', async () => {

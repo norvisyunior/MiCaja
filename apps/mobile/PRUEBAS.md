@@ -115,9 +115,12 @@ Con el backend corriendo en desarrollo (`cd apps/backend && npm run dev`) y Supa
 - [ ] **Activación tras borrar datos:** borrar los datos locales, activar con el código del negocio y entrar con usuario + PIN: el pull descarga catálogo e historial completos.
 - [ ] **Misma instalación en otro negocio:** activar con el código de otro negocio ya no se rechaza por la huella; los datos locales se limpian al cambiar de negocio.
 - [ ] Marcar una licencia como vencida en el servidor y sincronizar: la app muestra el aviso de licencia vencida e impide vender, abrir caja y cerrar turno.
+- [ ] **Acceso con licencia vencida:** cerrar sesión (o borrar los datos locales) y volver a entrar con usuario + PIN debe funcionar; la app abre con el aviso *Licencia vencida* y permite llegar a **Ajustes › Sincronización** para renovar. El login NUNCA debe quedar bloqueado por la licencia.
 - [ ] **Suspensión desde el servidor:** suspender la licencia por API y sincronizar: el push/pull devuelve `LICENCIA_SUSPENDIDA`, la app invalida la licencia local y bloquea la caja; al reactivarla y sincronizar, vuelve a operar.
-- [ ] Con licencia vencida: el historial, los reportes y los datos siguen accesibles.
-- [ ] Renovar la licencia y sincronizar: desaparece el aviso y la caja vuelve a operar.
+- [ ] **Modo consulta con licencia vencida:** al entrar (o al borrar datos y volver a entrar) la app descarga catálogo e historial con `/api/sync/pull-consulta`; el Historial muestra las ventas reales y el aviso *Datos en modo consulta*. El push sigue rechazándose y no se pueden vender ni abrir/cerrar turnos.
+- [ ] **Cambio de negocio:** al entrar en otro negocio desde el mismo teléfono se muestra el aviso *Cambiar de negocio*, los datos locales se borran y se descargan los del negocio nuevo. Si el conflicto es solo un usuario local duplicado, NO se ofrece borrar: se pide cambiar el nombre de usuario.
+- [ ] **Renovación desde la app:** con soporte generando un código nuevo (`POST /api/admin/licencias/:id/renovar` con la nueva `venceEn`), introducirlo en **Ajustes › Sincronización → Renovar licencia**: la licencia se activa, desaparece el aviso y la caja vuelve a operar tras sincronizar.
+- [ ] **Renovación por administrador:** `PATCH /api/admin/licencias/:id` con `venceEn` y `estado: 'activa'` re-firma el token y la app vuelve a operar al sincronizar.
 
 ### Rentabilidad
 - [ ] Guardar un costo unitario en un producto y verificar que vuelve a aparecer al editarlo.

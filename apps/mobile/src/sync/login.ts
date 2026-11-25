@@ -71,8 +71,9 @@ async function guardarUsuarioLocal(
     if (porUsuario.deleted_at === null) {
       throw new ErrorApi(
         'DISPOSITIVO_CON_DATOS',
-        'Ya existe otra cuenta local con ese usuario. Borra los datos de la app y vuelve a iniciar sesión.',
-        409
+        'Ya existe otra cuenta local con ese usuario. Elige otro nombre de usuario o pide al administrador que lo cambie.',
+        409,
+        { motivo: 'usuario_duplicado' }
       );
     }
     await db.runAsync(
@@ -146,7 +147,8 @@ export async function guardarLoginGlobal(
     throw new ErrorApi(
       'DISPOSITIVO_OTRA_EMPRESA',
       'Este dispositivo está vinculado a otro negocio. Confirma el cambio para borrar sus datos locales y entrar aquí.',
-      409
+      409,
+      { motivo: 'otra_empresa' }
     );
   }
 
@@ -163,7 +165,8 @@ export async function guardarLoginGlobal(
       throw new ErrorApi(
         'DISPOSITIVO_CON_DATOS',
         'Este dispositivo ya tiene cuentas o ventas de un negocio local. Confirma que quieres borrarlas para entrar con esta cuenta.',
-        409
+        409,
+        { motivo: 'datos_locales' }
       );
     }
   }
@@ -209,6 +212,7 @@ export async function guardarLoginGlobal(
       token: respuesta.token!,
       empresa: respuesta.empresa,
       dispositivo: respuesta.dispositivo,
+      estadoLicencia: respuesta.estadoLicencia,
     });
   }
   await guardarSetting(db, CLAVE_FINGERPRINT_DISPOSITIVO, fingerprint);
@@ -227,7 +231,12 @@ export async function guardarLoginGlobal(
     usuarioId = await guardarUsuarioLocal(db, respuesta, pinHash);
   });
 
-  await marcarSnapshotInicialHecho(db);
+  // Con licencia activa el login decide descargar la foto del negocio. Sin
+  // licencia no se marca: `sincronizar` lo hará cuando el pull (de consulta o
+  // ya renovado) haya terminado bien.
+  if (conLicencia) {
+    await marcarSnapshotInicialHecho(db);
+  }
 
   const usuario = await obtenerUsuario(db, usuarioId);
   if (!usuario) {

@@ -230,6 +230,64 @@ licenciasRouter.post(
   })
 );
 
+/**
+ * Renovación autogestionada: fija la nueva vigencia y entrega un código que el
+ * cliente introduce en Ajustes › Sincronización. La licencia sigue marcada
+ * como `vencida` (y sin token) hasta que se canjea el código, así que el
+ * dispositivo continúa en modo consulta mientras tanto.
+ */
+const renovarSchema = z.object({
+  venceEn: z.string().datetime(),
+  graceDias: z.number().int().min(0).max(365).optional(),
+});
+
+licenciasRouter.post(
+  '/:id/renovar',
+  asyncHandler(async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const data = renovarSchema.parse(req.body);
+    const codigo = generarCodigoActivacion();
+    const expira = new Date(Date.now() + 7 * 86_400_000);
+
+    const resultado = await withAdmin(async (client) => {
+      const licencia = await client.query<LicenciaActualRow>(
+        `select id, empresa_id, plan_id, estado, vence_en, grace_dias
+         from licencias where id = $1`,
+        [id]
+      );
+      if (!licencia.rowCount) {
+        throw new ApiError(404, 'LICENCIA_NO_ENCONTRADA');
+      }
+
+      await client.query(
+        `update licencias set
+           vence_en = $2,
+           grace_dias = coalesce($3, grace_dias),
+           codigo_activacion_hash = $4,
+           codigo_expira_en = $5,
+           codigo_usado_en = null
+         where id = $1`,
+        [id, new Date(data.venceEn), data.graceDias ?? null, hashCodigoActivacion(codigo), expira]
+      );
+
+      await registrarAuditoria(client, {
+        empresaId: licencia.rows[0].empresa_id,
+        actorTipo: 'admin',
+        actorId: req.admin?.id,
+        accion: 'licencia.renovacion_generada',
+        entidad: 'licencias',
+        entidadId: id,
+        payload: { venceEn: data.venceEn, expira: expira.toISOString() },
+        ip: req.ip,
+      });
+
+      return { codigo, expira: expira.toISOString(), venceEn: data.venceEn };
+    });
+
+    res.status(201).json(resultado);
+  })
+);
+
 licenciasRouter.get(
   '/:id/eventos',
   asyncHandler(async (req, res) => {

@@ -122,6 +122,8 @@ export interface RespuestaPull {
     graceDias: number;
     token: string | null;
   } | null;
+  /** true cuando el servidor entregó datos sin token de licencia. */
+  soloLectura?: boolean;
   serverTime: string;
 }
 
@@ -381,6 +383,19 @@ export async function pullCambios(
   const params = new URLSearchParams({ deviceId, limit: '500' });
   if (cursor) params.set('cursor', cursor);
   return solicitar<RespuestaPull>(db, `/api/sync/pull?${params.toString()}`, {
+    method: 'GET',
+  });
+}
+
+/** Pull de solo lectura: disponible solo mientras la licencia está vencida. */
+export async function pullConsulta(
+  db: SQLiteDatabase,
+  deviceId: string,
+  cursor?: string | null
+): Promise<RespuestaPull> {
+  const params = new URLSearchParams({ deviceId, limit: '500' });
+  if (cursor) params.set('cursor', cursor);
+  return solicitar<RespuestaPull>(db, `/api/sync/pull-consulta?${params.toString()}`, {
     method: 'GET',
   });
 }

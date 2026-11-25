@@ -1646,6 +1646,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
       setActivado(true);
       setCodigo('');
       await refrescarEstadoSync(db);
+      void ejecutarSync(db).catch(() => {});
       mostrarAviso('Dispositivo activado', `${respuesta.empresa.nombre} ya puede sincronizarse.`);
     } catch (fallo) {
       setError(fallo instanceof Error ? fallo.message : 'No se pudo activar el dispositivo.');
@@ -1655,6 +1656,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
   }
 
   const licencia = sync.licencia;
+  const licenciaVencida = licencia?.estado === 'vencida';
   const requiereActivacion =
     licencia?.estado === 'invalida' ||
     licencia?.estado === 'vencida' ||
@@ -1808,8 +1810,9 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
                 </Text>
               ) : (
                 <Text style={{ color: colores.textoSuave, fontFamily: fuentes.regular, fontSize: typography.cuerpoChico, marginTop: spacing.sm }}>
-                  Sin licencia activada. Conecta a Internet y activa este dispositivo con un
-                  código para poder vender.
+                  {licenciaVencida
+                    ? 'Licencia vencida. Puedes consultar tus datos y renovar con el código que te dé soporte; mientras tanto no se pueden registrar ventas.'
+                    : 'Sin licencia activada. Conecta a Internet y activa este dispositivo con un código para poder vender.'}
                 </Text>
               )}
             </Tarjeta>
@@ -1817,7 +1820,11 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
             {requiereActivacion ? (
               <>
                 <Text style={[styles.seccion, { color: colores.textoSuave }]}>
-                  {activado ? 'Activar licencia' : 'Activar dispositivo'}
+                  {licenciaVencida
+                    ? 'Renovar licencia'
+                    : activado
+                      ? 'Activar licencia'
+                      : 'Activar dispositivo'}
                 </Text>
                 <Tarjeta>
                   <Campo
@@ -1831,7 +1838,7 @@ function SyncVista({ onAtras }: { onAtras: () => void }) {
                     maxLength={23}
                   />
                   <Boton
-                    titulo={activado ? 'Activar licencia' : 'Activar'}
+                    titulo={licenciaVencida ? 'Renovar licencia' : activado ? 'Activar licencia' : 'Activar'}
                     icono="phonelink-lock"
                     variante="acento"
                     tamanio="lg"

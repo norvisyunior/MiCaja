@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import type { PoolClient } from 'pg';
 import {
   syncPullQuerySchema,
@@ -314,9 +314,13 @@ function leerCursorPull(crudo?: string): CursorPull {
  * `(updated_at exacto, id)`, así que una página nunca se repite aunque
  * muchas filas compartan el mismo instante.
  */
-syncRouter.get(
-  '/pull',
-  asyncHandler(async (req, res) => {
+/**
+ * Construye una página del pull. `soloLectura` se usa cuando la licencia está
+ * vencida: el dispositivo puede consultar sus datos (historial, catálogo,
+ * ajustes) pero la ruta no entrega el token firmado ni permite escribir.
+ * `/push` mantiene su propio guard y sigue rechazando la licencia vencida.
+ */
+async function responderPull(req: Request, res: Response, soloLectura: boolean) {
     const query = syncPullQuerySchema.parse(req.query);
     const dispositivo = req.device!;
     if (query.deviceId !== dispositivo.deviceId) {
@@ -330,7 +334,28 @@ syncRouter.get(
 
     const resultado = await withTenant(dispositivo.empresaId, async (client) => {
       await verificarDispositivo(client, dispositivo.empresaId, dispositivo.deviceId);
-      await exigirLicenciaVigente(client, dispositivo.empresaId);
+
+      if (soloLectura) {
+        const licenciaActual = await client.query<{
+          estado: string;
+          vence_en: Date;
+          grace_dias: number;
+        }>(
+          `select estado, vence_en, grace_dias from licencias where empresa_id = $1`,
+          [dispositivo.empresaId]
+        );
+        const fila = licenciaActual.rows[0];
+        const estado = fila ? estadoLicenciaEfectiva(fila) : 'sin_licencia';
+        if (estado !== 'vencida') {
+          throw new ApiError(
+            403,
+            'LICENCIA_NO_VENCIDA',
+            'El modo consulta solo está disponible mientras la licencia está vencida.'
+          );
+        }
+      } else {
+        await exigirLicenciaVigente(client, dispositivo.empresaId);
+      }
 
       // Las consultas van en serie: `pg` no permite varias consultas
       // simultáneas sobre el mismo cliente de una transacción.
@@ -773,13 +798,19 @@ syncRouter.get(
               estado: estadoLicenciaEfectiva(licenciaFila),
               venceEn: licenciaFila.vence_en.toISOString(),
               graceDias: licenciaFila.grace_dias,
-              token: licenciaFila.licencia_firmada,
+              token: soloLectura ? null : licenciaFila.licencia_firmada,
             }
           : null,
+        soloLectura,
         serverTime: new Date().toISOString(),
       };
     });
 
     res.json(resultado);
-  })
+}
+
+syncRouter.get('/pull', asyncHandler(async (req, res) => responderPull(req, res, false)));
+syncRouter.get(
+  '/pull-consulta',
+  asyncHandler(async (req, res) => responderPull(req, res, true))
 );

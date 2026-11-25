@@ -6,6 +6,7 @@ import {
   bloqueoPorEstado,
   evaluarTokenLicencia,
   licenciaPermite,
+  licenciaSinToken,
   verificarLicenciaLocal,
   type ResultadoLicencia,
 } from './verificar';
@@ -230,7 +231,38 @@ describe('licenciaPermite', () => {
   });
 });
 
+describe('licenciaSinToken', () => {
+  it('conserva el motivo vencida pero nunca impide entrar', () => {
+    const resultado = licenciaSinToken('vencida');
+    expect(resultado.estado).toBe('vencida');
+    expect(resultado.valida).toBe(false);
+    expect(bloqueoPorEstado(resultado.estado)?.titulo).toBe('Licencia vencida');
+  });
+
+  it('devuelve sin licencia cuando el servidor no comunicó un estado', () => {
+    expect(licenciaSinToken(null).estado).toBe('sin_licencia');
+  });
+});
+
 describe('verificarLicenciaLocal', () => {
+  it('conserva el aviso de licencia vencida aunque no haya token guardado', async () => {
+    const valores = new Map([
+      ['licencia_token', ''],
+      ['licencia_estado_servidor', 'vencida'],
+    ]);
+    const db = {
+      getFirstAsync: async (sql: string, params?: unknown[]) =>
+        sql.includes('FROM settings')
+          ? { valor: valores.get(String(params)) ?? '' }
+          : null,
+      runAsync: async () => undefined,
+    };
+
+    const resultado = await verificarLicenciaLocal(db as never);
+    expect(resultado.estado).toBe('vencida');
+    expect(resultado.motivo).toBe('vencida');
+  });
+
   it('no arrastra el plan ni el vencimiento de una licencia invalidada', async () => {
     const ahora = Math.floor(Date.now() / 1000);
     const payload = payloadCon({ iat: ahora - 60, exp: ahora + 86_400 });

@@ -9,6 +9,8 @@ interface EstadoSync {
   error: string | null;
   errorCodigo: string | null;
   licencia: ResultadoLicencia | null;
+  /** Datos descargados en modo consulta por licencia vencida (sin escrituras). */
+  modoConsulta: boolean;
   conectado: boolean | null;
   fijarSincronizando: (valor: boolean) => void;
   fijarPendientes: (pendientes: number, fallidas: number) => void;
@@ -26,6 +28,7 @@ export const useSync = create<EstadoSync>((set) => ({
   error: null,
   errorCodigo: null,
   licencia: null,
+  modoConsulta: false,
   conectado: null,
   fijarSincronizando: (sincronizando) => set({ sincronizando }),
   fijarPendientes: (pendientes, fallidas) => set({ pendientes, fallidas }),

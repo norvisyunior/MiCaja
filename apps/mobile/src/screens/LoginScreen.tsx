@@ -60,11 +60,6 @@ interface DetalleLimite {
   maxDispositivos?: number;
 }
 
-interface DetalleEmpresa {
-  empresa?: { id: string; nombre: string };
-  empresaActual?: { id: string; nombre: string };
-}
-
 function mensajeErrorRecuperacion(
   resultado: Exclude<ResultadoRecuperacion, { ok: true }>
 ): string {
@@ -114,13 +109,13 @@ function mensajeErrorLoginGlobal(error: ErrorApi): {
       };
     case 'LICENCIA_SUSPENDIDA':
       return {
-        mensaje: 'La licencia del negocio está suspendida. Contacta con soporte.',
-        requiereActivacion: false,
+        mensaje: 'La licencia del negocio está suspendida. Puedes activar un código nuevo desde Ajustes › Sincronización.',
+        requiereActivacion: true,
       };
     case 'LICENCIA_VENCIDA':
       return {
-        mensaje: 'La licencia del negocio venció. Renueva para continuar.',
-        requiereActivacion: false,
+        mensaje: 'La licencia del negocio venció. Puedes renovarla desde Ajustes › Sincronización.',
+        requiereActivacion: true,
       };
     case 'DISPOSITIVO_BLOQUEADO':
       return {
@@ -244,14 +239,25 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
       vaciarCarrito();
       iniciar(usuarioLocal);
     } catch (error) {
-      if (
+      const detalles = error instanceof ErrorApi ? (error.detalles as { motivo?: string } | undefined) : undefined;
+      if (detalles?.motivo === 'usuario_duplicado') {
+        setMensajeError(
+          error instanceof ErrorApi ? error.message : 'Ya existe otra cuenta local con ese usuario.'
+        );
+        return;
+      }
+      const borrarRequerido =
         error instanceof ErrorApi &&
-        (error.codigo === 'DISPOSITIVO_CON_DATOS' ||
-          error.codigo === 'DISPOSITIVO_OTRA_EMPRESA')
-      ) {
+        (error.codigo === 'DISPOSITIVO_OTRA_EMPRESA' ||
+          error.codigo === 'DISPOSITIVO_CON_DATOS');
+
+      if (borrarRequerido) {
+        const cambioNegocio = error instanceof ErrorApi && error.codigo === 'DISPOSITIVO_OTRA_EMPRESA';
         mostrarAviso(
-          'Borrar este negocio del teléfono',
-          `Para entrar en «${respuesta.empresa.nombre}» se borrarán las cuentas, ventas, productos y ajustes guardados localmente en este dispositivo. Esta acción no se puede deshacer.`,
+          cambioNegocio ? 'Cambiar de negocio' : 'Borrar este negocio del teléfono',
+          cambioNegocio
+            ? `Este teléfono tiene datos de otro negocio. Para entrar en «${respuesta.empresa.nombre}» se borrarán sus cuentas, ventas y productos locales. Después se descargarán los datos del nuevo negocio desde la nube. Esta acción no se puede deshacer.`
+            : `Para entrar en «${respuesta.empresa.nombre}» se borrarán las cuentas, ventas, productos y ajustes guardados localmente en este dispositivo. Después se descargarán sus datos desde la nube. Esta acción no se puede deshacer.`,
           [
             { texto: 'Cancelar', estilo: 'cancel' },
             {
@@ -289,27 +295,6 @@ export default function LoginScreen({ onActivar }: { onActivar?: () => void }) {
         setMensajeError(null);
         return;
       }
-    }
-
-    if (error.codigo === 'DISPOSITIVO_OTRA_EMPRESA') {
-      const detalles = (error.detalles ?? {}) as DetalleEmpresa;
-      const actual = detalles.empresaActual?.nombre ?? 'otro negocio';
-      const destino = detalles.empresa?.nombre ?? 'el negocio de esta cuenta';
-      mostrarAviso(
-        'Cambiar de negocio',
-        `Este teléfono está vinculado a «${actual}». Para entrar en «${destino}» se borrarán las cuentas, ventas y productos guardados localmente. Esta acción no se puede deshacer.`,
-        [
-          { texto: 'Cancelar', estilo: 'cancel' },
-          {
-            texto: 'Borrar y entrar',
-            estilo: 'peligro',
-            onPress: () => {
-              void entrar({ cambiarEmpresa: true, pinFinal });
-            },
-          },
-        ]
-      );
-      return;
     }
 
     const aviso = mensajeErrorLoginGlobal(error);

@@ -9,6 +9,7 @@ import {
 import {
   CLAVE_CODIGO_PENDIENTE,
   CLAVE_DISPOSITIVO_SERVIDOR,
+  CLAVE_ESTADO_LICENCIA_SERVIDOR,
   CLAVE_EMPRESA_SERVIDOR,
   CLAVE_LICENCIA_TOKEN,
   CLAVE_LICENCIA_VERIFICADA,
@@ -20,7 +21,11 @@ import {
 } from '../api/config';
 import { ahoraIso, obtenerContextoLocal } from '../db/contexto';
 import { guardarSetting } from '../db/repos/settings';
-import { evaluarTokenLicencia, guardarLicenciaLocal, type ResultadoLicencia } from '../licencias/verificar';
+import {
+  evaluarTokenLicencia,
+  guardarLicenciaLocal,
+  licenciaSinToken,
+} from '../licencias/verificar';
 import { useSync } from '../store/sync';
 
 export const APP_VERSION = '1.0.0';
@@ -37,10 +42,6 @@ export async function nombreDispositivoPorDefecto(db: SQLiteDatabase): Promise<s
   return `MiCaja ${plataforma === 'ios' ? 'iPhone' : plataforma === 'web' ? 'Web' : 'Android'}`;
 }
 
-function sinLicencia(): ResultadoLicencia {
-  return { estado: 'sin_licencia', valida: true, enGracia: false };
-}
-
 /**
  * Una licencia pertenece al negocio, nunca al teléfono. Al crear un negocio
  * nuevo se descarta cualquier sesión/token anterior: aunque el mismo dispositivo
@@ -53,9 +54,10 @@ export async function reiniciarLicenciaDelNegocio(db: SQLiteDatabase): Promise<v
     await db.runAsync(`DELETE FROM sync_meta`);
     await db.runAsync(`DELETE FROM sync_outbox`);
     await db.runAsync(
-      `DELETE FROM settings WHERE clave IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `DELETE FROM settings WHERE clave IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       CLAVE_LICENCIA_TOKEN,
       CLAVE_LICENCIA_VERIFICADA,
+      CLAVE_ESTADO_LICENCIA_SERVIDOR,
       'licencia_ultima_verificacion',
       CLAVE_EMPRESA_SERVIDOR,
       CLAVE_DISPOSITIVO_SERVIDOR,
@@ -69,12 +71,14 @@ export async function reiniciarLicenciaDelNegocio(db: SQLiteDatabase): Promise<v
       'ultimo_sync_en'
     );
   });
-  useSync.setState({ licencia: sinLicencia() });
+  useSync.setState({ licencia: licenciaSinToken(null) });
 }
 
 /**
- * Sesión de un negocio pendiente: el dispositivo queda vinculado para poder
- * entrar y sincronizar, pero sin licencia hasta que se active con su código.
+ * Sesión de un negocio pendiente, vencido o suspendido: el dispositivo queda
+ * vinculado para poder entrar, consultar los datos y renovar la licencia. Sin
+ * token firmado no se pueden operar ventas ni turnos, pero el acceso está
+ * garantizado.
  */
 export async function guardarSesionSinLicencia(
   db: SQLiteDatabase,
@@ -82,6 +86,7 @@ export async function guardarSesionSinLicencia(
     token: string;
     empresa: { id: string };
     dispositivo: { id: string; nombre: string; plataforma: string };
+    estadoLicencia?: string | null;
   }
 ): Promise<void> {
   const ahora = ahoraIso();
@@ -93,6 +98,7 @@ export async function guardarSesionSinLicencia(
   await guardarSetting(db, CLAVE_NOMBRE_DISPOSITIVO, respuesta.dispositivo.nombre);
   await guardarSetting(db, CLAVE_LICENCIA_TOKEN, '');
   await guardarSetting(db, CLAVE_LICENCIA_VERIFICADA, '');
+  await guardarSetting(db, CLAVE_ESTADO_LICENCIA_SERVIDOR, respuesta.estadoLicencia ?? '');
 
   await db.runAsync(`DELETE FROM licencia_local`);
   await db.runAsync(
@@ -112,7 +118,7 @@ export async function guardarSesionSinLicencia(
     ahora
   );
 
-  useSync.setState({ licencia: sinLicencia() });
+  useSync.setState({ licencia: licenciaSinToken(respuesta.estadoLicencia) });
 }
 
 export async function guardarActivacion(
@@ -135,6 +141,7 @@ export async function guardarActivacion(
   await guardarSetting(db, CLAVE_DISPOSITIVO_SERVIDOR, respuesta.dispositivo.id);
   await guardarSetting(db, CLAVE_NOMBRE_DISPOSITIVO, respuesta.dispositivo.nombre);
   await guardarSetting(db, CLAVE_LICENCIA_VERIFICADA, ahora);
+  await guardarSetting(db, CLAVE_ESTADO_LICENCIA_SERVIDOR, '');
 
   await db.runAsync(
     `INSERT INTO dispositivo_local
@@ -332,6 +339,7 @@ export async function olvidarActivacionLocal(db: SQLiteDatabase): Promise<void> 
   await guardarSetting(db, CLAVE_LICENCIA_TOKEN, '');
   await guardarSetting(db, CLAVE_LICENCIA_VERIFICADA, '');
   await guardarSetting(db, CLAVE_VIA_ACTIVACION, '');
+  await guardarSetting(db, CLAVE_ESTADO_LICENCIA_SERVIDOR, '');
   await db.runAsync(`DELETE FROM licencia_local`);
-  useSync.setState({ licencia: sinLicencia() });
+  useSync.setState({ licencia: licenciaSinToken(null) });
 }

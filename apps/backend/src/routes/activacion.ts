@@ -150,7 +150,10 @@ activacionRouter.post(
       if (licencia.estado === 'suspendida') {
         throw new ApiError(403, 'LICENCIA_SUSPENDIDA');
       }
-      if (licencia.estado === 'vencida' || licencia.vence_en.getTime() < Date.now()) {
+      // Un código nuevo puede renovar una licencia vencida: el administrador
+      // actualiza `vence_en` antes de generarlo. Seguimos rechazando una fecha
+      // ya pasada para no firmar un token que volvería a vencer al instante.
+      if (licencia.vence_en.getTime() < Date.now()) {
         throw new ApiError(403, 'LICENCIA_VENCIDA');
       }
       if (

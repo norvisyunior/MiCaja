@@ -7,6 +7,7 @@ export const CLAVE_EMPRESA_SERVIDOR = 'empresa_servidor_id';
 export const CLAVE_DISPOSITIVO_SERVIDOR = 'device_servidor_id';
 export const CLAVE_LICENCIA_TOKEN = 'licencia_token';
 export const CLAVE_LICENCIA_VERIFICADA = 'licencia_verificada_en';
+export const CLAVE_ESTADO_LICENCIA_SERVIDOR = 'licencia_estado_servidor';
 export const CLAVE_NOMBRE_DISPOSITIVO = 'nombre_dispositivo';
 export const CLAVE_ULTIMO_SYNC = 'ultimo_sync_en';
 export const CLAVE_CLAVE_PUBLICA_LICENCIA = 'licencia_clave_publica';

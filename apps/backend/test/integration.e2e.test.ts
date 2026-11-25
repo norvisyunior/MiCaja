@@ -755,4 +755,28 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     expect(pullRecuperado.status).toBe(200);
     expect(pullRecuperado.body.licencia.token).toBe(licenciaReactivada.body.token);
   });
+
+  it('genera un código de renovación sin activar la licencia hasta que se canjea', async () => {
+    const adminToken = await entrarComoAdmin();
+    const licenciaId = await licenciaDeEmpresa(adminToken, empresaId);
+
+    const vencer = await request(app)
+      .patch(`/api/admin/licencias/${licenciaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ estado: 'vencida' });
+    expect(vencer.status).toBe(200);
+
+    const renovar = await request(app)
+      .post(`/api/admin/licencias/${licenciaId}/renovar`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ venceEn: new Date(Date.now() + 30 * 86_400_000).toISOString() });
+    expect(renovar.status).toBe(201);
+    expect(renovar.body.codigo).toMatch(/^MICAJA-/);
+
+    const dispositivo = await request(app)
+      .get('/api/device/licencia')
+      .set('Authorization', `Bearer ${deviceToken}`);
+    expect(dispositivo.body.estado).toBe('vencida');
+    expect(dispositivo.body.token).toBeNull();
+  });
 });

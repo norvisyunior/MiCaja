@@ -61,6 +61,7 @@ export default function HistorialScreen({ esPestania = false }: { esPestania?: b
   const db = useSQLiteContext();
   const usuario = useSesion((s) => s.usuario)!;
   const ultimaSync = useSync((s) => s.ultimaSync);
+  const modoConsulta = useSync((s) => s.modoConsulta);
   const { colores } = useTema();
   const navigation = useNavigation();
   const mostrarAviso = useAvisos((s) => s.mostrar);
@@ -153,6 +154,24 @@ export default function HistorialScreen({ esPestania = false }: { esPestania?: b
         onAtras={esPestania ? undefined : () => navigation.goBack()}
       />
       <Superficie>
+        {modoConsulta ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.xs,
+              marginBottom: spacing.sm,
+              padding: spacing.sm,
+              borderRadius: radius.md,
+              backgroundColor: colores.advertenciaSuave,
+            }}
+          >
+            <MaterialIcons name="visibility" size={16} color={colores.advertencia} />
+            <Text style={{ color: colores.texto, fontSize: typography.cuerpoChico }}>
+              Datos en modo consulta · licencia vencida
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.busqueda}>
           <Campo
             valor={busqueda}
