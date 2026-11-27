@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, apiControl } from '../api/client';
+import { api } from '../api/client';
 import type {
   CodigoResultado,
   EmpresaDetalle,
@@ -14,6 +14,7 @@ import {
   MarcaVencimiento,
 } from '../components/Estados';
 import { SelectDuracion } from '../components/Duracion';
+import { ModalEliminarEmpresa } from '../components/ModalEliminarEmpresa';
 import { useToast } from '../components/Toast';
 import {
   Aviso,
@@ -86,8 +87,7 @@ export function EmpresaDetallePage() {
 
   const [confirmacion, setConfirmacion] = useState<ConfirmacionTipo | null>(null);
   const [estadoCargando, setEstadoCargando] = useState(false);
-  const [confirmandoEliminar, setConfirmandoEliminar] = useState(false);
-  const [eliminando, setEliminando] = useState(false);
+  const [eliminandoDefinitivo, setEliminandoDefinitivo] = useState(false);
 
   const idNombre = useId();
   const idPropietario = useId();
@@ -226,19 +226,6 @@ export function EmpresaDetallePage() {
     }
   }
 
-  async function eliminarEmpresa() {
-    setEliminando(true);
-    try {
-      await apiControl.eliminarEmpresa(empresa.id);
-      setConfirmandoEliminar(false);
-      mostrarToast('Empresa eliminada. El historial se conserva.');
-      window.location.assign('/empresas');
-    } catch (fallo) {
-      mostrarToast(mensajeError(fallo), 'error');
-      setEliminando(false);
-    }
-  }
-
   const textosConfirmacion: Record<
     ConfirmacionTipo,
     { titulo: string; descripcion: string; texto: string; peligro: boolean; estado: EmpresaEstado }
@@ -289,11 +276,6 @@ export function EmpresaDetallePage() {
               <Link to={`/licencias/${empresa.licenciaId}`} className="boton boton--primario">
                 Gestionar licencia <span aria-hidden="true">→</span>
               </Link>
-            ) : null}
-            {empresa.estado !== 'cancelada' ? (
-              <Boton variante="peligro" icono="alerta" onClick={() => setConfirmandoEliminar(true)}>
-                Eliminar
-              </Boton>
             ) : null}
           </>
         }
@@ -520,6 +502,22 @@ export function EmpresaDetallePage() {
               Datos operativos: {empresa.conteos.usuarios} usuarios, {empresa.conteos.productos}{' '}
               productos y {empresa.conteos.ventas} ventas.
             </p>
+            <div className="zona-peligro">
+              <div>
+                <h3>Eliminar empresa definitivamente</h3>
+                <p>
+                  Borra la empresa y todos sus datos asociados: usuarios, licencias, terminales,
+                  catálogo, ventas, inventario, gastos y auditoría. No se puede deshacer.
+                </p>
+              </div>
+              <Boton
+                variante="peligro"
+                icono="papelera"
+                onClick={() => setEliminandoDefinitivo(true)}
+              >
+                Eliminar definitivamente
+              </Boton>
+            </div>
           </section>
         </div>
       </div>
@@ -690,15 +688,10 @@ export function EmpresaDetallePage() {
         />
       ) : null}
 
-      <Confirmacion
-        abierto={confirmandoEliminar}
-        titulo="Eliminar empresa"
-        descripcion="Se marcará como eliminada, se suspenderá su licencia y se bloquearán las terminales. El historial se conserva y no se puede deshacer desde el panel."
-        textoConfirmar="Eliminar empresa"
-        peligro
-        cargando={eliminando}
-        onConfirmar={() => void eliminarEmpresa()}
-        onCerrar={() => setConfirmandoEliminar(false)}
+      <ModalEliminarEmpresa
+        empresa={eliminandoDefinitivo ? empresa : null}
+        onCerrar={() => setEliminandoDefinitivo(false)}
+        onEliminada={() => window.location.assign('/empresas')}
       />
     </div>
   );

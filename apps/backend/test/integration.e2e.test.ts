@@ -991,4 +991,74 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
       .set(autorizacion);
     expect(trasBorrar.body.total).toBe(0);
   });
+
+  it('elimina definitivamente una empresa y todos sus datos', async () => {
+    const adminToken = await entrarComoAdmin();
+    const autorizacion = { Authorization: `Bearer ${adminToken}` };
+    const nombre = `Empresa E2E ${sufijo}`;
+
+    const rechazo = await request(app)
+      .delete(`/api/admin/empresas/${empresaId}/permanente`)
+      .set(autorizacion)
+      .send({ nombre: 'Nombre equivocado' });
+    expect(rechazo.status).toBe(409);
+    expect(rechazo.body.error).toBe('CONFIRMACION_INVALIDA');
+
+    const borrado = await request(app)
+      .delete(`/api/admin/empresas/${empresaId}/permanente`)
+      .set(autorizacion)
+      .send({ nombre });
+    expect(borrado.status).toBe(204);
+
+    const restos = await withAdmin(async (client) => {
+      const tablas = [
+        'venta_items',
+        'ventas',
+        'movimientos_inventario',
+        'conteos_inventario',
+        'movimientos_caja',
+        'gastos',
+        'sync_operations',
+        'turnos_caja',
+        'invitaciones',
+        'productos',
+        'categorias',
+        'usuarios',
+        'dispositivos',
+        'licencias_eventos',
+        'licencias',
+        'settings',
+        'contadores',
+        'auditoria',
+      ];
+      const conteos: Record<string, number> = {};
+      for (const tabla of tablas) {
+        const fila = await client.query<{ total: number }>(
+          `select count(*)::int as total from ${tabla} where empresa_id = $1`,
+          [empresaId]
+        );
+        conteos[tabla] = fila.rows[0].total;
+      }
+      const empresa = await client.query<{ total: number }>(
+        `select count(*)::int as total from empresas where id = $1`,
+        [empresaId]
+      );
+      const auditoria = await client.query<{ total: number }>(
+        `select count(*)::int as total from auditoria
+         where accion = 'empresa.eliminada_definitivamente' and entidad_id = $1`,
+        [empresaId]
+      );
+      return {
+        conteos,
+        empresa: empresa.rows[0].total,
+        auditoria: auditoria.rows[0].total,
+      };
+    });
+
+    expect(restos.empresa).toBe(0);
+    for (const [tabla, total] of Object.entries(restos.conteos)) {
+      expect(total, tabla).toBe(0);
+    }
+    expect(restos.auditoria).toBe(1);
+  });
 });

@@ -43,6 +43,31 @@ interface LicenciaRow {
   grace_dias: number;
 }
 
+const TABLAS_DATOS_EMPRESA = [
+  'venta_items',
+  'ventas',
+  'movimientos_inventario',
+  'conteos_inventario',
+  'movimientos_caja',
+  'gastos',
+  'sync_operations',
+  'turnos_caja',
+  'invitaciones',
+  'productos',
+  'categorias',
+  'usuarios',
+  'dispositivos',
+  'licencias_eventos',
+  'licencias',
+  'settings',
+  'contadores',
+  'auditoria',
+] as const;
+
+const confirmarEliminacionSchema = z.object({
+  nombre: z.string().trim().min(1).max(120),
+});
+
 export const empresasRouter = Router();
 
 empresasRouter.use(requireAdmin);
@@ -338,6 +363,50 @@ empresasRouter.patch(
     });
 
     res.json({ empresa: resultado });
+  })
+);
+
+/** Borrado definitivo: elimina la empresa y todos sus datos asociados. */
+empresasRouter.delete(
+  '/:id/permanente',
+  asyncHandler(async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+    const { nombre } = confirmarEliminacionSchema.parse(req.body);
+
+    await withAdmin(async (client) => {
+      const empresa = await client.query<{ nombre: string }>(
+        `select nombre from empresas where id = $1`,
+        [id]
+      );
+      if (!empresa.rowCount) {
+        throw new ApiError(404, 'EMPRESA_NO_ENCONTRADA');
+      }
+      if (empresa.rows[0].nombre !== nombre) {
+        throw new ApiError(
+          409,
+          'CONFIRMACION_INVALIDA',
+          'El nombre no coincide con la empresa que quieres eliminar.'
+        );
+      }
+
+      for (const tabla of TABLAS_DATOS_EMPRESA) {
+        await client.query(`delete from ${tabla} where empresa_id = $1`, [id]);
+      }
+      await client.query(`delete from empresas where id = $1`, [id]);
+
+      await registrarAuditoria(client, {
+        empresaId: null,
+        actorTipo: 'admin',
+        actorId: req.admin?.id,
+        accion: 'empresa.eliminada_definitivamente',
+        entidad: 'empresas',
+        entidadId: id,
+        payload: {},
+        ip: req.ip,
+      });
+    });
+
+    res.status(204).end();
   })
 );
 

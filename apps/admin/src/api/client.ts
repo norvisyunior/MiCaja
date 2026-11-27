@@ -438,4 +438,9 @@ export const apiControl = {
     }),
   eliminarEmpresa: (id: string) =>
     peticion<void>(`/api/admin/empresas/${id}`, { method: 'DELETE' }),
+  eliminarEmpresaDefinitivamente: (id: string, nombre: string) =>
+    peticion<void>(`/api/admin/empresas/${id}/permanente`, {
+      method: 'DELETE',
+      body: { nombre },
+    }),
 };
