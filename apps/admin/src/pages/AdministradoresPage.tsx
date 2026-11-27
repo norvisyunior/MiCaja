@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { apiControl } from '../api/client';
 import type { FilaControl } from '../api/client';
+import { useAuth } from '../auth/AuthProvider';
 import {
   Aviso,
   Boton,
@@ -13,6 +14,7 @@ import {
   Paginacion,
 } from '../components/UI';
 import { useToast } from '../components/Toast';
+import { ModalEliminarAdministrador } from '../components/ModalEliminarAdministrador';
 import { mensajeError } from '../lib/errores';
 
 const LIMITE = 25;
@@ -26,6 +28,7 @@ interface FormularioAdmin {
 
 export function AdministradoresPage() {
   const { mostrarToast } = useToast();
+  const { admin } = useAuth();
   const [administradores, setAdministradores] = useState<FilaControl[]>([]);
   const [pagina, setPagina] = useState(1);
   const [total, setTotal] = useState(0);
@@ -41,6 +44,7 @@ export function AdministradoresPage() {
   });
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<unknown>(null);
+  const [eliminando, setEliminando] = useState<FilaControl | null>(null);
 
   async function cargar() {
     setCargando(true);
@@ -96,6 +100,12 @@ export function AdministradoresPage() {
     }
   }
 
+  function alEliminar() {
+    setEliminando(null);
+    if (administradores.length === 1 && pagina > 1) setPagina(pagina - 1);
+    else void cargar();
+  }
+
   return (
     <div className="pila">
       <EncabezadoPagina
@@ -126,23 +136,49 @@ export function AdministradoresPage() {
                 </tr>
               </thead>
               <tbody>
-                {administradores.map((admin) => (
-                  <tr key={String(admin.id)}>
-                    <td className="celda-principal">{String(admin.nombre)}</td>
-                    <td>{String(admin.email)}</td>
-                    <td><Insignia tono="info" punto={false}>{String(admin.rol)}</Insignia></td>
-                    <td>
-                      <Insignia tono={admin.activo ? 'ok' : 'neutral'} punto={false}>
-                        {admin.activo ? 'Activo' : 'Inactivo'}
-                      </Insignia>
-                    </td>
-                    <td className="acciones-fila">
-                      <div className="acciones-grupo">
-                        <BotonIcono icono="editar" etiqueta={`Editar a ${String(admin.nombre)}`} onClick={() => abrir(admin)} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {administradores.map((fila) => {
+                  const protegido = Boolean(fila.protegido);
+                  const propio = String(admin?.id) === String(fila.id);
+                  return (
+                    <tr key={String(fila.id)}>
+                      <td className="celda-principal">
+                        {String(fila.nombre)}
+                        {protegido ? (
+                          <span className="celda-secundaria">Propietario protegido</span>
+                        ) : null}
+                      </td>
+                      <td>{String(fila.email)}</td>
+                      <td><Insignia tono="info" punto={false}>{String(fila.rol)}</Insignia></td>
+                      <td>
+                        <Insignia tono={fila.activo ? 'ok' : 'neutral'} punto={false}>
+                          {fila.activo ? 'Activo' : 'Inactivo'}
+                        </Insignia>
+                      </td>
+                      <td className="acciones-fila">
+                        <div className="acciones-grupo">
+                          <BotonIcono
+                            icono="editar"
+                            etiqueta={`Editar a ${String(fila.nombre)}`}
+                            onClick={() => abrir(fila)}
+                          />
+                          <BotonIcono
+                            icono="papelera"
+                            etiqueta={
+                              protegido
+                                ? 'La cuenta del propietario no se puede eliminar'
+                                : propio
+                                  ? 'No puedes eliminar tu propia cuenta'
+                                  : `Eliminar a ${String(fila.nombre)}`
+                            }
+                            variante="peligro"
+                            disabled={protegido || propio}
+                            onClick={() => setEliminando(fila)}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               </table>
             </div>
@@ -189,6 +225,20 @@ export function AdministradoresPage() {
           </Campo>
         </form>
       </Modal>
+
+      <ModalEliminarAdministrador
+        administrador={
+          eliminando
+            ? {
+                id: String(eliminando.id),
+                email: String(eliminando.email),
+                nombre: String(eliminando.nombre),
+              }
+            : null
+        }
+        onCerrar={() => setEliminando(null)}
+        onEliminado={alEliminar}
+      />
     </div>
   );
 }

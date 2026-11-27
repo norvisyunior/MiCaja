@@ -207,7 +207,7 @@ adminOperacionRouter.get(
   asyncHandler(async (req, res) => {
     const consulta = consultaLista(req);
     const parametros: unknown[] = [`%${consulta.q?.toLowerCase() ?? ''}%`];
-    let filtro = `where e.deleted_at is null and lower(t.estado) like $1`;
+    let filtro = `where e.deleted_at is null and lower(t.estado::text) like $1`;
     if (consulta.empresaId) {
       parametros.push(consulta.empresaId);
       filtro += ` and t.empresa_id = $${parametros.length}`;

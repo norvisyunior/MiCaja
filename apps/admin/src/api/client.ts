@@ -416,8 +416,13 @@ export const apiControl = {
     listar('/api/admin/plataforma/auditoria', parametros),
 
   administradores: (parametros: ParametrosControl = {}) =>
-    peticion<ListaControl>(conParametros('/api/admin/plataforma/administradores', parametros))
-      .then((respuesta) => ({ ...respuesta, administradores: respuesta.items })),
+    peticion<{
+      administradores: FilaControl[];
+      total: number;
+      page: number;
+      limit: number;
+    }>(conParametros('/api/admin/plataforma/administradores', parametros))
+      .then((respuesta) => ({ ...respuesta, items: respuesta.administradores })),
   crearAdministrador: (datos: unknown) =>
     peticion<{ administrador: FilaControl }>('/api/admin/plataforma/administradores', {
       method: 'POST',
@@ -428,6 +433,11 @@ export const apiControl = {
       `/api/admin/plataforma/administradores/${id}`,
       { method: 'PATCH', body: datos }
     ),
+  eliminarAdministrador: (id: string, email: string) =>
+    peticion<void>(`/api/admin/plataforma/administradores/${id}`, {
+      method: 'DELETE',
+      body: { email },
+    }),
 
   crearPlan: (datos: unknown) =>
     peticion<{ plan: FilaControl }>('/api/admin/planes', { method: 'POST', body: datos }),

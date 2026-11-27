@@ -992,6 +992,71 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
     expect(trasBorrar.body.total).toBe(0);
   });
 
+  it('lista turnos de caja desde el panel sin errores de enum', async () => {
+    const adminToken = await entrarComoAdmin();
+    const respuesta = await request(app)
+      .get('/api/admin/operacion/turnos')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .query({ empresaId, limit: 25 });
+
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.body.total).toBeGreaterThan(0);
+    expect(respuesta.body.items[0].empresa_nombre).toBe(`Empresa E2E ${sufijo}`);
+  });
+
+  it('gestiona el borrado de administradores y protege al propietario', async () => {
+    const adminToken = await entrarComoAdmin();
+    const autorizacion = { Authorization: `Bearer ${adminToken}` };
+    const correo = `borrar-${sufijo}@test.local`;
+
+    const creado = await request(app)
+      .post('/api/admin/plataforma/administradores')
+      .set(autorizacion)
+      .send({ email: correo, nombre: 'Admin temporal', password: 'ClaveSegura123' });
+    expect(creado.status).toBe(201);
+    const id = creado.body.administrador.id as string;
+
+    const incorrecto = await request(app)
+      .delete(`/api/admin/plataforma/administradores/${id}`)
+      .set(autorizacion)
+      .send({ email: `otro-${sufijo}@test.local` });
+    expect(incorrecto.status).toBe(409);
+    expect(incorrecto.body.error).toBe('CONFIRMACION_INVALIDA');
+
+    const propio = await request(app)
+      .delete(`/api/admin/plataforma/administradores/${adminId}`)
+      .set(autorizacion)
+      .send({ email: correo });
+    expect(propio.status).toBe(409);
+    expect(propio.body.error).toBe('ADMIN_PROTEGIDO');
+
+    await withAdmin((client) =>
+      client.query(`update admin_usuarios set protegido = true where id = $1`, [id])
+    );
+    const protegido = await request(app)
+      .delete(`/api/admin/plataforma/administradores/${id}`)
+      .set(autorizacion)
+      .send({ email: correo });
+    expect(protegido.status).toBe(409);
+    expect(protegido.body.error).toBe('ADMIN_PROTEGIDO');
+
+    await withAdmin((client) =>
+      client.query(`update admin_usuarios set protegido = false where id = $1`, [id])
+    );
+    const borrado = await request(app)
+      .delete(`/api/admin/plataforma/administradores/${id}`)
+      .set(autorizacion)
+      .send({ email: correo });
+    expect(borrado.status).toBe(204);
+
+    const listado = await request(app)
+      .get('/api/admin/plataforma/administradores')
+      .set(autorizacion)
+      .query({ q: correo });
+    expect(listado.status).toBe(200);
+    expect(listado.body.total).toBe(0);
+  });
+
   it('elimina definitivamente una empresa y todos sus datos', async () => {
     const adminToken = await entrarComoAdmin();
     const autorizacion = { Authorization: `Bearer ${adminToken}` };

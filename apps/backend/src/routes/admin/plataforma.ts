@@ -28,6 +28,10 @@ const editarAdminSchema = z
   })
   .refine((datos) => Object.keys(datos).length > 0, 'SIN_CAMBIOS');
 
+const eliminarAdminSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+});
+
 export const adminPlataformaRouter = Router();
 
 adminPlataformaRouter.use(requireAdmin);
@@ -113,8 +117,8 @@ adminPlataformaRouter.get(
     parametros.push(consulta.limit, (consulta.page - 1) * consulta.limit);
     const resultado = await withAdmin((client) =>
       client.query<{ total: number }>(
-        `select id, email, nombre, rol::text as rol, activo, created_at, updated_at,
-                count(*) over()::int as total
+        `select id, email, nombre, rol::text as rol, activo, protegido,
+                created_at, updated_at, count(*) over()::int as total
          from admin_usuarios
          where lower(nombre) like $1 or lower(email) like $1
          order by created_at desc, id desc
@@ -162,11 +166,29 @@ adminPlataformaRouter.patch(
     const id = uuidSchema.parse(req.params.id);
     const datos = editarAdminSchema.parse(req.body);
     const actualizado = await withAdmin(async (client) => {
-      const actual = await client.query<{ id: string; activo: boolean }>(
-        `select id, activo from admin_usuarios where id = $1`,
+      const actual = await client.query<{
+        id: string;
+        email: string;
+        activo: boolean;
+        protegido: boolean;
+      }>(
+        `select id, email, activo, protegido from admin_usuarios where id = $1`,
         [id]
       );
       if (!actual.rowCount) throw new ApiError(404, 'ADMIN_NO_ENCONTRADO');
+
+      if (
+        actual.rows[0].protegido &&
+        (datos.activo === false ||
+          (datos.email !== undefined &&
+            datos.email.toLowerCase() !== actual.rows[0].email.toLowerCase()))
+      ) {
+        throw new ApiError(
+          409,
+          'ADMIN_PROTEGIDO',
+          'La cuenta del propietario no puede desactivarse ni cambiar de correo.'
+        );
+      }
 
       if (datos.activo === false) {
         if (req.admin?.id === id) {
@@ -191,7 +213,7 @@ adminPlataformaRouter.patch(
            password_hash = coalesce($5, password_hash),
            updated_at = now()
          where id = $1
-         returning id, email, nombre, rol::text as rol, activo, updated_at`,
+          returning id, email, nombre, rol::text as rol, activo, protegido, updated_at`,
         [id, datos.email ?? null, datos.nombre ?? null, datos.activo ?? null, hash]
       );
       await auditar(req, client, {
@@ -208,6 +230,70 @@ adminPlataformaRouter.patch(
       return admin.rows[0];
     });
     res.json({ administrador: actualizado });
+  })
+);
+
+adminPlataformaRouter.delete(
+  '/administradores/:id',
+  asyncHandler(async (req, res) => {
+    const id = uuidSchema.parse(req.params.id);
+    const { email } = eliminarAdminSchema.parse(req.body);
+
+    await withAdmin(async (client) => {
+      const actual = await client.query<{
+        email: string;
+        activo: boolean;
+        protegido: boolean;
+      }>(
+        `select email, activo, protegido from admin_usuarios where id = $1`,
+        [id]
+      );
+      if (!actual.rowCount) throw new ApiError(404, 'ADMIN_NO_ENCONTRADO');
+
+      if (actual.rows[0].protegido) {
+        throw new ApiError(
+          409,
+          'ADMIN_PROTEGIDO',
+          'La cuenta del propietario no puede eliminarse.'
+        );
+      }
+      if (req.admin?.id === id) {
+        throw new ApiError(409, 'ADMIN_PROTEGIDO', 'No puedes eliminar tu propia cuenta.');
+      }
+      if (actual.rows[0].email.toLowerCase() !== email) {
+        throw new ApiError(
+          409,
+          'CONFIRMACION_INVALIDA',
+          'El correo no coincide con el administrador que quieres eliminar.'
+        );
+      }
+
+      const conteos = await client.query<{ total: number; activos: number }>(
+        `select count(*)::int as total,
+                count(*) filter (where activo)::int as activos
+         from admin_usuarios`
+      );
+      if (
+        conteos.rows[0].total <= 1 ||
+        (actual.rows[0].activo && conteos.rows[0].activos <= 1)
+      ) {
+        throw new ApiError(
+          409,
+          'ULTIMO_ADMIN',
+          'Debe quedar al menos un administrador activo.'
+        );
+      }
+
+      await client.query(`delete from admin_usuarios where id = $1`, [id]);
+      await auditar(req, client, {
+        accion: 'admin.eliminado',
+        entidad: 'admin_usuarios',
+        entidadId: id,
+        payload: {},
+      });
+    });
+
+    res.status(204).end();
   })
 );
 
