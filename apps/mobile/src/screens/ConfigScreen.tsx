@@ -960,7 +960,12 @@ function SeguridadCuentaHoja({
         <ContenidoCodigoRecuperacion nombre={sesion.nombre} codigo={codigoGenerado} />
       ) : (
         <>
-          <Text style={[styles.formAyuda, { color: colores.textoSuave }]}>
+          <Text
+            style={[
+              styles.formAyuda,
+              { color: colores.textoSuave, marginTop: 0, marginBottom: spacing.md },
+            ]}
+          >
             {esPin
               ? 'Si no recuerdas tu PIN actual, cierra esta hoja y usa “¿Olvidaste tu PIN?” en la pantalla de acceso.'
               : 'Se mostrará una sola vez. Si ya tenías un código, dejará de funcionar y se reemplazará por este.'}
@@ -1019,7 +1024,12 @@ function SeguridadCuentaHoja({
               />
             </>
           ) : (
-            <Text style={[styles.formAyuda, { color: colores.textoSuave }]}>
+            <Text
+              style={[
+                styles.formAyuda,
+                { color: colores.textoSuave, marginTop: 0, marginBottom: spacing.md },
+              ]}
+            >
               El código tiene 12 caracteres y no usa letras I, O ni los números 0 y 1.
               Anótalo en un lugar seguro.
             </Text>
