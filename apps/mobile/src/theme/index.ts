@@ -97,6 +97,7 @@ export const paletas: Record<ModoTema, PaletaColores> = {
 };
 
 export const gradientes = {
+  bienvenida: ['#6A4FE6', '#4A32B8'],
   primario: ['#4B4BC8', '#3F3FB0'],
   cta: ['#4A4AC6', '#3F3FB0'],
   cobrar: ['#4A4AC6', '#3F3FB0'],

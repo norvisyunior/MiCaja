@@ -191,8 +191,6 @@ function Contenido() {
       <BienvenidaScreen
         onIniciarSesion={() => setEstado('login')}
         onCrearCuenta={() => setEstado('registro')}
-        onActivar={() => setEstado('activacion')}
-        onConfigurarLocal={() => setEstado('setup')}
       />
     );
   }
