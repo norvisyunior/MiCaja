@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
-import { pool, withAdmin } from '../src/db';
+import { withAdmin } from '../src/db';
 import { generarCodigoActivacion, hashCodigoActivacion } from '../src/services/licencias';
 
 function sha256(valor: string): string {
@@ -251,7 +251,6 @@ describe.skipIf(!ejecutar)('login global por usuario y PIN', () => {
         client.query(`delete from empresas where id = $1`, [empresaId])
       );
     }
-    await pool.end();
   });
 
   function login(usuario: string, fingerprint: string) {

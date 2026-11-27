@@ -3,10 +3,48 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { Icono, type NombreIcono } from './Iconos';
 
-const NAVEGACION: Array<{ a: string; etiqueta: string; icono: NombreIcono; fin?: boolean }> = [
+interface EnlaceNav {
+  a: string;
+  etiqueta: string;
+  icono: NombreIcono;
+  fin?: boolean;
+}
+
+const NAVEGACION: EnlaceNav[] = [
   { a: '/', etiqueta: 'Resumen', icono: 'panel', fin: true },
   { a: '/empresas', etiqueta: 'Empresas', icono: 'edificio' },
   { a: '/licencias', etiqueta: 'Licencias', icono: 'ticket' },
+];
+
+const SECCIONES: Array<{ titulo: string; enlaces: EnlaceNav[] }> = [
+  {
+    titulo: 'Gestión',
+    enlaces: [
+      { a: '/control/usuarios', etiqueta: 'Usuarios', icono: 'usuarios' },
+      { a: '/control/categorias', etiqueta: 'Categorías', icono: 'edificio' },
+      { a: '/control/productos', etiqueta: 'Productos', icono: 'candado' },
+    ],
+  },
+  {
+    titulo: 'Operación',
+    enlaces: [
+      { a: '/control/ventas', etiqueta: 'Ventas', icono: 'ticket' },
+      { a: '/control/turnos', etiqueta: 'Turnos', icono: 'reloj' },
+      { a: '/control/gastos', etiqueta: 'Gastos', icono: 'alerta' },
+      { a: '/control/movimientos-caja', etiqueta: 'Caja', icono: 'panel' },
+      { a: '/control/conteos', etiqueta: 'Conteos', icono: 'candado' },
+    ],
+  },
+  {
+    titulo: 'Plataforma',
+    enlaces: [
+      { a: '/control/dispositivos', etiqueta: 'Terminales', icono: 'dispositivo' },
+      { a: '/control/invitaciones', etiqueta: 'Invitaciones', icono: 'usuarios' },
+      { a: '/planes', etiqueta: 'Planes', icono: 'ticket' },
+      { a: '/administradores', etiqueta: 'Administradores', icono: 'usuarios' },
+      { a: '/control/auditoria', etiqueta: 'Auditoría', icono: 'reloj' },
+    ],
+  },
 ];
 
 function iniciales(nombre: string): string {
@@ -46,20 +84,40 @@ export function Layout() {
           </div>
         </div>
 
-        <p className="lateral__seccion">Operaciones</p>
-        <nav className="lateral__nav" aria-label="Navegación principal">
-          {NAVEGACION.map((item) => (
-            <NavLink
-              key={item.a}
-              to={item.a}
-              end={item.fin}
-              className={({ isActive }) => `nav-enlace ${isActive ? 'nav-enlace--activo' : ''}`}
-            >
-              <Icono nombre={item.icono} tamano={18} />
-              <span>{item.etiqueta}</span>
-            </NavLink>
+        <div className="lateral__navs">
+          <p className="lateral__seccion">Operaciones</p>
+          <nav className="lateral__nav" aria-label="Navegación principal">
+            {NAVEGACION.map((item) => (
+              <NavLink
+                key={item.a}
+                to={item.a}
+                end={item.fin}
+                className={({ isActive }) => `nav-enlace ${isActive ? 'nav-enlace--activo' : ''}`}
+              >
+                <Icono nombre={item.icono} tamano={18} />
+                <span>{item.etiqueta}</span>
+              </NavLink>
+            ))}
+          </nav>
+
+          {SECCIONES.map((seccion) => (
+            <div key={seccion.titulo} className="lateral__bloque">
+              <p className="lateral__seccion">{seccion.titulo}</p>
+              <nav className="lateral__nav" aria-label={seccion.titulo}>
+                {seccion.enlaces.map((item) => (
+                  <NavLink
+                    key={item.a}
+                    to={item.a}
+                    className={({ isActive }) => `nav-enlace ${isActive ? 'nav-enlace--activo' : ''}`}
+                  >
+                    <Icono nombre={item.icono} tamano={18} />
+                    <span>{item.etiqueta}</span>
+                  </NavLink>
+                ))}
+              </nav>
+            </div>
           ))}
-        </nav>
+        </div>
 
         <div className="lateral__pie">
           <div className="lateral__nota">

@@ -51,6 +51,42 @@ export function Boton({
   );
 }
 
+interface BotonIconoProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
+  icono: NombreIcono;
+  etiqueta: string;
+  variante?: VarianteBoton;
+  cargando?: boolean;
+}
+
+export function BotonIcono({
+  icono,
+  etiqueta,
+  variante = 'fantasma',
+  cargando = false,
+  className,
+  disabled,
+  ...props
+}: BotonIconoProps) {
+  return (
+    <button
+      type="button"
+      className={['boton', 'boton-icono', `boton--${variante}`, className ?? '']
+        .filter(Boolean)
+        .join(' ')}
+      aria-label={etiqueta}
+      title={etiqueta}
+      disabled={disabled || cargando}
+      {...props}
+    >
+      {cargando ? (
+        <span className="girador girador--pequeno" aria-hidden="true" />
+      ) : (
+        <Icono nombre={icono} tamano={16} />
+      )}
+    </button>
+  );
+}
+
 type TonoBadge = 'ok' | 'warn' | 'danger' | 'neutral' | 'info';
 
 export function Insignia({
@@ -371,6 +407,38 @@ export function EncabezadoPagina({
         {descripcion ? <p>{descripcion}</p> : null}
       </div>
       {acciones ? <div className="encabezado__acciones">{acciones}</div> : null}
+    </div>
+  );
+}
+
+export function Paginacion({
+  pagina,
+  totalPaginas,
+  total,
+  onCambiar,
+}: {
+  pagina: number;
+  totalPaginas: number;
+  total?: number;
+  onCambiar: (pagina: number) => void;
+}) {
+  return (
+    <div className="tabla-paginacion">
+      {total !== undefined ? <span className="tabla-paginacion__total">{total} registros</span> : null}
+      <Boton variante="fantasma" compacto disabled={pagina <= 1} onClick={() => onCambiar(pagina - 1)}>
+        Anterior
+      </Boton>
+      <span>
+        Página {pagina} de {totalPaginas}
+      </span>
+      <Boton
+        variante="fantasma"
+        compacto
+        disabled={pagina >= totalPaginas}
+        onClick={() => onCambiar(pagina + 1)}
+      >
+        Siguiente
+      </Boton>
     </div>
   );
 }

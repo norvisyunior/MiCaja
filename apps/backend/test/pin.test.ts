@@ -1,6 +1,10 @@
 import crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { PIN_HASH_FICTICIO, verificarPinServidor } from '../src/services/pin';
+import {
+  PIN_HASH_FICTICIO,
+  crearHashPin,
+  verificarPinServidor,
+} from '../src/services/pin';
 
 function sha256(valor: string): string {
   return crypto.createHash('sha256').update(valor).digest('hex');
@@ -42,5 +46,18 @@ describe('verificación de PIN del servidor', () => {
 
   it('mantiene un hash ficticio válido para usuarios inexistentes', () => {
     expect(verificarPinServidor('1234', PIN_HASH_FICTICIO)).toBe(false);
+  });
+});
+
+describe('generación de hash de PIN del backend', () => {
+  it('produce un hash que el servidor puede verificar', () => {
+    const hash = crearHashPin('1234');
+    expect(hash).toMatch(/^sha256it\$1000\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+    expect(verificarPinServidor('1234', hash)).toBe(true);
+    expect(verificarPinServidor('9999', hash)).toBe(false);
+  });
+
+  it('usa una sal distinta en cada generación', () => {
+    expect(crearHashPin('1234')).not.toBe(crearHashPin('1234'));
   });
 });

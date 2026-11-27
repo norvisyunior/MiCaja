@@ -16,6 +16,7 @@ import { registroRouter } from './routes/registro';
 import { syncRouter } from './routes/sync';
 import { deviceRouter } from './routes/device';
 import { reportesRouter } from './routes/reportes';
+import { adminControlRouter } from './routes/admin';
 
 export function createApp(): express.Express {
   const app = express();
@@ -47,6 +48,7 @@ export function createApp(): express.Express {
   app.use('/api/admin/licencias', licenciasRouter);
   app.use('/api/admin/planes', planesRouter);
   app.use('/api/admin/resumen', resumenRouter);
+  app.use('/api/admin', adminControlRouter);
   app.use('/api/auth', authUsuarioRouter);
   app.use('/api', activacionRouter);
   app.use('/api', registroRouter);

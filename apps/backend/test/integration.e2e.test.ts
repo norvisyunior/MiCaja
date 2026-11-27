@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decodeLicenseToken } from '@micaja/shared';
 import { createApp } from '../src/app';
 import { env } from '../src/config';
-import { pool, withAdmin } from '../src/db';
+import { withAdmin } from '../src/db';
 import { verificarLicenciaConClave } from '../src/services/licencias';
 
 const ejecutar = Boolean(process.env.DATABASE_URL && process.env.LICENSE_PRIVATE_KEY);
@@ -76,7 +76,6 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
         client.query(`delete from admin_usuarios where id = $1`, [adminId])
       );
     }
-    await pool.end();
   });
 
   it('crea empresa, activa dispositivo, sincroniza venta y stock', async () => {
@@ -556,6 +555,7 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
   async function licenciaDeEmpresa(adminToken: string, empresaBuscada: string): Promise<string> {
     const listado = await request(app)
       .get('/api/admin/licencias')
+      .query({ limit: 200 })
       .set('Authorization', `Bearer ${adminToken}`);
     expect(listado.status).toBe(200);
     const licencia = listado.body.licencias.find(
@@ -882,5 +882,113 @@ describe.skipIf(!ejecutar)('flujo E2E de activación y sincronización', () => {
       .send({ venceEn: new Date(Date.now() - 86_400_000).toISOString() });
     expect(invalido.status).toBe(400);
     expect(invalido.body.error).toBe('VENCIMIENTO_INVALIDO');
+  });
+
+  it('admin crea usuarios con PIN inicial, ajusta stock y consulta la auditoría', async () => {
+    const adminToken = await entrarComoAdmin();
+    const autorizacion = { Authorization: `Bearer ${adminToken}` };
+    const usuarioTecnico = `panel${sufijo}`;
+
+    const creado = await request(app)
+      .post('/api/admin/usuarios')
+      .set(autorizacion)
+      .send({
+        empresaId,
+        nombre: 'Usuario del panel',
+        usuario: usuarioTecnico,
+        rol: 'dependiente',
+      });
+    expect(creado.status).toBe(201);
+    expect(creado.body.pinInicial).toBe('1234');
+    const usuarioId = creado.body.usuario.id as string;
+
+    const login = await request(app).post('/api/auth/usuario').send({
+      usuario: usuarioTecnico,
+      pin: '1234',
+      fingerprint: `fingerprint-panel-${sufijo}`,
+      nombre: 'Caja panel',
+      plataforma: 'android',
+    });
+    expect(login.status).toBe(200);
+
+    const reset = await request(app)
+      .post(`/api/admin/usuarios/${usuarioId}/reset-pin`)
+      .set(autorizacion);
+    expect(reset.status).toBe(200);
+    expect(reset.body.pinInicial).toBe('1234');
+
+    const categoria = await request(app)
+      .post('/api/admin/catalogo/categorias')
+      .set(autorizacion)
+      .send({ empresaId, nombre: `Categoría panel ${sufijo}` });
+    expect(categoria.status).toBe(201);
+
+    const producto = await request(app)
+      .post('/api/admin/catalogo/productos')
+      .set(autorizacion)
+      .send({
+        empresaId,
+        categoriaId: categoria.body.categoria.id,
+        nombre: `Producto panel ${sufijo}`,
+        precio: 5,
+      });
+    expect(producto.status).toBe(201);
+    const productoId = producto.body.producto.id as string;
+
+    const ajuste = await request(app)
+      .post(`/api/admin/catalogo/productos/${productoId}/ajustar-stock`)
+      .set(autorizacion)
+      .send({ cantidad: 10, motivo: 'Carga inicial desde el panel' });
+    expect(ajuste.status).toBe(200);
+    expect(Number(ajuste.body.stockActual)).toBe(10);
+
+    const listadoProductos = await request(app)
+      .get('/api/admin/catalogo/productos')
+      .query({ empresaId, q: `Producto panel ${sufijo}` })
+      .set(autorizacion);
+    expect(listadoProductos.status).toBe(200);
+    expect(listadoProductos.body.total).toBe(1);
+    expect(listadoProductos.body.items[0].id).toBe(productoId);
+
+    const listadoVentas = await request(app)
+      .get('/api/admin/operacion/ventas')
+      .query({ empresaId })
+      .set(autorizacion);
+    expect(listadoVentas.status).toBe(200);
+    expect(listadoVentas.body.items.length).toBeGreaterThan(0);
+    expect(listadoVentas.body.items[0].items.length).toBeGreaterThan(0);
+
+    const ventaId = listadoVentas.body.items[0].id as string;
+    const anulacion = await request(app)
+      .post(`/api/admin/operacion/ventas/${ventaId}/anular`)
+      .set(autorizacion)
+      .send({ motivo: 'Revisión desde el panel' });
+    expect(anulacion.status).toBe(200);
+    expect(anulacion.body.anulada).toBe(true);
+
+    const dispositivos = await request(app)
+      .get('/api/admin/plataforma/dispositivos')
+      .query({ empresaId })
+      .set(autorizacion);
+    expect(dispositivos.status).toBe(200);
+    expect(dispositivos.body.total).toBeGreaterThan(0);
+
+    const auditoria = await request(app)
+      .get('/api/admin/plataforma/auditoria')
+      .query({ empresaId, accion: 'usuario.creado' })
+      .set(autorizacion);
+    expect(auditoria.status).toBe(200);
+    expect(auditoria.body.total).toBeGreaterThan(0);
+
+    const borrado = await request(app)
+      .delete(`/api/admin/catalogo/productos/${productoId}`)
+      .set(autorizacion);
+    expect(borrado.status).toBe(204);
+
+    const trasBorrar = await request(app)
+      .get('/api/admin/catalogo/productos')
+      .query({ empresaId, q: `Producto panel ${sufijo}` })
+      .set(autorizacion);
+    expect(trasBorrar.body.total).toBe(0);
   });
 });

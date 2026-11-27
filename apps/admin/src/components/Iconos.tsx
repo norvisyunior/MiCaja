@@ -19,7 +19,13 @@ export type NombreIcono =
   | 'menu'
   | 'rayo'
   | 'candado'
-  | 'calendario';
+  | 'calendario'
+  | 'editar'
+  | 'papelera'
+  | 'clave'
+  | 'stock'
+  | 'prohibido'
+  | 'ojo';
 
 function contenido(nombre: NombreIcono): ReactElement {
   switch (nombre) {
@@ -128,6 +134,48 @@ function contenido(nombre: NombreIcono): ReactElement {
         <>
           <rect x="3" y="5" width="18" height="16" rx="2" />
           <path d="M8 3v4M16 3v4M3 10h18" />
+        </>
+      );
+    case 'editar':
+      return (
+        <>
+          <path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+          <path d="M14 7l3 3" />
+        </>
+      );
+    case 'papelera':
+      return (
+        <>
+          <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+          <path d="M10 11v5M14 11v5" />
+        </>
+      );
+    case 'clave':
+      return (
+        <>
+          <circle cx="8" cy="15" r="4" />
+          <path d="M11 12l8-8 2 2-2 2 2 2-3 3-2-2-2 2" />
+        </>
+      );
+    case 'stock':
+      return (
+        <>
+          <path d="M4 8h16v12H4z" />
+          <path d="M4 12h16M9 8v12M15 8v12" />
+        </>
+      );
+    case 'prohibido':
+      return (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m6 6 12 12" />
+        </>
+      );
+    case 'ojo':
+      return (
+        <>
+          <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+          <circle cx="12" cy="12" r="2.8" />
         </>
       );
   }

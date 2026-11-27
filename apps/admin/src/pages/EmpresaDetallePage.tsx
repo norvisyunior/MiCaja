@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, apiControl } from '../api/client';
 import type {
   CodigoResultado,
   EmpresaDetalle,
@@ -23,6 +23,7 @@ import {
   Confirmacion,
   EncabezadoPagina,
   Modal,
+  Paginacion,
   TicketCodigo,
   Vacio,
 } from '../components/UI';
@@ -52,15 +53,16 @@ type ConfirmacionTipo = 'suspender' | 'reactivar' | 'cancelar';
 export function EmpresaDetallePage() {
   const { id } = useParams<{ id: string }>();
   const { mostrarToast } = useToast();
+  const [paginaDispositivos, setPaginaDispositivos] = useState(1);
   const { datos, error, cargando, recargar } = useCargar<DatosEmpresa>(
     async () => {
       if (!id) throw new Error('EMPRESA_NO_ENCONTRADA');
       return {
-        empresa: await api.empresa(id),
-        planes: await api.planes(),
+        empresa: await api.empresa(id, { page: paginaDispositivos, limit: 10 }),
+        planes: (await api.planes({ limit: 200 })).items,
       };
     },
-    [id]
+    [id, paginaDispositivos]
   );
 
   const [editando, setEditando] = useState(false);
@@ -84,6 +86,8 @@ export function EmpresaDetallePage() {
 
   const [confirmacion, setConfirmacion] = useState<ConfirmacionTipo | null>(null);
   const [estadoCargando, setEstadoCargando] = useState(false);
+  const [confirmandoEliminar, setConfirmandoEliminar] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
 
   const idNombre = useId();
   const idPropietario = useId();
@@ -222,6 +226,19 @@ export function EmpresaDetallePage() {
     }
   }
 
+  async function eliminarEmpresa() {
+    setEliminando(true);
+    try {
+      await apiControl.eliminarEmpresa(empresa.id);
+      setConfirmandoEliminar(false);
+      mostrarToast('Empresa eliminada. El historial se conserva.');
+      window.location.assign('/empresas');
+    } catch (fallo) {
+      mostrarToast(mensajeError(fallo), 'error');
+      setEliminando(false);
+    }
+  }
+
   const textosConfirmacion: Record<
     ConfirmacionTipo,
     { titulo: string; descripcion: string; texto: string; peligro: boolean; estado: EmpresaEstado }
@@ -272,6 +289,11 @@ export function EmpresaDetallePage() {
               <Link to={`/licencias/${empresa.licenciaId}`} className="boton boton--primario">
                 Gestionar licencia <span aria-hidden="true">→</span>
               </Link>
+            ) : null}
+            {empresa.estado !== 'cancelada' ? (
+              <Boton variante="peligro" icono="alerta" onClick={() => setConfirmandoEliminar(true)}>
+                Eliminar
+              </Boton>
             ) : null}
           </>
         }
@@ -383,6 +405,12 @@ export function EmpresaDetallePage() {
                 </table>
               </div>
             )}
+            <Paginacion
+              pagina={empresa.dispositivosPagina}
+              totalPaginas={Math.max(1, Math.ceil(empresa.dispositivosTotal / 10))}
+              total={empresa.dispositivosTotal}
+              onCambiar={setPaginaDispositivos}
+            />
           </section>
         </div>
 
@@ -661,6 +689,17 @@ export function EmpresaDetallePage() {
           onCerrar={() => setConfirmacion(null)}
         />
       ) : null}
+
+      <Confirmacion
+        abierto={confirmandoEliminar}
+        titulo="Eliminar empresa"
+        descripcion="Se marcará como eliminada, se suspenderá su licencia y se bloquearán las terminales. El historial se conserva y no se puede deshacer desde el panel."
+        textoConfirmar="Eliminar empresa"
+        peligro
+        cargando={eliminando}
+        onConfirmar={() => void eliminarEmpresa()}
+        onCerrar={() => setConfirmandoEliminar(false)}
+      />
     </div>
   );
 }

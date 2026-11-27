@@ -49,24 +49,47 @@ empresasRouter.use(requireAdmin);
 
 empresasRouter.get(
   '/',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const consulta = z
+      .object({
+        q: z.string().trim().max(120).optional(),
+        estado: estadoEmpresaSchema.optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(25),
+      })
+      .parse(req.query);
+
+    const parametros: unknown[] = [`%${consulta.q?.toLowerCase() ?? ''}%`];
+    let filtro = `where e.deleted_at is null
+                    and (lower(e.nombre) like $1 or lower(e.propietario) like $1
+                         or lower(coalesce(e.email, '')) like $1)`;
+    if (consulta.estado) {
+      parametros.push(consulta.estado);
+      filtro += ` and e.estado = $${parametros.length}`;
+    }
+    parametros.push(consulta.limit, (consulta.page - 1) * consulta.limit);
+
     const resultado = await withAdmin((client) =>
-      client.query<EmpresaListRow>(
+      client.query<EmpresaListRow & { total: number }>(
         `select e.id, e.nombre, e.propietario, e.email, e.telefono, e.estado,
                 e.plan_id, e.created_at, e.updated_at,
                 l.id as licencia_id, l.estado as licencia_estado, l.vence_en,
                 l.grace_dias, p.codigo as plan_codigo,
                 (select count(*) from dispositivos d
-                 where d.empresa_id = e.id and d.estado = 'activo')::int as dispositivos
+                 where d.empresa_id = e.id and d.estado = 'activo')::int as dispositivos,
+                count(*) over()::int as total
          from empresas e
          left join licencias l on l.empresa_id = e.id
          left join planes p on p.id = l.plan_id
-         where e.deleted_at is null
-         order by e.created_at desc
-         limit 200`
+         ${filtro}
+         order by e.created_at desc, e.id desc
+         limit $${parametros.length - 1} offset $${parametros.length}`,
+        parametros
       )
     );
-    res.json({ empresas: resultado.rows });
+    const total = resultado.rows.length ? Number(resultado.rows[0].total) : 0;
+    const empresas = resultado.rows.map(({ total: _total, ...empresa }) => empresa);
+    res.json({ empresas, total, page: consulta.page, limit: consulta.limit });
   })
 );
 
@@ -160,6 +183,12 @@ empresasRouter.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const id = z.string().uuid().parse(req.params.id);
+    const pagina = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(10),
+      })
+      .parse(req.query);
 
     const resultado = await withAdmin(async (client) => {
       const empresa = await client.query(
@@ -178,11 +207,12 @@ empresasRouter.get(
 
       const dispositivos = await client.query(
         `select id, nombre, plataforma, app_version, estado,
-                last_seen_at, last_sync_at, created_at
+                last_seen_at, last_sync_at, created_at, count(*) over()::int as total
          from dispositivos
          where empresa_id = $1
-         order by created_at asc`,
-        [id]
+         order by created_at asc, id asc
+         limit $2 offset $3`,
+        [id, pagina.limit, (pagina.page - 1) * pagina.limit]
       );
 
       const conteos = await client.query<{
@@ -201,7 +231,9 @@ empresasRouter.get(
 
       return {
         empresa: empresa.rows[0],
-        dispositivos: dispositivos.rows,
+        dispositivos: dispositivos.rows.map(({ total: _total, ...dispositivo }) => dispositivo),
+        dispositivosTotal: dispositivos.rows.length ? Number(dispositivos.rows[0].total) : 0,
+        dispositivosPagina: pagina.page,
         conteos: conteos.rows[0],
       };
     });
@@ -306,5 +338,52 @@ empresasRouter.patch(
     });
 
     res.json({ empresa: resultado });
+  })
+);
+
+/** Borrado lógico: conserva el historial y deja la empresa inoperativa. */
+empresasRouter.delete(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const id = z.string().uuid().parse(req.params.id);
+
+    await withAdmin(async (client) => {
+      const empresa = await client.query<{ id: string }>(
+        `select id from empresas where id = $1 and deleted_at is null`,
+        [id]
+      );
+      if (!empresa.rowCount) {
+        throw new ApiError(404, 'EMPRESA_NO_ENCONTRADA');
+      }
+
+      await client.query(
+        `update empresas set deleted_at = now(), estado = 'cancelada', updated_at = now()
+         where id = $1`,
+        [id]
+      );
+      await client.query(
+        `update licencias set estado = 'suspendida', updated_at = now()
+         where empresa_id = $1`,
+        [id]
+      );
+      await client.query(
+        `update dispositivos set estado = 'bloqueado', licencia_firmada = null,
+                licencia_emitida_en = null, updated_at = now()
+         where empresa_id = $1`,
+        [id]
+      );
+
+      await registrarAuditoria(client, {
+        empresaId: id,
+        actorTipo: 'admin',
+        actorId: req.admin?.id,
+        accion: 'empresa.eliminada',
+        entidad: 'empresas',
+        entidadId: id,
+        ip: req.ip,
+      });
+    });
+
+    res.status(204).end();
   })
 );

@@ -71,26 +71,68 @@ export const licenciasRouter = Router();
 
 licenciasRouter.use(requireAdmin);
 
+const listaLicenciasSchema = z.object({
+  q: z.string().trim().max(120).optional(),
+  estado: z.enum(['todas', 'activa', 'gracia', 'pendiente', 'vencida', 'suspendida']).default('todas'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(25),
+});
+
 licenciasRouter.get(
   '/',
-  asyncHandler(async (_req, res) => {
-    const resultado = await withAdmin((client) =>
-      client.query<LicenciaListRow>(
+  asyncHandler(async (req, res) => {
+    const consulta = listaLicenciasSchema.parse(req.query);
+    const parametros: unknown[] = [`%${consulta.q?.toLowerCase() ?? ''}%`];
+    let filtro = `where e.deleted_at is null
+                    and (lower(e.nombre) like $1 or lower(p.codigo) like $1
+                         or lower(coalesce(p.nombre, '')) like $1)`;
+    if (consulta.estado === 'gracia') {
+      filtro += ` and l.estado = 'activa' and l.vence_en <= now()
+                   and now() <= l.vence_en + make_interval(days => l.grace_dias)`;
+    } else if (consulta.estado !== 'todas') {
+      filtro += ` and l.estado = $${parametros.push(consulta.estado)}`;
+    }
+    parametros.push(consulta.limit, (consulta.page - 1) * consulta.limit);
+
+    const resultado = await withAdmin(async (client) => {
+      const licencias = await client.query<LicenciaListRow & { total: number }>(
         `select l.id, l.empresa_id, e.nombre as empresa_nombre,
                 e.estado as empresa_estado, p.codigo as plan_codigo,
                 p.nombre as plan_nombre, l.estado, l.activada_en, l.vence_en,
                 l.grace_dias, l.codigo_expira_en, l.codigo_usado_en,
                 (select count(*) from dispositivos d
-                 where d.empresa_id = l.empresa_id and d.estado = 'activo')::int as dispositivos
+                 where d.empresa_id = l.empresa_id and d.estado = 'activo')::int as dispositivos,
+                count(*) over()::int as total
          from licencias l
          join empresas e on e.id = l.empresa_id
          join planes p on p.id = l.plan_id
-         where e.deleted_at is null
-         order by l.vence_en asc
-         limit 200`
-      )
-    );
-    res.json({ licencias: resultado.rows });
+         ${filtro}
+         order by l.vence_en asc, l.id asc
+         limit $${parametros.length - 1} offset $${parametros.length}`,
+        parametros
+      );
+      const conteos = await client.query<{
+        activas: number;
+        gracia: number;
+        vencidas: number;
+        pendientes: number;
+      }>(
+        `select
+           count(*) filter (where l.estado = 'activa' and l.vence_en > now())::int as activas,
+           count(*) filter (where l.estado = 'activa' and l.vence_en <= now())::int as gracia,
+           count(*) filter (where l.estado = 'vencida')::int as vencidas,
+           count(*) filter (where l.estado = 'pendiente')::int as pendientes
+         from licencias l join empresas e on e.id = l.empresa_id
+         where e.deleted_at is null`
+      );
+      const total = licencias.rows.length ? Number(licencias.rows[0].total) : 0;
+      return {
+        licencias: licencias.rows.map(({ total: _total, ...licencia }) => licencia),
+        total,
+        conteos: conteos.rows[0],
+      };
+    });
+    res.json({ ...resultado, page: consulta.page, limit: consulta.limit });
   })
 );
 
@@ -510,16 +552,28 @@ licenciasRouter.get(
   '/:id/eventos',
   asyncHandler(async (req, res) => {
     const id = z.string().uuid().parse(req.params.id);
+    const pagina = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(200).default(10),
+      })
+      .parse(req.query);
     const resultado = await withAdmin((client) =>
-      client.query(
-        `select id, tipo, payload, created_at
+      client.query<{ total: number }>(
+        `select id::text, tipo, payload, created_at, count(*) over()::int as total
          from licencias_eventos
          where licencia_id = $1
-         order by created_at desc
-         limit 100`,
-        [id]
+         order by created_at desc, id desc
+         limit $2 offset $3`,
+        [id, pagina.limit, (pagina.page - 1) * pagina.limit]
       )
     );
-    res.json({ eventos: resultado.rows });
+    const total = resultado.rows.length ? Number(resultado.rows[0].total) : 0;
+    res.json({
+      eventos: resultado.rows.map(({ total: _total, ...evento }) => evento),
+      total,
+      page: pagina.page,
+      limit: pagina.limit,
+    });
   })
 );

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
-import { pool, withAdmin } from '../src/db';
+import { withAdmin } from '../src/db';
 
 const ejecutar = Boolean(process.env.DATABASE_URL && process.env.LICENSE_PRIVATE_KEY);
 
@@ -49,7 +49,6 @@ describe.skipIf(!ejecutar)('cierre y caja E2E', () => {
     if (adminId) {
       await withAdmin((client) => client.query(`delete from admin_usuarios where id = $1`, [adminId]));
     }
-    await pool.end();
   });
 
   async function crearNegocio(nombre: string) {

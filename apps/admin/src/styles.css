@@ -253,6 +253,15 @@ svg {
   font-size: 12px;
 }
 
+.boton-icono {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 9px;
+}
+
 .boton--bloque {
   width: 100%;
 }
@@ -837,10 +846,35 @@ svg {
   flex-direction: column;
   width: var(--lateral);
   padding: 24px 18px 18px;
+  overflow: hidden;
   background:
     radial-gradient(circle at 0% 0%, rgba(63, 115, 205, 0.2), transparent 19rem),
     var(--tinta);
   color: #edf1f7;
+}
+
+.lateral__navs {
+  flex: 1;
+  min-height: 0;
+  margin-right: -6px;
+  padding-right: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.lateral__navs::-webkit-scrollbar {
+  width: 5px;
+}
+
+.lateral__navs::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.lateral__bloque {
+  margin-top: 16px;
 }
 
 .marca {
@@ -1507,6 +1541,16 @@ svg {
   padding-right: 0;
 }
 
+.panel--plano > .tabla-contenedor .tabla--compacta th:first-child,
+.panel--plano > .tabla-contenedor .tabla--compacta td:first-child {
+  padding-left: 20px;
+}
+
+.panel--plano > .tabla-contenedor .tabla--compacta th:last-child,
+.panel--plano > .tabla-contenedor .tabla--compacta td:last-child {
+  padding-right: 20px;
+}
+
 .tabla .num {
   font-family: var(--mono);
   font-size: 11.5px;
@@ -1546,9 +1590,36 @@ a.celda-principal:hover {
   white-space: nowrap;
 }
 
-.acciones-fila .insignia {
-  margin-right: 9px;
+.acciones-grupo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
   vertical-align: middle;
+}
+
+.acciones-fila .insignia {
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.acciones-grupo .boton {
+  border-color: transparent;
+  background: rgba(30, 79, 163, 0.06);
+  color: var(--cobalto);
+}
+
+.acciones-grupo .boton:hover:not(:disabled) {
+  background: rgba(30, 79, 163, 0.12);
+}
+
+.acciones-grupo .boton--peligro {
+  background: rgba(163, 58, 48, 0.07);
+  color: var(--rojo);
+}
+
+.acciones-grupo .boton--peligro:hover:not(:disabled) {
+  background: rgba(163, 58, 48, 0.14);
 }
 
 .enlace-fila {
@@ -2491,6 +2562,31 @@ a.celda-principal:hover {
   .linea-tiempo time {
     width: 100%;
     padding-left: 21px;
+  }
+}
+
+.tabla-paginacion {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--linea);
+  font-size: 12px;
+  color: var(--tinta-suave);
+}
+
+.tabla-paginacion__total {
+  margin-right: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 640px) {
+.tabla-paginacion {
+    justify-content: center;
+    flex-wrap: wrap;
   }
 }
 

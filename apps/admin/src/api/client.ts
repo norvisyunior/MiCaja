@@ -66,7 +66,7 @@ function tokenGuardado(): string | null {
 }
 
 interface OpcionesPeticion {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   autenticada?: boolean;
 }
@@ -105,6 +105,7 @@ async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {}): Promi
       );
     }
 
+    if (respuesta.status === 204) return undefined as T;
     return (await respuesta.json()) as T;
   } catch (error) {
     if (error instanceof ErrorApi) throw error;
@@ -125,6 +126,16 @@ async function peticion<T>(ruta: string, opciones: OpcionesPeticion = {}): Promi
   }
 }
 
+interface ListaCruda {
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ListaBasica<T> extends ListaCruda {
+  items: T[];
+}
+
 interface EmpresaListaRespuesta {
   empresas: Parameters<typeof mapaEmpresa>[0][];
 }
@@ -132,11 +143,19 @@ interface EmpresaListaRespuesta {
 interface EmpresaDetalleRespuesta {
   empresa: Parameters<typeof mapaEmpresaDetalle>[0]['empresa'];
   dispositivos: Parameters<typeof mapaEmpresaDetalle>[0]['dispositivos'];
+  dispositivosTotal: number;
+  dispositivosPagina: number;
   conteos: Parameters<typeof mapaEmpresaDetalle>[0]['conteos'];
 }
 
 interface LicenciaListaRespuesta {
   licencias: Parameters<typeof mapaLicencia>[0][];
+  conteos: {
+    activas: number;
+    gracia: number;
+    vencidas: number;
+    pendientes: number;
+  };
 }
 
 interface LicenciaRespuesta {
@@ -162,21 +181,38 @@ export const api = {
     return mapaResumen(await peticion<Parameters<typeof mapaResumen>[0]>('/api/admin/resumen'));
   },
 
-  async planes(): Promise<Plan[]> {
-    const respuesta = await peticion<{ planes: Parameters<typeof mapaPlan>[0][] }>(
-      '/api/admin/planes'
+  async planes(parametros: ParametrosControl = {}): Promise<ListaBasica<Plan>> {
+    const respuesta = await peticion<{
+      planes: Parameters<typeof mapaPlan>[0][];
+      total: number;
+      page: number;
+      limit: number;
+    }>(conParametros('/api/admin/planes', parametros));
+    return {
+      items: respuesta.planes.map(mapaPlan),
+      total: respuesta.total,
+      page: respuesta.page,
+      limit: respuesta.limit,
+    };
+  },
+
+  async empresas(parametros: ParametrosControl = {}): Promise<ListaBasica<Empresa>> {
+    const respuesta = await peticion<EmpresaListaRespuesta & ListaCruda>(
+      conParametros('/api/admin/empresas', parametros)
     );
-    return respuesta.planes.map(mapaPlan);
+    return {
+      items: respuesta.empresas.map(mapaEmpresa),
+      total: respuesta.total,
+      page: respuesta.page,
+      limit: respuesta.limit,
+    };
   },
 
-  async empresas(): Promise<Empresa[]> {
-    const respuesta = await peticion<EmpresaListaRespuesta>('/api/admin/empresas');
-    return respuesta.empresas.map(mapaEmpresa);
-  },
-
-  async empresa(id: string): Promise<EmpresaDetalle> {
+  async empresa(id: string, parametros: ParametrosControl = {}): Promise<EmpresaDetalle> {
     return mapaEmpresaDetalle(
-      await peticion<EmpresaDetalleRespuesta>(`/api/admin/empresas/${id}`)
+      await peticion<EmpresaDetalleRespuesta>(
+        conParametros(`/api/admin/empresas/${id}`, parametros)
+      )
     );
   },
 
@@ -201,9 +237,19 @@ export const api = {
     });
   },
 
-  async licencias(): Promise<Licencia[]> {
-    const respuesta = await peticion<LicenciaListaRespuesta>('/api/admin/licencias');
-    return respuesta.licencias.map(mapaLicencia);
+  async licencias(
+    parametros: ParametrosControl = {}
+  ): Promise<ListaBasica<Licencia> & { conteos: LicenciaListaRespuesta['conteos'] }> {
+    const respuesta = await peticion<LicenciaListaRespuesta & ListaCruda>(
+      conParametros('/api/admin/licencias', parametros)
+    );
+    return {
+      items: respuesta.licencias.map(mapaLicencia),
+      total: respuesta.total,
+      page: respuesta.page,
+      limit: respuesta.limit,
+      conteos: respuesta.conteos,
+    };
   },
 
   async licencia(id: string): Promise<Licencia> {
@@ -243,10 +289,153 @@ export const api = {
     return mapaLicencia(respuesta.licencia);
   },
 
-  async eventos(id: string): Promise<Evento[]> {
-    const respuesta = await peticion<EventosRespuesta>(
-      `/api/admin/licencias/${id}/eventos`
+  async eventos(id: string, parametros: ParametrosControl = {}): Promise<ListaBasica<Evento>> {
+    const respuesta = await peticion<EventosRespuesta & ListaCruda>(
+      conParametros(`/api/admin/licencias/${id}/eventos`, parametros)
     );
-    return respuesta.eventos.map(mapaEvento);
+    return {
+      items: respuesta.eventos.map(mapaEvento),
+      total: respuesta.total,
+      page: respuesta.page,
+      limit: respuesta.limit,
+    };
   },
+};
+
+export type FilaControl = Record<string, unknown>;
+
+export interface ListaControl {
+  items: FilaControl[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ParametrosControl {
+  empresaId?: string;
+  q?: string;
+  page?: number;
+  limit?: number;
+  [clave: string]: string | number | boolean | undefined;
+}
+
+function conParametros(ruta: string, parametros: ParametrosControl = {}): string {
+  const consulta = new URLSearchParams();
+  for (const [clave, valor] of Object.entries(parametros)) {
+    if (valor !== undefined && valor !== '') consulta.set(clave, String(valor));
+  }
+  const texto = consulta.toString();
+  return texto ? `${ruta}?${texto}` : ruta;
+}
+
+function listar(ruta: string, parametros: ParametrosControl): Promise<ListaControl> {
+  return peticion<ListaControl>(conParametros(ruta, parametros));
+}
+
+/**
+ * Operaciones del panel con control total. Las filas llegan crudas desde
+ * la API (snake_case) y cada vista decide qué columnas mostrar; así un cambio
+ * de esquema no obliga a duplicar mapeadores en esta capa.
+ */
+export const apiControl = {
+  usuarios: (parametros: ParametrosControl) => listar('/api/admin/usuarios', parametros),
+  crearUsuario: (datos: unknown) =>
+    peticion<{ usuario: FilaControl; pinInicial: string }>('/api/admin/usuarios', {
+      method: 'POST',
+      body: datos,
+    }),
+  editarUsuario: (id: string, datos: unknown) =>
+    peticion<{ usuario: FilaControl }>(`/api/admin/usuarios/${id}`, {
+      method: 'PATCH',
+      body: datos,
+    }),
+  resetPinUsuario: (id: string) =>
+    peticion<{ id: string; pinInicial: string }>(`/api/admin/usuarios/${id}/reset-pin`, {
+      method: 'POST',
+    }),
+  eliminarUsuario: (id: string) =>
+    peticion<void>(`/api/admin/usuarios/${id}`, { method: 'DELETE' }),
+
+  categorias: (parametros: ParametrosControl) =>
+    listar('/api/admin/catalogo/categorias', parametros),
+  crearCategoria: (datos: unknown) =>
+    peticion<{ categoria: FilaControl }>('/api/admin/catalogo/categorias', {
+      method: 'POST',
+      body: datos,
+    }),
+  editarCategoria: (id: string, datos: unknown) =>
+    peticion<{ categoria: FilaControl }>(`/api/admin/catalogo/categorias/${id}`, {
+      method: 'PATCH',
+      body: datos,
+    }),
+  eliminarCategoria: (id: string) =>
+    peticion<void>(`/api/admin/catalogo/categorias/${id}`, { method: 'DELETE' }),
+
+  productos: (parametros: ParametrosControl) =>
+    listar('/api/admin/catalogo/productos', parametros),
+  crearProducto: (datos: unknown) =>
+    peticion<{ producto: FilaControl }>('/api/admin/catalogo/productos', {
+      method: 'POST',
+      body: datos,
+    }),
+  editarProducto: (id: string, datos: unknown) =>
+    peticion<{ producto: FilaControl }>(`/api/admin/catalogo/productos/${id}`, {
+      method: 'PATCH',
+      body: datos,
+    }),
+  eliminarProducto: (id: string) =>
+    peticion<void>(`/api/admin/catalogo/productos/${id}`, { method: 'DELETE' }),
+  ajustarStock: (id: string, cantidad: number, motivo: string) =>
+    peticion<{ id: string; stockActual: number; version: number }>(
+      `/api/admin/catalogo/productos/${id}/ajustar-stock`,
+      { method: 'POST', body: { cantidad, motivo } }
+    ),
+
+  ventas: (parametros: ParametrosControl) => listar('/api/admin/operacion/ventas', parametros),
+  anularVenta: (id: string, datos: unknown) =>
+    peticion<{ ventaId: string; anulada: boolean }>(
+      `/api/admin/operacion/ventas/${id}/anular`,
+      { method: 'POST', body: datos }
+    ),
+  turnos: (parametros: ParametrosControl) => listar('/api/admin/operacion/turnos', parametros),
+  gastos: (parametros: ParametrosControl) => listar('/api/admin/operacion/gastos', parametros),
+  movimientosCaja: (parametros: ParametrosControl) =>
+    listar('/api/admin/operacion/movimientos-caja', parametros),
+  conteos: (parametros: ParametrosControl) => listar('/api/admin/operacion/conteos', parametros),
+
+  dispositivos: (parametros: ParametrosControl) =>
+    listar('/api/admin/plataforma/dispositivos', parametros),
+  editarDispositivo: (id: string, datos: unknown) =>
+    peticion<{ dispositivo: FilaControl }>(`/api/admin/plataforma/dispositivos/${id}`, {
+      method: 'PATCH',
+      body: datos,
+    }),
+  invitaciones: (parametros: ParametrosControl) =>
+    listar('/api/admin/plataforma/invitaciones', parametros),
+  auditoria: (parametros: ParametrosControl) =>
+    listar('/api/admin/plataforma/auditoria', parametros),
+
+  administradores: (parametros: ParametrosControl = {}) =>
+    peticion<ListaControl>(conParametros('/api/admin/plataforma/administradores', parametros))
+      .then((respuesta) => ({ ...respuesta, administradores: respuesta.items })),
+  crearAdministrador: (datos: unknown) =>
+    peticion<{ administrador: FilaControl }>('/api/admin/plataforma/administradores', {
+      method: 'POST',
+      body: datos,
+    }),
+  editarAdministrador: (id: string, datos: unknown) =>
+    peticion<{ administrador: FilaControl }>(
+      `/api/admin/plataforma/administradores/${id}`,
+      { method: 'PATCH', body: datos }
+    ),
+
+  crearPlan: (datos: unknown) =>
+    peticion<{ plan: FilaControl }>('/api/admin/planes', { method: 'POST', body: datos }),
+  editarPlan: (id: string, datos: unknown) =>
+    peticion<{ plan: FilaControl }>(`/api/admin/planes/${id}`, {
+      method: 'PATCH',
+      body: datos,
+    }),
+  eliminarEmpresa: (id: string) =>
+    peticion<void>(`/api/admin/empresas/${id}`, { method: 'DELETE' }),
 };

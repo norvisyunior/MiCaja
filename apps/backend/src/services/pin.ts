@@ -4,6 +4,7 @@ const PREFIJO_SIMPLE = 'sha256';
 const PREFIJO_ITERADO = 'sha256it';
 const SEPARADOR = '$';
 const MAX_RONDAS = 100_000;
+const RONDAS_PIN = 1000;
 
 function igualSeguro(a: string, b: string): boolean {
   const bufferA = Buffer.from(a, 'utf8');
@@ -42,6 +43,22 @@ export function verificarPinServidor(pin: string, almacenado: string | null): bo
   }
 
   return false;
+}
+
+/**
+ * Genera el mismo formato que produce la app móvil. Se usa cuando el panel
+ * crea cuentas con un PIN inicial; el usuario lo cambia desde la app.
+ */
+export function crearHashPin(pin: string): string {
+  if (!/^\d{4}$/.test(pin)) {
+    throw new Error('PIN_INVALIDO');
+  }
+  const salt = crypto.randomBytes(16).toString('hex');
+  let hash = sha256(`${salt}:${pin}`);
+  for (let i = 0; i < RONDAS_PIN; i += 1) {
+    hash = sha256(`${salt}${hash}`);
+  }
+  return `${PREFIJO_ITERADO}${SEPARADOR}${RONDAS_PIN}${SEPARADOR}${salt}${SEPARADOR}${hash}`;
 }
 
 /**

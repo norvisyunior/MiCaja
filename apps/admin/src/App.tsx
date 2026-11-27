@@ -8,6 +8,9 @@ import { EmpresasPage } from './pages/EmpresasPage';
 import { LicenciaDetallePage } from './pages/LicenciaDetallePage';
 import { LicenciasPage } from './pages/LicenciasPage';
 import { LoginPage } from './pages/LoginPage';
+import { ControlPage } from './pages/ControlPage';
+import { PlanesPage } from './pages/PlanesPage';
+import { AdministradoresPage } from './pages/AdministradoresPage';
 
 export function App() {
   return (
@@ -23,6 +26,9 @@ export function App() {
                 <Route path="empresas/:id" element={<EmpresaDetallePage />} />
                 <Route path="licencias" element={<LicenciasPage />} />
                 <Route path="licencias/:id" element={<LicenciaDetallePage />} />
+                <Route path="control/:recurso" element={<ControlPage />} />
+                <Route path="planes" element={<PlanesPage />} />
+                <Route path="administradores" element={<AdministradoresPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

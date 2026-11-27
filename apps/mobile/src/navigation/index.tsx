@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator, type BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -65,33 +65,36 @@ function VentasTabButton({ onPress, accessibilityState }: BottomTabBarButtonProp
 
   return (
     <View style={styles.ventasSlot}>
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel="Ventas"
-        accessibilityState={accessibilityState}
-        style={({ pressed }) => [
-          styles.ventasBoton,
+      <View
+        style={[
+          styles.ventasAura,
           {
-            borderColor: colores.superficie,
+            borderColor: activo ? colores.primario : colores.primarioSuave,
+            backgroundColor: colores.superficie,
             shadowColor: colores.primario,
-            transform: [{ scale: pressed ? 0.94 : activo ? 1.04 : 1 }],
-            opacity: pressed ? 0.9 : 1,
           },
         ]}
       >
-        <Gradiente colores={gradientes.cta} estilo={styles.ventasGradiente}>
-          <MaterialIcons name="shopping-cart" size={27} color="#FFFFFF" />
-        </Gradiente>
-      </Pressable>
-      <Text
-        style={[
-          styles.ventasEtiqueta,
-          { color: activo ? colores.primario : colores.textoSuave },
-        ]}
-      >
-        Ventas
-      </Text>
+        <Pressable
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel="Ventas"
+          accessibilityState={accessibilityState}
+          style={({ pressed }) => [
+            styles.ventasBoton,
+            {
+              borderColor: colores.superficie,
+              shadowColor: colores.primario,
+              transform: [{ scale: pressed ? 0.94 : activo ? 1.04 : 1 }],
+              opacity: pressed ? 0.9 : 1,
+            },
+          ]}
+        >
+          <Gradiente colores={gradientes.cta} estilo={styles.ventasGradiente}>
+            <MaterialIcons name="shopping-cart" size={27} color="#FFFFFF" />
+          </Gradiente>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -176,13 +179,25 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     minWidth: 0,
   },
-  ventasBoton: {
+  ventasAura: {
     position: 'absolute',
-    top: -26,
-    width: 62,
-    height: 62,
+    top: -32,
+    width: 74,
+    height: 74,
     borderRadius: radius.full,
-    borderWidth: 4,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  ventasBoton: {
+    width: 58,
+    height: 58,
+    borderRadius: radius.full,
+    borderWidth: 3,
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 5 },
@@ -196,12 +211,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  ventasEtiqueta: {
-    fontSize: 10,
-    fontFamily: fuentes.semibold,
-    letterSpacing: 0.1,
-    lineHeight: 13,
-    marginBottom: 4,
   },
 });

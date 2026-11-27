@@ -1,21 +1,24 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Licencia } from '../api/types';
 import { InsigniaLicencia, MarcaVencimiento } from '../components/Estados';
 import { Icono } from '../components/Iconos';
 import {
   Aviso,
   Boton,
+  BotonIcono,
   Cargando,
   EncabezadoPagina,
+  Paginacion,
   Vacio,
 } from '../components/UI';
 import { useCargar } from '../hooks/useCargar';
 import { mensajeError } from '../lib/errores';
-import { estadoLicenciaEfectivo, fecha, plural } from '../lib/format';
+import { fecha, plural } from '../lib/format';
 
 type Filtro = 'todas' | 'activa' | 'gracia' | 'pendiente' | 'vencida' | 'suspendida';
+
+const LIMITE = 25;
 
 const FILTROS: Array<{ valor: Filtro; etiqueta: string }> = [
   { valor: 'todas', etiqueta: 'Todas' },
@@ -26,36 +29,29 @@ const FILTROS: Array<{ valor: Filtro; etiqueta: string }> = [
   { valor: 'suspendida', etiqueta: 'Suspendidas' },
 ];
 
-function estadoFiltro(licencia: Licencia): Filtro {
-  const efectivo = estadoLicenciaEfectivo(licencia);
-  return efectivo.enGracia ? 'gracia' : efectivo.estado;
-}
-
 export function LicenciasPage() {
-  const { datos, error, cargando, recargar } = useCargar(() => api.licencias(), []);
+  const navegar = useNavigate();
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState<Filtro>('todas');
+  const [pagina, setPagina] = useState(1);
+  const { datos, error, cargando, recargar } = useCargar(
+    () =>
+      api.licencias({
+        q: busqueda || undefined,
+        estado: filtro,
+        page: pagina,
+        limit: LIMITE,
+      }),
+    [busqueda, filtro, pagina]
+  );
 
-  const conteos = useMemo(() => {
-    const lista = datos ?? [];
-    return {
-      activas: lista.filter((licencia) => estadoFiltro(licencia) === 'activa').length,
-      gracia: lista.filter((licencia) => estadoFiltro(licencia) === 'gracia').length,
-      vencidas: lista.filter((licencia) => estadoFiltro(licencia) === 'vencida').length,
-      pendientes: lista.filter((licencia) => estadoFiltro(licencia) === 'pendiente').length,
-    };
-  }, [datos]);
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda, filtro]);
 
-  const filtradas = useMemo(() => {
-    const texto = busqueda.trim().toLowerCase();
-    return (datos ?? []).filter((licencia) => {
-      if (filtro !== 'todas' && estadoFiltro(licencia) !== filtro) return false;
-      if (!texto) return true;
-      return `${licencia.empresaNombre} ${licencia.planCodigo} ${licencia.planNombre ?? ''}`
-        .toLowerCase()
-        .includes(texto);
-    });
-  }, [datos, busqueda, filtro]);
+  const conteos = datos?.conteos ?? { activas: 0, gracia: 0, vencidas: 0, pendientes: 0 };
+  const filas = datos?.items ?? [];
+  const totalPaginas = Math.max(1, Math.ceil((datos?.total ?? 0) / LIMITE));
 
   return (
     <div className="pila">
@@ -131,7 +127,7 @@ export function LicenciasPage() {
               </select>
             </label>
             <span className="contador">
-              {plural(filtradas.length, 'licencia', 'licencias')}
+              {plural(datos?.total ?? 0, 'licencia', 'licencias')}
             </span>
           </div>
         </div>
@@ -145,17 +141,17 @@ export function LicenciasPage() {
           </div>
         ) : cargando && !datos ? (
           <Cargando etiqueta="Cargando licencias…" />
-        ) : filtradas.length === 0 ? (
+        ) : filas.length === 0 ? (
           <Vacio
             icono="ticket"
-            titulo={datos?.length ? 'Sin resultados' : 'Todavía no hay licencias'}
+            titulo={datos?.total ? 'Sin resultados' : 'Todavía no hay licencias'}
             descripcion={
-              datos?.length
+              datos?.total
                 ? 'Prueba con otro texto o cambia el filtro.'
                 : 'Crea una empresa para generar su primera licencia.'
             }
             accion={
-              !datos?.length ? (
+              !datos?.total ? (
                 <Link to="/empresas?nueva=1" className="boton boton--primario">
                   <Icono nombre="mas" tamano={17} /> Nueva empresa
                 </Link>
@@ -163,8 +159,9 @@ export function LicenciasPage() {
             }
           />
         ) : (
-          <div className="tabla-contenedor">
-            <table className="tabla">
+          <>
+            <div className="tabla-contenedor">
+              <table className="tabla">
               <thead>
                 <tr>
                   <th>Empresa</th>
@@ -176,7 +173,7 @@ export function LicenciasPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtradas.map((licencia) => (
+                {filas.map((licencia) => (
                   <tr key={licencia.id}>
                     <td>
                       <Link
@@ -201,15 +198,26 @@ export function LicenciasPage() {
                     <td>{fecha(licencia.venceEn)}</td>
                     <td className="num">{licencia.dispositivos}</td>
                     <td className="acciones-fila">
-                      <Link to={`/licencias/${licencia.id}`} className="enlace-fila">
-                        Gestionar <span aria-hidden="true">→</span>
-                      </Link>
+                      <div className="acciones-grupo">
+                        <BotonIcono
+                          icono="ojo"
+                          etiqueta={`Gestionar licencia de ${licencia.empresaNombre}`}
+                          onClick={() => navegar(`/licencias/${licencia.id}`)}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+            <Paginacion
+              pagina={pagina}
+              totalPaginas={totalPaginas}
+              total={datos?.total}
+              onCambiar={setPagina}
+            />
+          </>
         )}
       </section>
     </div>

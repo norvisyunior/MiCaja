@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, type ListaBasica } from '../api/client';
 import type {
   CodigoResultado,
   Evento,
@@ -19,6 +19,7 @@ import {
   Confirmacion,
   EncabezadoPagina,
   Modal,
+  Paginacion,
   TicketCodigo,
   Vacio,
 } from '../components/UI';
@@ -44,7 +45,7 @@ import {
 interface DatosLicencia {
   licencia: Licencia;
   planes: Plan[];
-  eventos: Evento[];
+  eventos: ListaBasica<Evento>;
 }
 
 type ConfirmacionTipo = 'suspender' | 'reactivar';
@@ -65,17 +66,18 @@ function resumenPayload(payload: Record<string, unknown>): string {
 export function LicenciaDetallePage() {
   const { id } = useParams<{ id: string }>();
   const { mostrarToast } = useToast();
+  const [paginaEventos, setPaginaEventos] = useState(1);
   const { datos, error, cargando, recargar } = useCargar<DatosLicencia>(
     async () => {
       if (!id) throw new Error('LICENCIA_NO_ENCONTRADA');
       const [licencia, planes, eventos] = await Promise.all([
         api.licencia(id),
-        api.planes(),
-        api.eventos(id),
+        api.planes({ limit: 200 }).then((respuesta) => respuesta.items),
+        api.eventos(id, { page: paginaEventos, limit: 10 }),
       ]);
       return { licencia, planes, eventos };
     },
-    [id]
+    [id, paginaEventos]
   );
 
   const [codigo, setCodigo] = useState<CodigoResultado | null>(null);
@@ -385,14 +387,14 @@ export function LicenciaDetallePage() {
                 <p>Eventos registrados para esta licencia.</p>
               </div>
             </div>
-            {datos.eventos.length === 0 ? (
+            {datos.eventos.items.length === 0 ? (
               <Vacio
                 titulo="Sin eventos"
                 descripcion="Las activaciones, renovaciones y suspensiones se registrarán aquí."
               />
             ) : (
               <ol className="linea-tiempo">
-                {datos.eventos.map((evento) => (
+                {datos.eventos.items.map((evento) => (
                   <li key={evento.id}>
                     <span className="linea-tiempo__punto" aria-hidden="true" />
                     <div>
@@ -404,6 +406,12 @@ export function LicenciaDetallePage() {
                 ))}
               </ol>
             )}
+            <Paginacion
+              pagina={paginaEventos}
+              totalPaginas={Math.max(1, Math.ceil(datos.eventos.total / 10))}
+              total={datos.eventos.total}
+              onCambiar={setPaginaEventos}
+            />
           </section>
         </div>
 

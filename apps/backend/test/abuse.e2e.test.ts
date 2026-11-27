@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
-import { pool, withAdmin } from '../src/db';
+import { withAdmin } from '../src/db';
 import { hashCodigoActivacion } from '../src/services/licencias';
 
 const ejecutar = Boolean(process.env.DATABASE_URL && process.env.LICENSE_PRIVATE_KEY);
@@ -255,7 +255,6 @@ describe.skipIf(!ejecutar)('endurecimiento: roles, aislamiento y límites', () =
         client.query(`delete from admin_usuarios where id = $1`, [adminId])
       );
     }
-    await pool.end();
   });
 
   it('deja sincronizar a un dependiente pero le niega la administración', async () => {

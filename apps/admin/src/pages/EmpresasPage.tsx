@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../api/client';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { api, type ListaBasica } from '../api/client';
 import type {
   CrearEmpresaResultado,
   Empresa,
@@ -13,10 +13,12 @@ import { Icono } from '../components/Iconos';
 import {
   Aviso,
   Boton,
+  BotonIcono,
   Campo,
   Cargando,
   EncabezadoPagina,
   Modal,
+  Paginacion,
   TicketCodigo,
   Vacio,
 } from '../components/UI';
@@ -32,9 +34,11 @@ import {
 } from '../lib/format';
 
 interface DatosEmpresas {
-  empresas: Empresa[];
+  empresas: ListaBasica<Empresa>;
   planes: Plan[];
 }
+
+const LIMITE = 25;
 
 const ESTADOS: Array<EmpresaEstado | 'todas'> = [
   'todas',
@@ -54,16 +58,23 @@ function datosLicencia(empresa: Empresa) {
 }
 
 export function EmpresasPage() {
-  const { datos, error, cargando, recargar } = useCargar<DatosEmpresas>(
-    async () => ({
-      empresas: await api.empresas(),
-      planes: await api.planes(),
-    }),
-    []
-  );
+  const navegar = useNavigate();
   const [parametros, setParametros] = useSearchParams();
   const [busqueda, setBusqueda] = useState('');
   const [estado, setEstado] = useState<EmpresaEstado | 'todas'>('todas');
+  const [pagina, setPagina] = useState(1);
+  const { datos, error, cargando, recargar } = useCargar<DatosEmpresas>(
+    async () => ({
+      empresas: await api.empresas({
+        q: busqueda || undefined,
+        estado: estado === 'todas' ? undefined : estado,
+        page: pagina,
+        limit: LIMITE,
+      }),
+      planes: (await api.planes({ limit: 200 })).items,
+    }),
+    [busqueda, estado, pagina]
+  );
   const [resultado, setResultado] = useState<CrearEmpresaResultado | null>(null);
 
   const [nombre, setNombre] = useState('');
@@ -156,17 +167,12 @@ export function EmpresasPage() {
     }
   }
 
-  const filtradas = useMemo(() => {
-    const texto = busqueda.trim().toLowerCase();
-    return (datos?.empresas ?? []).filter((empresa) => {
-      if (estado !== 'todas' && empresa.estado !== estado) return false;
-      if (!texto) return true;
-      return [empresa.nombre, empresa.propietario, empresa.email ?? '', empresa.telefono ?? '']
-        .join(' ')
-        .toLowerCase()
-        .includes(texto);
-    });
-  }, [datos, busqueda, estado]);
+  useEffect(() => {
+    setPagina(1);
+  }, [busqueda, estado]);
+
+  const filas = datos?.empresas.items ?? [];
+  const totalPaginas = Math.max(1, Math.ceil((datos?.empresas.total ?? 0) / LIMITE));
 
   return (
     <div className="pila">
@@ -206,7 +212,7 @@ export function EmpresasPage() {
                 ))}
               </select>
             </label>
-            <span className="contador">{filtradas.length} de {datos?.empresas.length ?? 0}</span>
+            <span className="contador">{datos?.empresas.total ?? 0} empresas</span>
           </div>
         </div>
 
@@ -219,20 +225,21 @@ export function EmpresasPage() {
           </div>
         ) : cargando && !datos ? (
           <Cargando etiqueta="Cargando empresas…" />
-        ) : filtradas.length === 0 ? (
+        ) : filas.length === 0 ? (
           <Vacio
             icono="edificio"
-            titulo={datos?.empresas.length ? 'Sin resultados' : 'Todavía no hay empresas'}
+            titulo={datos?.empresas.total ? 'Sin resultados' : 'Todavía no hay empresas'}
             descripcion={
-              datos?.empresas.length
+              datos?.empresas.total
                 ? 'Prueba con otro texto o cambia el filtro de estado.'
                 : 'Crea la primera empresa para generar su licencia y código de activación.'
             }
-            accion={!datos?.empresas.length ? <Boton icono="mas" onClick={abrirCrear}>Nueva empresa</Boton> : undefined}
+            accion={!datos?.empresas.total ? <Boton icono="mas" onClick={abrirCrear}>Nueva empresa</Boton> : undefined}
           />
         ) : (
-          <div className="tabla-contenedor">
-            <table className="tabla">
+          <>
+            <div className="tabla-contenedor">
+              <table className="tabla">
               <thead>
                 <tr>
                   <th>Empresa</th>
@@ -244,7 +251,7 @@ export function EmpresasPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtradas.map((empresa) => {
+                {filas.map((empresa) => {
                   const licencia = datosLicencia(empresa);
                   return (
                     <tr key={empresa.id}>
@@ -273,17 +280,28 @@ export function EmpresasPage() {
                       </td>
                       <td className="num">{empresa.dispositivos}</td>
                       <td className="acciones-fila">
-                        <InsigniaEmpresa estado={empresa.estado} />
-                        <Link to={`/empresas/${empresa.id}`} className="enlace-fila">
-                          Ver <span aria-hidden="true">→</span>
-                        </Link>
+                        <div className="acciones-grupo">
+                          <InsigniaEmpresa estado={empresa.estado} />
+                          <BotonIcono
+                            icono="ojo"
+                            etiqueta={`Ver ${empresa.nombre}`}
+                            onClick={() => navegar(`/empresas/${empresa.id}`)}
+                          />
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+            <Paginacion
+              pagina={pagina}
+              totalPaginas={totalPaginas}
+              total={datos?.empresas.total}
+              onCambiar={setPagina}
+            />
+          </>
         )}
       </section>
 

@@ -53,6 +53,8 @@ export interface EmpresaDetalle extends Empresa {
   planFeatures: string[];
   licenciaFeatures: string[];
   dispositivosLista: Dispositivo[];
+  dispositivosTotal: number;
+  dispositivosPagina: number;
   conteos: {
     usuarios: number;
     productos: number;
@@ -331,6 +333,8 @@ export function mapaEmpresaDetalle(respuesta: {
     licencia_features: string[] | null;
   };
   dispositivos: DispositivoFila[];
+  dispositivosTotal: number;
+  dispositivosPagina: number;
   conteos: { usuarios: number; productos: number; ventas: number };
 }): EmpresaDetalle {
   return {
@@ -338,6 +342,8 @@ export function mapaEmpresaDetalle(respuesta: {
     planFeatures: respuesta.empresa.plan_features ?? [],
     licenciaFeatures: respuesta.empresa.licencia_features ?? [],
     dispositivosLista: respuesta.dispositivos.map(mapaDispositivo),
+    dispositivosTotal: respuesta.dispositivosTotal,
+    dispositivosPagina: respuesta.dispositivosPagina,
     conteos: respuesta.conteos,
   };
 }
